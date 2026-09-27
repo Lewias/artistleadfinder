@@ -103,7 +103,10 @@ def main():
             assert kinds == ["source", "post", "post", "profile"], kinds
             state = service.call("capture.state", {"id": job})
             assert state["status"] == "completed", state
-            assert not state["notices"], state["notices"]
+            # The artist comments under both publications; the reel sees a duplicate.
+            assert state["notices"] == [f"{REEL}: новых кандидатов 0, повторов 1"], state[
+                "notices"
+            ]
             results = service.call("scout.results", {})
             assert len(results) == 1, results
             assert results[0]["username"] == "new_rapper"
