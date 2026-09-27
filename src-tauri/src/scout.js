@@ -1,0 +1,126 @@
+(async () => {
+  const url = new URL(location.href);
+  if (!['instagram.com', 'www.instagram.com'].includes(url.hostname)) return { ready: false };
+  const body = (document.body?.innerText || '').slice(0, 30000);
+  const dialog = document.querySelector('[role="dialog"]')?.innerText || '';
+  const blocked = /\/(accounts|challenge)\//.test(url.pathname)
+    || Boolean(document.querySelector('input[type="password"]'))
+    || /log in|sign up|войти|зарегистрир/i.test(dialog)
+    || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент|try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body);
+  if (blocked) return { url: url.href, ready: false, blocked: true };
+  const meta = key => document.querySelector(`meta[property="${key}"]`)?.content || '';
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts.length === 1) {
+    const username = (meta('og:title') || document.title).match(/@([a-zA-Z0-9_.]{1,30})/)?.[1]?.toLowerCase();
+    const posts = [];
+    for (const anchor of [...document.querySelectorAll('main a[href]')].slice(0, 500)) {
+      try {
+        const link = new URL(anchor.href);
+        if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/(?:[\w.]+\/)?(?:p|reel)\/[\w-]+\/?$/.test(link.pathname)) {
+          const canonical = `https://www.instagram.com${link.pathname.replace(/\/$/, '')}/`;
+          if (!posts.includes(canonical)) posts.push(canonical);
+        }
+      } catch { /* Ignore malformed links. */ }
+      if (posts.length >= 12) break;
+    }
+    return { url: url.href, blocked: false, posts, ready: document.readyState === 'complete'
+      && username === parts[0].toLowerCase() && (posts.length > 0 || /private|закрыт|no posts yet|нет публикаций/i.test(body)) };
+  }
+  if ((parts.length === 2 && ['p', 'reel'].includes(parts[0]))
+      || (parts.length === 3 && ['p', 'reel'].includes(parts[1]))) {
+    const description = (meta('og:description') || document.querySelector('meta[name="description"]')?.content || '').trim();
+    // Caption metadata identifies the publication, never nominates candidates.
+    const quoted = description.match(/:\s*["“]([\s\S]*)["”]\s*\.?$/)?.[1];
+    const caption = document.querySelector('article h1')?.innerText || quoted || '';
+    // Instagram omits the likes/comments prefix on some posts and reels.
+    let author = description.match(/(?:^| - )([a-zA-Z0-9_.]{1,30}) (?:[A-Z][a-z]+ \d{1,2}, \d{4}|on )/)?.[1] || '';
+    if (!author) {
+      const authorLink = document.querySelector('article header a[href]');
+      try {
+        const link = new URL(authorLink?.href || '');
+        if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/[\w.]+\/?$/.test(link.pathname)) author = link.pathname.replaceAll('/', '');
+      } catch { /* An unknown author is explicitly rejected by the backend. */ }
+    }
+    const published_at = meta('article:published_time') || document.querySelector('article time[datetime]')?.getAttribute('datetime') || null;
+    const comments = new Map();
+    const code = parts[parts.length - 1];
+    const profileLink = anchor => {
+      try {
+        const link = new URL(anchor.href, url);
+        const name = link.pathname.match(/^\/([a-zA-Z0-9_.]{1,30})\/?$/)?.[1];
+        if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && name
+            && !/^(accounts|explore|reels?|p|direct|stories|challenge)$/i.test(name)) {
+          return `https://www.instagram.com/${name.toLowerCase()}/`;
+        }
+      } catch { /* Ignore non-profile links. */ }
+      return null;
+    };
+    let stable = 0;
+    let limited = false;
+    const clicked = new WeakSet();
+    for (let round = 0; round < 8; round++) {
+      const before = comments.size;
+      let lastRow = null;
+      // A comment permalink distinguishes its author from caption tags and recommendations.
+      for (const permalink of document.querySelectorAll('a[href*="/c/"]')) {
+        let link;
+        try { link = new URL(permalink.href, url); } catch { continue; }
+        const match = link.pathname.match(/^\/(?:[\w.]+\/)?(?:p|reel)\/([\w-]+)\/c\/(\d+)\/?$/);
+        if (!match || match[1] !== code || !['instagram.com', 'www.instagram.com'].includes(link.hostname)) continue;
+        let row = permalink.parentElement;
+        let authorLink = null;
+        for (let depth = 0; row && depth < 7; depth++, row = row.parentElement) {
+          authorLink = [...row.querySelectorAll('a[href]')].find(a => profileLink(a));
+          if (authorLink) break;
+        }
+        if (!row || !authorLink) continue;
+        const candidate = profileLink(authorLink);
+        if (candidate === `https://www.instagram.com/${author.toLowerCase()}/`) continue;
+        // Current Instagram uses an author/time row followed by a sibling text block.
+        const header = row;
+        if (row.parentElement && row.parentElement.querySelectorAll('a[href*="/c/"]').length === 1) row = row.parentElement;
+        const copy = row.cloneNode(true);
+        for (const control of copy.querySelectorAll('button,[role="button"],time,svg')) control.remove();
+        let text = (copy.innerText || copy.textContent || '').trim();
+        const name = authorLink.innerText?.trim() || '';
+        if (name && text.startsWith(name)) text = text.slice(name.length).trim();
+        const time = header.querySelector('time[datetime]');
+        comments.set(match[2], { profile_url: candidate, text: text.slice(0, 1500),
+          published_at: time?.getAttribute('datetime') || null });
+        lastRow = row;
+        if (comments.size >= 100) break;
+      }
+      if (comments.size >= 100) { limited = true; break; }
+      const more = [...document.querySelectorAll('button,[role="button"]')].find(button => {
+        const label = (button.innerText || button.getAttribute('aria-label') || '').trim();
+        return !clicked.has(button) && /^(?:(?:load|view|show) (?:all |more |previous )?(?:comments|replies)|(?:показать|смотреть|загрузить) (?:все |ещ[её] |предыдущие )?(?:комментарии|ответы))/i.test(label);
+      });
+      if (more) { clicked.add(more); more.click(); limited = true; }
+      if (lastRow) {
+        lastRow.scrollIntoView({ block: 'end' });
+        let scroller = lastRow.parentElement;
+        while (scroller && scroller !== document.body) {
+          if (scroller.scrollHeight > scroller.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)) {
+            scroller.scrollTop = scroller.scrollHeight;
+            break;
+          }
+          scroller = scroller.parentElement;
+        }
+      }
+      stable = comments.size === before && !more ? stable + 1 : 0;
+      if (stable >= 2) break;
+      if (round === 7) { limited = true; break; }
+      await new Promise(resolve => setTimeout(resolve, 750));
+      if (location.href !== url.href) return { ready: false };
+      if (document.querySelector('input[type="password"]')
+          || /try again later|too many requests|подождите несколько минут/i.test(document.body?.innerText || '')) {
+        return { url: url.href, ready: false, blocked: true };
+      }
+    }
+    return { url: url.href, ready: document.readyState === 'complete' && Boolean(author),
+      blocked: false, caption: caption.slice(0, 12000), author, published_at,
+      comments: [...comments.values()], comments_limited: limited };
+
+  }
+  return { url: url.href, ready: false, blocked: false };
+})()

@@ -1,0 +1,177 @@
+# План реализации
+
+Каждая фаза завершается тестами, typecheck, lint и запуском desktop.
+Если обязательная проверка заблокирована, следующая фаза не начинается.
+
+| Фаза | Содержание | Состояние |
+|---|---|---|
+| 1 | Tauri + React, sidebar, пять пустых страниц; подтверждённый запуск | Готово |
+| 2 | Python, SQLite, SQLAlchemy, миграции | Готово |
+| 3 | MockProvider, seeded 1000 профилей, импорт | Готово |
+| 4 | DiscoveryEngine, jobs, threads, pause/cancel/recovery | Готово |
+| 5 | Normalizer, identity reconciliation, sources | Готово |
+| 6 | Analyzer, artist/genre classification | Готово |
+| 7 | Scoring с breakdown | Готово |
+| 8 | Python RPC ↔ Rust ↔ ApplicationService | Готово |
+| 9 | Dashboard и агрегаты | Готово |
+| 10 | Discovery form и live progress | Готово |
+| 11 | Leads, pagination, filters, details | Готово |
+| 12 | History и ошибки заданий | Готово |
+| 13 | Потоковый CSV: selected/filtered/all | Готово |
+| 14 | Settings, provider health, log folder | Готово |
+| 15 | Regression, persistence, 10000 leads, errors | Готово |
+| 16 | PyInstaller sidecar + NSIS, чистая Windows | Сборка готова; чистая VM не проверена |
+
+Критические проверки: один профиль из трёх источников → один Lead и три
+LeadSource; перезапуск сохраняет leads/jobs; отмена не повреждает базу;
+429/auth не вызывают обход ограничений; импорт не исполняет содержимое;
+CSV защищён от formula injection. Результаты проверок фиксируются здесь.
+
+## Проверки фазы 1 — 18.09.2026
+TypeScript, ESLint, Vite build, Vitest (1 test) проходят. Rust/MSVC desktop
+build завершён. Окно Artist Lead Finder запущено и осмотрено, переход
+Dashboard → Discovery проверен через native UI. npm audit: 0 vulnerabilities.
+Это dev-сборка; standalone installer ещё не проверен.
+
+Фаза 2: pytest 3/3, Ruff, TypeScript и ESLint проходят. Данные переживают
+dispose/reopen; unique identity и foreign keys проверены. Desktop окно
+остаётся открытым. Начальная версия схемы 1; upgrades добавляются отдельно.
+
+Фаза 3: pytest 6/6, Ruff, TypeScript, ESLint проходят. Генерация seeded,
+JSON-import и отказ Meta проверены. Desktop запускается, frontend не менялся.
+
+Фаза 4: pytest 9/9, Ruff, TypeScript и ESLint. Завершение, pause/cancel,
+interruption recovery и auth failure проверены. Desktop окно доступно.
+
+Фаза 5: pytest 12/12, Ruff, TypeScript, ESLint. Критический тест 1 Lead /
+3 LeadSources проходит после повторного открытия базы. Проверены fallback→id,
+rename и отказ при конфликтующем stable id. Desktop окно открыто.
+
+Фаза 6: pytest 14/14, Ruff, TypeScript, ESLint; native окно доступно.
+Artist/producer/fan, genres, activity, deceptive music domain проверены.
+
+Фаза 7: pytest 16/16, Ruff, TypeScript, ESLint проходят; окно доступно.
+Breakdown сохраняется (7 правил); hard filters и уникальные job counters
+проверены end-to-end для профиля из трёх источников.
+
+Фаза 8: pytest 17/17, Ruff, TS, ESLint, Vitest, Vite build и Cargo build.
+Desktop перезапущен; в окне подтверждено «Локальное ядро подключено».
+
+Фаза 9: pytest 17/17, Ruff, TS, ESLint. Обзор осмотрен в desktop: реальные
+нулевые метрики и пустые состояния; отсутствуют фиктивные лиды.
+
+Фаза 10: pytest 17/17, Ruff, TS, ESLint. Поиск запущен из native окна;
+видны растущие счётчики и кнопки pause/stop, UI остаётся отзывчивым.
+
+Фаза 11: pytest 17/17, Ruff, TS, ESLint; desktop таблица осмотрена на 1000
+профилях. Панель профиля открывается, показывает score=100 и 7 объяснений.
+В demo-поиске найдено 36 подходящих профилей; на странице не более 30 строк.
+
+Фаза 12: pytest 17/17, Ruff, TS, ESLint; desktop history показывает
+сохранённый поиск: 1914 обнаружений, 457 артистов, 36 подходящих, 10 секунд.
+
+Фаза 13: pytest 17/17, Ruff, TS, ESLint; native окно работает. CSV тест
+проверяет фильтр и formula injection; UI использует системный save dialog.
+
+Фаза 14: pytest 17/17, Ruff, TS, ESLint. Экран настроек осмотрен в desktop;
+параметры и веса редактируются, AI отключён, plaintext secrets не принимаются.
+Импортированный набор сохраняется локально для следующего запуска.
+
+Фаза 15: pytest 22/22 (включая 10000 профилей, selected/all/empty exports,
+target limit, repeated source, manual CRM preservation, settings/import restart,
+429 no retry и redacted logs). Ruff, TS, ESLint, Vitest, Vite build и Clippy
+(-D warnings) проходят. Desktop пересобран и перезапущен: база 1000/36 сохранена.
+
+Фаза 16: PyInstaller onefile и NSIS x64 собраны. Все 22 pytest, Ruff, TS,
+ESLint, Vitest и Vite production build проходят. Frozen exe проверен по stdio:
+system.info, dashboard.get, system.shutdown; база 1000/36 сохранена.
+Release UI осмотрен при выключенном Vite: assets встроены, ядро подключено.
+Повторный запуск оставляет одно окно; после закрытия main/sidecar завершаются.
+Установщик artifacts/ArtistLeadFinder-Setup.exe: 22672951 байт, SHA256
+04BA7EE7C6B3865F914908B19371E1B01D1612CA204E3DF3977C6AED241C00E3.
+Подпись, install/update/uninstall на чистой Windows VM и антивирусная проверка
+публичного релиза не выполнены: в текущей среде нет чистой Windows VM.
+
+## Обновление 20.09.2026 — собственные cookies
+Добавлены браузерные профили в настройках, JSON/Netscape import, Windows DPAPI,
+отдельные WebView2 InPrivate окна, явное сохранение текущих cookies и удаление
+локальной сессии. Секретные методы закрыты от React; remote webview не получает
+capabilities основного окна. Navigation ограничена HTTPS Instagram.
+Проверки: 24 pytest, Ruff, TS, ESLint, Vitest, Clippy -D warnings,
+PyInstaller smoke и NSIS release build. Native smoke: фиктивная cookie загружена
+в браузер, Instagram показывает страницу входа, сохранено 6 cookies; исходная
+фиктивная cookie найдена в расшифрованном vault. Тестовый vault удалён.
+Реальный аккаунт и успешный authenticated login не проверялись.
+Автоматический сбор в базу не реализован в этом обновлении.
+SHA256 нового установщика: 3AE14AF0FD279B5A4A53652EDCA1CC9C55082CBBB811A66843EF7894FFFF5C25.
+
+## Обновление 20.09.2026 — браузер → база
+Добавлены сохранение открытого профиля и последовательная очередь до 100 ссылок,
+пауза/продолжение/отмена, остановка на login/registration gate и таймауте.
+BrowserQueue хранит прогресс и ссылки; схема SQLite 2 добавляется без изменения
+существующих leads. При рестарте незавершённое задание отмечается interrupted.
+Данные идут через общий CandidatePipeline; источники, оценка и ручные CRM статусы
+сохраняются. Метаданные наблюдения содержат дату, raw header/description,
+unknown_fields и способ получения bio. Нет чтения cookies или сообщений при capture.
+Добавлены фильтр instagram_browser и пустые CSV значения для непрочитанных полей.
+
+Проверки: 26 Python tests, 3 Vitest tests, TS, ESLint, Ruff, Clippy и production
+build. Тесты покрывают повторы, неполные данные, CRM, pause/cancel/restart,
+Netscape/JSON/DPAPI, русские/английские счётчики, stale metadata и login dialogs.
+Native проверка: гостевой браузер открыл публичный auroramusic, очередь сохранила
+1 профиль (AURORA, округлённые 4.7M подписчиков). База теперь 1001/36.
+Вход реального пользователя не выполнялся. После живой проверки доработаны
+русский header excerpt и login overlay без password input; добавлены регрессии.
+
+21.09.2026: финальный release повторно запущен без Vite. Гостевая очередь
+auroramusic остановилась на 0/1 со статусом «На паузе» и сообщением о требовании
+входа. Проверка authenticated сессии остаётся невыполненной.
+SHA256 установщика: 28923B12D50B52603A14265206B2F85D33F2FDAEF371817E09B0C955F9F3A2E0.
+
+
+## Обновление 21.09.2026 — веб-поиск кандидатов
+Добавлен поиск публичных Instagram-профилей через отдельное окно Brave Search.
+До 20 уникальных профилей с одной страницы, фильтрация URL, выбор кандидатов,
+передача в существующую очередь. Исходный запрос сохраняется в SearchJob.keywords
+и browser_capture.discovery; показывается в карточке после анализа.
+Search window не получает main capabilities и сессию Instagram. Статический
+скрипт читает только DOM, не вызывает скрытые API. Есть отмена, ограниченное
+ожидание, проверка соответствия запроса и остановка при CAPTCHA/rate limit.
+Проверки: 26 pytest, 5 Vitest, TypeScript, ESLint, Ruff, Clippy -D warnings,
+frozen-core smoke (1001/36), production build и NSIS.
+Native smoke: independent rapper London нашёл 12 профилей; один снят,
+11 выбранных ссылок переданы в очередь. Новая очередь не запускалась,
+авторизованный сбор остаётся непроверенным. Поиск по подпискам и автоматическая
+пагинация не реализованы. Это один запрос к публичной веб-выдаче, не полный
+обход Instagram и не подтверждение того, что каждый кандидат — артист.
+SHA256: F74EDE96805417B6962EA10FFF8FB1EBA782226154C5176C4C34A37F1EEEC943.
+
+
+## Обновление 22.09.2026 — скаут-источники и три услуги
+Основной экран принимает только список Instagram-источников и необязательную
+сохранённую сессию. Локальный workflow: источник → доступные ссылки публикаций →
+подпись с подтверждённым автором → @кандидаты → проверка биографии → готовые лиды.
+Пользователь не выбирает кандидатов. Brave/ручной сбор убраны в дополнительные
+инструменты. Лимиты: 20 источников, 12 публикаций/источник, 100 кандидатов/запуск.
+
+Добавлены таблицы схемы 3: scout_sources, scout_runs, scout_posts, scout_assessments.
+Старые данные сохранены. Кеш публикаций, повторная проверка кандидатов,
+пауза/отмена/пропуск страницы, восстановление через новый запуск после закрытия.
+Скаут-происхождение хранится как LeadSource instagram_scout/publication.
+Три независимые оценки с цитатами и ссылками; неизвестные/старые даты снижают
+сигнал. Оценки пересчитывают возраст раз в день при чтении списка. CRM сохраняется,
+contacted/rejected исключаются из готового списка. В карточке три оценки отделены
+от прежней общей lead_score. Существующий CSV остаётся с общей оценкой.
+
+Проверки: 31 pytest, 7 Vitest, Ruff, TypeScript, ESLint, Clippy -D warnings,
+Vite, PyInstaller stdio smoke, NSIS. Тесты покрывают всю цепочку на фиксированных
+наблюдениях, исключение credits/чужих авторов, разные услуги, даты/отрицания,
+смешанные упоминания, кеш/повторы, ручной CRM, паузу/пропуск/отмену/перезапуск.
+Native smoke: release запущен, ядро подключено, новый экран и пустое состояние
+показаны корректно, база 1001/36 сохранена. Пользовательские источники пока не
+получены, полный авторизованный прогон не выполнялся. Не выдавать тестовый
+сценарий за проверку текущей разметки всех реальных источников Instagram.
+
+Границы: объяснимые правила без LLM; только @упоминания в подписи, не неразмеченные
+имена и не аудио/видео; без автопрокрутки и гарантии полного покрытия публикаций.
+SHA256: 5648F354172C10BEFE6DEA5665F24B7F5534FB2C20B1F9284F696AFF8303CA99.

@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/artist-core"],
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": { "installerIcon": "icons/icon.ico", "languages": ["Russian", "English"], "displayLanguageSelector": true }
+    }
+  }
+}
