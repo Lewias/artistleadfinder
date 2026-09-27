@@ -17,9 +17,7 @@ export type BrowserAction =
   | 'delete'
   | 'capture'
   | 'queue'
-  | 'scout'
-  | 'search'
-  | 'search_cancel';
+  | 'scout';
 export const api: ApplicationService = {
   request: <T>(method: string, params: object = {}) => invoke<T>('core_request', { method, params }),
   browser: <T>(action: BrowserAction, params: object = {}) => invoke<T>('browser_action', { action, params }),

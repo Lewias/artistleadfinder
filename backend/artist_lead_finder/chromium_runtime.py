@@ -1,4 +1,4 @@
-"""Own Chromium windows for Instagram profiles and candidate search."""
+"""Own Chromium windows for Instagram profiles."""
 
 import logging
 import os
@@ -13,7 +13,6 @@ os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 
 GUEST_ID = "0" * 32
-SEARCH_ID = "search"
 INSTAGRAM = "https://www.instagram.com/"
 
 log = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ class ChromiumRuntime:
                 pass
 
     def _persist(self, identifier: str, window: Window) -> dict:
-        if identifier in {GUEST_ID, SEARCH_ID} or not window.browser.is_connected():
+        if identifier == GUEST_ID or not window.browser.is_connected():
             return {"ok": False}
         try:
             cookies = window.context.cookies(INSTAGRAM)
@@ -200,29 +199,6 @@ class ChromiumRuntime:
         if not isinstance(result, dict):
             raise ValueError("Invalid browser result")
         return result
-
-    def search_open(self, url: str) -> dict:
-        parsed = urlparse(url)
-        if (
-            parsed.scheme != "https"
-            or parsed.hostname != "search.brave.com"
-            or parsed.path != "/search"
-        ):
-            raise ValueError("Invalid search URL")
-        self._close(SEARCH_ID)
-        browser = self._engine().launch(headless=False)
-        try:
-            context = browser.new_context(no_viewport=True)
-            page = context.new_page()
-            self.windows[SEARCH_ID] = Window(browser, context, page)
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            except Exception:
-                pass
-            return {"ok": True}
-        except Exception:
-            browser.close()
-            raise
 
     def shutdown(self) -> None:
         for identifier in list(self.windows):

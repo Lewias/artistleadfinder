@@ -38,7 +38,6 @@ export interface LeadDetail extends Lead {
     confidence: number;
     extracted_signals?: {
       browser_capture?: {
-        discovery?: { provider: string; query: string };
         bio_method?: string;
         captured_at: string;
         unknown_fields: string[];

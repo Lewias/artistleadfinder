@@ -1,9 +1,9 @@
 # Модель данных
 
-Для очередей из веб-поиска SearchJob.keywords хранит исходный запрос,
-LeadAnalysis.extracted_signals.browser_capture.discovery — provider=brave_search
-и query. Результаты выдачи до передачи в очередь находятся только в интерфейсе.
-Веб-поиск не требовал миграции. Скаутинг добавляет схему 3.
+Веб-поиск через Brave удалён 27.09.2026. У лидов, найденных им раньше, в
+SearchJob.keywords и LeadAnalysis.extracted_signals.browser_capture.discovery
+остаются исторические данные; приложение их больше не пишет и не показывает.
+Скаутинг добавляет схему 3.
 
 Миграция 3: `scout_sources` (url PK, enabled), `scout_runs` (job_id FK/PK,
 tasks JSON, observations JSON, notices JSON), `scout_posts` (url PK, source,

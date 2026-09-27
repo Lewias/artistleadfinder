@@ -66,9 +66,6 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
               {capture && (
                 <>
                   <h3>Данные со страницы</h3>
-                  {capture.discovery && (
-                    <p className="helper">Найдено через Brave Search: {capture.discovery.query}</p>
-                  )}
                   <p className="helper">
                     Проверено: {new Date(capture.captured_at).toLocaleString('ru-RU')}. Счётчики на сайте
                     могут быть округлены.

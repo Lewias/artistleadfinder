@@ -1,4 +1,4 @@
-from artist_lead_finder.chromium_runtime import GUEST_ID, SEARCH_ID, ChromiumRuntime, Window
+from artist_lead_finder.chromium_runtime import GUEST_ID, ChromiumRuntime, Window
 
 PROFILE = "a" * 32
 COOKIES = [{"name": "sessionid", "value": "x", "domain": ".instagram.com", "path": "/"}]
@@ -69,10 +69,9 @@ def test_open_window_is_not_saved_and_app_exit_saves():
     assert sessions.saved == [{"id": PROFILE, "cookies": COOKIES}] and browser.closed
 
 
-def test_guest_search_disconnected_and_failures_do_not_save():
+def test_guest_disconnected_and_failures_do_not_save():
     for identifier, window in [
         (GUEST_ID, {}),
-        (SEARCH_ID, {}),
         (PROFILE, {"connected": False}),
         (PROFILE, {"fail": True}),
     ]:

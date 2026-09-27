@@ -4,7 +4,6 @@ import type { BrowserProfile, CaptureQueue } from '../services/types';
 import { useResource } from '../hooks/useResource';
 import { Button } from './ui/button';
 import { LeadDetail } from './LeadDetail';
-import { CandidateSearch } from './CandidateSearch';
 
 const guest = '00000000000000000000000000000000';
 
@@ -12,7 +11,6 @@ export function BrowserDiscovery() {
   const [profiles, setProfiles] = useState<BrowserProfile[]>([]);
   const [profile, setProfile] = useState(guest);
   const [links, setLinks] = useState('');
-  const [discoveryQuery, setDiscoveryQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -46,16 +44,6 @@ export function BrowserDiscovery() {
   return (
     <section className="panel provider-panel">
       <h2>Реальные артисты из браузера</h2>
-      <CandidateSearch
-        disabled={busy || Boolean(active)}
-        onSelect={(urls, query) => {
-          setLinks(urls.join('\n'));
-          setDiscoveryQuery(query);
-          setMessage(
-            'Выбранные профили переданы в очередь. Откройте Instagram и нажмите «Обработать ссылки».',
-          );
-        }}
-      />
       <p className="helper">
         Откройте Instagram, найдите артиста и перейдите на его профиль. Добавление прочитает доступные
         сведения, рассчитает оценку и сохранит профиль в базе. Cookies необязательны.
@@ -111,10 +99,7 @@ export function BrowserDiscovery() {
           value={links}
           disabled={busy || Boolean(active)}
           placeholder={'https://www.instagram.com/artist_name/\n@another_artist'}
-          onChange={event => {
-            setLinks(event.target.value);
-            setDiscoveryQuery('');
-          }}
+          onChange={event => setLinks(event.target.value)}
         />
       </label>
       <p className="helper">
@@ -127,7 +112,6 @@ export function BrowserDiscovery() {
           void run(async () => {
             await api.browser('queue', {
               id: profile,
-              query: discoveryQuery,
               urls: links
                 .split(/[\n,]/)
                 .map(value => value.trim())

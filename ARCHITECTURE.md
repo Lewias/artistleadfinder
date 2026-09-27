@@ -38,7 +38,7 @@ SQLite хранится в LocalAppData/ArtistLeadFinder, WAL + foreign_keys,
 Сначала PyInstaller собирает Python sidecar вместе с зависимостями;
 Tauri включает его через externalBin с суффиксом target triple.
 NSIS формирует установщик, WebView2 включается через штатный механизм Tauri.
-WebView2 обслуживает только интерфейс приложения; окна Instagram и Brave
+WebView2 обслуживает только интерфейс приложения; окна Instagram
 запускаются отдельными процессами комплектного Chromium.
 Пользователю не нужны Python, Node или Rust. Проверять установку нужно на
 чистой Windows VM, включая обновление, удаление и сохранность базы.

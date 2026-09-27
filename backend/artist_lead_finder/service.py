@@ -166,7 +166,6 @@ class ApplicationService:
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
             "browser.runtime.eval": lambda p: chromium.evaluate(p["id"], p["script"]),
-            "browser.runtime.search_open": lambda p: chromium.search_open(p["url"]),
             "scout.sources": lambda p: self.scout.sources(p.get("sources")),
             "scout.start_internal": lambda p: self.scout.start(p, self.settings()),
             "scout.commit_internal": lambda p: self.scout.commit(int(p["id"]), p["snapshot"]),

@@ -63,7 +63,6 @@ def test_browser_queue_pipeline_control_dedupe_and_restart(tmp_path):
     params = dict(
         profile_id="0" * 32,
         urls=["@test_artist", "@test_artist", "@second"],
-        query="independent rapper London",
     )
     identifier = service.call("capture.start_internal", params)["id"]
     assert service.call("capture.state", {"id": identifier})["total"] == 2
@@ -78,11 +77,7 @@ def test_browser_queue_pipeline_control_dedupe_and_restart(tmp_path):
         analysis = session.get(LeadAnalysis, result["lead_id"])
         assert analysis.extracted_signals["browser_capture"]["method"] == "browser_dom"
         assert session.get(SearchJob, identifier).profiles_analyzed == 1
-        assert session.get(SearchJob, identifier).keywords == [params["query"]]
-        assert analysis.extracted_signals["browser_capture"]["discovery"] == {
-            "provider": "brave_search",
-            "query": params["query"],
-        }
+        assert "discovery" not in analysis.extracted_signals["browser_capture"]
     service.call("capture.error_internal", {"id": identifier, "reason": "blocked"})
     assert service.call("capture.state", {"id": identifier})["status"] == "paused"
     service.call("jobs.control", {"id": identifier, "action": "cancel"})

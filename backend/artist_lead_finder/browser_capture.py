@@ -164,9 +164,7 @@ class BrowserCaptureService:
         profile = params["profile_id"]
         if not re.fullmatch(r"[0-9a-f]{32}", profile):
             raise ValueError("Invalid browser profile")
-        query = str(params.get("query") or "").strip()[:200]
         config = SearchConfiguration(
-            keywords=[query] if query else [],
             name=params.get("name", "Артисты из браузера"),
             seed_accounts=urls,
             **{
@@ -287,8 +285,6 @@ class BrowserCaptureService:
                     setattr(candidate, key, getattr(existing, key))
                 if not candidate.external_url:
                     candidate.external_url = existing.external_url
-        if config.keywords:
-            evidence["discovery"] = {"provider": "brave_search", "query": config.keywords[0]}
         result = CandidatePipeline(self.sessions, LeadScorer(weights))(
             job_id,
             DiscoveryRecord(candidate, "instagram_browser", "profile", candidate.profile_url),

@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod proxy_relay;
-mod search;
 
 use serde_json::{json, Value};
 use std::{
@@ -225,9 +224,6 @@ async fn browser_action(
     if window.label() != "main" {
         return Err("Недоступный метод".into());
     }
-    if action == "search" || action == "search_cancel" {
-        return search::run(core.inner().clone(), &action, params).await;
-    }
     let core = core.inner().clone();
     if action == "list" || action == "import" || action == "create" {
         return backend_request(core, format!("browser.{action}"), params).await;
@@ -301,7 +297,7 @@ async fn browser_action(
         let created = backend_request(
             core.clone(),
             if action == "scout" { "scout.start_internal" } else { "capture.start_internal" }.into(),
-            json!({"profile_id":id,"sources":params["sources"],"urls":params["urls"],"query":params["query"],"name":"Очередь артистов из браузера"}),
+            json!({"profile_id":id,"sources":params["sources"],"urls":params["urls"],"name":"Очередь артистов из браузера"}),
         )
         .await?;
         let job_id = created["id"].as_i64().ok_or("Нет задания")?;
