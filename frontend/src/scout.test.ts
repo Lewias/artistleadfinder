@@ -11,6 +11,7 @@ function extract(
     'https://www.instagram.com/p/one/?hl=en',
     'https://evil.test/p/no/',
   ],
+  text = 'Unrelated comment @commenter new single',
 ) {
   return runInNewContext(script, {
     URL,
@@ -19,7 +20,7 @@ function extract(
     document: {
       readyState: 'complete',
       title: 'Music News (@music_news)',
-      body: { innerText: 'Unrelated comment @commenter new single' },
+      body: { innerText: text },
       querySelector: (selector: string) => {
         if (selector === 'input[type="password"]') return blocked ? {} : null;
         if (selector === 'meta[property="og:description"]') return { content: description };
@@ -70,4 +71,15 @@ test('caption mentions never become comment candidates', async () => {
   expect(result.published_at).toBeNull();
   expect(result.ready).toBe(true);
   expect((await extract('/p/one/')).ready).toBe(false);
+});
+test('audience-restricted source is a login gate, not a loading failure', async () => {
+  const restricted = await extract(
+    '/music_news/',
+    '',
+    false,
+    [],
+    'Войти | Зарегистрироваться | Ограниченный профиль | Аккаунт недоступен для определенных аудиторий. Чтобы продолжить, выполните вход.',
+  );
+  expect(restricted.blocked).toBe(true);
+  expect(restricted.ready).toBe(false);
 });

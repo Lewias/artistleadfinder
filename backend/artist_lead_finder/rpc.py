@@ -3,7 +3,9 @@
 import json
 import logging
 import sys
+import traceback
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -31,11 +33,20 @@ class JsonLogFormatter(logging.Formatter):
                 "job_id": getattr(record, "job_id", None),
                 "provider": getattr(record, "provider", None),
                 "error_type": getattr(record, "error_type", None),
+                "method": getattr(record, "method", None),
+                "where": getattr(record, "where", None),
                 "candidates": getattr(record, "candidates", None),
                 "analyzed": getattr(record, "analyzed", None),
                 "qualified": getattr(record, "qualified", None),
             }
         )
+
+
+def failure_context(method: str | None, error: BaseException) -> dict:
+    """Method, exception class and innermost raise site; never the exception text."""
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f"{Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else None
+    return {"method": method, "error_type": type(error).__name__, "where": where}
 
 
 def run() -> None:
@@ -56,11 +67,13 @@ def run() -> None:
             if not line:
                 break
             request_id = None
+            method = None
             try:
                 if len(line) > 2_000_000 or not line.endswith(b"\n"):
                     raise ValueError("Запрос слишком большой.")
                 request = Request.model_validate_json(line)
                 request_id = request.id
+                method = request.method
                 if request.method == "system.shutdown":
                     service.shutdown()
                     response = {"id": request_id, "result": {"ok": True}}
@@ -71,19 +84,19 @@ def run() -> None:
                 response = {"id": request_id, "result": result}
             except ValidationError:
                 response = {"id": request_id, "error": "Проверьте формат и диапазоны полей."}
-            except SQLAlchemyError:
-                logging.error("database_error")
+            except SQLAlchemyError as error:
+                logging.error("database_error", extra=failure_context(method, error))
                 response = {"id": request_id, "error": "База данных недоступна. См. журнал."}
             except BrowserLaunchError as error:
                 response = {"id": request_id, "error": str(error)}
-            except (ValueError, KeyError, OSError):
-                logging.warning("invalid_request")
+            except (ValueError, KeyError, OSError) as error:
+                logging.warning("invalid_request", extra=failure_context(method, error))
                 response = {
                     "id": request_id,
                     "error": "Не удалось выполнить действие. Проверьте параметры и доступ к файлу.",
                 }
-            except Exception:
-                logging.error("application_error")
+            except Exception as error:
+                logging.error("application_error", extra=failure_context(method, error))
                 response = {"id": request_id, "error": "Ошибка приложения. Подробности в журнале."}
             sys.stdout.write(json.dumps(response, ensure_ascii=True) + "\n")
             sys.stdout.flush()

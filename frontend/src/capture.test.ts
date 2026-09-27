@@ -3,14 +3,14 @@ import { runInNewContext } from 'node:vm';
 import { expect, test } from 'vitest';
 
 const script = readFileSync('src-tauri/src/capture.js', 'utf8');
-function extract(blocked = false, username = 'artist', loginDialog = false) {
+function extract(blocked = false, username = 'artist', loginDialog = false, text = 'Artist profile') {
   return runInNewContext(script, {
     URL,
     location: { href: `https://www.instagram.com/${username}/`, pathname: `/${username}/` },
     document: {
       readyState: 'complete',
       title: 'Artist (@artist)',
-      body: { innerText: 'Artist profile' },
+      body: { innerText: text },
       querySelector: (selector: string) => {
         if (selector === '[role="dialog"]')
           return loginDialog ? { innerText: 'Зарегистрироваться или Войти' } : null;
@@ -42,4 +42,14 @@ test('login wall and stale metadata are not accepted as profiles', () => {
   expect(extract(false, 'art').ready).toBe(false);
   expect(extract(false, 'direct').ready).toBe(false);
   expect(extract(false, 'artist', true).blocked).toBe(true);
+});
+test('audience-restricted profile is reported as a login gate', () => {
+  const restricted = extract(
+    false,
+    'artist',
+    false,
+    'Restricted profile | This account is not available for certain audiences. Log in to continue.',
+  );
+  expect(restricted.blocked).toBe(true);
+  expect(restricted.ready).toBe(false);
 });

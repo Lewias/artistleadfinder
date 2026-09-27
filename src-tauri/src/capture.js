@@ -14,7 +14,9 @@
       || !!document.querySelector('input[type="password"]')
       || /log in|sign up|войти|зарегистрир/i.test(dialog)
       || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент/i.test(body)
-      || /try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body);
+      || /try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body)
+      // Audience-restricted accounts render a login stub without the profile header.
+      || /ограниченный профиль|restricted profile|недоступен для определ[её]нных аудиторий|not available (to|for) certain audiences/i.test(body);
     const root = document.querySelector('main header') || document.querySelector('main');
     const header = (root?.innerText || '').slice(0, 12000);
     const meta = name => document.querySelector(`meta[property="${name}"]`)?.content || '';

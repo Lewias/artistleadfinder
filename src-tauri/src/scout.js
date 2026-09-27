@@ -6,7 +6,9 @@
   const blocked = /\/(accounts|challenge)\//.test(url.pathname)
     || Boolean(document.querySelector('input[type="password"]'))
     || /log in|sign up|войти|зарегистрир/i.test(dialog)
-    || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент|try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body);
+    || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент|try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body)
+    // Audience-restricted accounts render a login stub without the publication grid.
+    || /ограниченный профиль|restricted profile|недоступен для определ[её]нных аудиторий|not available (to|for) certain audiences/i.test(body);
   if (blocked) return { url: url.href, ready: false, blocked: true };
   const meta = key => document.querySelector(`meta[property="${key}"]`)?.content || '';
   const parts = url.pathname.split('/').filter(Boolean);
