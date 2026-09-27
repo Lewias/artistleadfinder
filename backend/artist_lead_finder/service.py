@@ -3,6 +3,7 @@
 import csv
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -137,6 +138,7 @@ class ApplicationService:
         self.manager = DiscoveryManager(sessions, self.discovery, self.pipeline)
         self.browser_capture = BrowserCaptureService(sessions)
         self.scout = ScoutService(sessions, self.browser_capture)
+        self.handlers = self._handlers()
 
     def settings(self) -> dict:
         with self.sessions() as session:
@@ -144,230 +146,242 @@ class ApplicationService:
         return {**DEFAULTS, **stored}
 
     def call(self, method: str, params: dict) -> Any:
-        if method.startswith("browser.runtime."):
-            action = method.removeprefix("browser.runtime.")
-            if action == "self_test":
-                return self.chromium.self_test()
-            if action == "is_open":
-                return {"open": self.chromium.is_open(params["id"])}
-            if action == "open":
-                return self.chromium.open(params["id"], params.get("proxy_override"))
-            if action == "save":
-                return self.chromium.save(params["id"])
-            if action == "navigate":
-                return self.chromium.navigate(params["id"], params["url"])
-            if action == "eval":
-                return self.chromium.evaluate(params["id"], params["script"])
-            if action == "search_open":
-                return self.chromium.search_open(params["url"])
-            raise ValueError("Unknown browser runtime method")
-        if method == "scout.sources":
-            return self.scout.sources(params.get("sources"))
-        if method == "scout.start_internal":
-            return self.scout.start(params, self.settings())
-        if method == "scout.commit_internal":
-            return self.scout.commit(int(params["id"]), params["snapshot"])
-        if method == "scout.results":
-            return self.scout.results()
-        if method == "scout.skip":
-            return self.scout.skip(int(params["id"]))
-        if method == "capture.start_internal":
-            return self.browser_capture.start(params, self.settings())
-        if method == "capture.commit_internal":
-            return self.browser_capture.capture(int(params["id"]), params["snapshot"])
-        if method == "capture.error_internal":
-            self.browser_capture.stop_with_error(int(params["id"]), params["reason"])
+        handler = self.handlers.get(method)
+        if handler is None:
+            if method.startswith("browser.runtime."):
+                raise ValueError("Unknown browser runtime method")
+            if method.startswith("browser."):
+                return self.browser_sessions.call(method, params)
+            raise ValueError("Неизвестный метод приложения.")
+        return handler(params)
+
+    def _handlers(self) -> dict[str, Callable[[dict], Any]]:
+        chromium = self.chromium
+        return {
+            "browser.runtime.self_test": lambda p: chromium.self_test(),
+            "browser.runtime.is_open": lambda p: {"open": chromium.is_open(p["id"])},
+            "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
+            "browser.runtime.save": lambda p: chromium.save(p["id"]),
+            "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
+            "browser.runtime.eval": lambda p: chromium.evaluate(p["id"], p["script"]),
+            "browser.runtime.search_open": lambda p: chromium.search_open(p["url"]),
+            "scout.sources": lambda p: self.scout.sources(p.get("sources")),
+            "scout.start_internal": lambda p: self.scout.start(p, self.settings()),
+            "scout.commit_internal": lambda p: self.scout.commit(int(p["id"]), p["snapshot"]),
+            "scout.results": lambda p: self.scout.results(),
+            "scout.skip": lambda p: self.scout.skip(int(p["id"])),
+            "capture.start_internal": lambda p: self.browser_capture.start(p, self.settings()),
+            "capture.commit_internal": lambda p: self.browser_capture.capture(
+                int(p["id"]), p["snapshot"]
+            ),
+            "capture.error_internal": self._capture_error,
+            "capture.state": lambda p: self.scout.state(int(p["id"])),
+            "capture.latest": self._capture_latest,
+            "system.info": self._system_info,
+            "settings.get": lambda p: self.settings(),
+            "settings.save": self._save_settings,
+            "jobs.start": self._start_job,
+            "jobs.control": self._control_job,
+            "jobs.list": self._list_jobs,
+            "jobs.detail": self._job_detail,
+            "leads.list": self._list_leads,
+            "leads.detail": self._lead_detail,
+            "leads.status": self._set_lead_status,
+            "providers.import": self._import_dataset,
+            "providers.health": self._provider_health,
+            "dashboard.get": lambda p: self.dashboard(),
+            "leads.export": self.export,
+        }
+
+    def _capture_error(self, params: dict) -> dict:
+        self.browser_capture.stop_with_error(int(params["id"]), params["reason"])
+        return {"ok": True}
+
+    def _capture_latest(self, params: dict) -> dict | None:
+        latest = self.browser_capture.latest()
+        return self.scout.state(latest["id"]) if latest else None
+
+    def _system_info(self, params: dict) -> dict:
+        return {
+            "version": "0.1.0",
+            "data_dir": str(self.data_dir),
+            "log_dir": str(self.data_dir / "logs"),
+            "transport": "stdio",
+        }
+
+    def _save_settings(self, params: dict) -> Any:
+        settings = {**DEFAULTS, **params}
+        if set(params) - set(DEFAULTS):
+            raise ValueError("Неизвестные настройки; секреты в конфигурации запрещены.")
+        SearchConfiguration(
+            name="Defaults",
+            **{
+                key: settings[key]
+                for key in (
+                    "min_followers",
+                    "max_followers",
+                    "activity_days",
+                    "minimum_score",
+                    "target_leads",
+                )
+            },
+        )
+        ScoringWeights.model_validate(settings["weights"])
+        enabled = settings["enabled_providers"]
+        if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
+            raise ValueError("Источник недоступен.")
+        with self.sessions.begin() as session:
+            for key, value in settings.items():
+                setting = session.get(Setting, key) or Setting(key=key)
+                setting.value = value
+                session.add(setting)
+        return settings
+
+    def _start_job(self, params: dict) -> Any:
+        if any(state in {"running", "paused"} for state in self.manager.states.values()):
+            raise ValueError("Сначала завершите активный поиск.")
+        settings = self.settings()
+        self.discovery.providers = [
+            provider
+            for provider in self.providers
+            if provider.name in settings["enabled_providers"]
+        ]
+        if not self.discovery.providers:
+            raise ValueError("Нет включённых источников. Проверьте настройки.")
+        from .scoring import LeadScorer
+
+        self.pipeline.scorer = LeadScorer(ScoringWeights.model_validate(settings["weights"]))
+        return {"id": self.manager.start(SearchConfiguration.model_validate(params))}
+
+    def _control_job(self, params: dict) -> Any:
+        with self.sessions() as session:
+            browser_job = session.get(BrowserQueue, int(params["id"])) is not None
+        if browser_job:
+            self.browser_capture.control(int(params["id"]), params["action"])
             return {"ok": True}
-        if method == "capture.state":
-            return self.scout.state(int(params["id"]))
-        if method == "capture.latest":
-            latest = self.browser_capture.latest()
-            return self.scout.state(latest["id"]) if latest else None
-        if method.startswith("browser."):
-            return self.browser_sessions.call(method, params)
-        if method == "system.info":
-            return {
-                "version": "0.1.0",
-                "data_dir": str(self.data_dir),
-                "log_dir": str(self.data_dir / "logs"),
-                "transport": "stdio",
+        self.manager.control(int(params["id"]), params["action"])
+        return {"ok": True}
+
+    def _list_jobs(self, params: dict) -> Any:
+        with self.sessions() as session:
+            return [
+                serialize(job)
+                for job in session.scalars(
+                    select(SearchJob).order_by(SearchJob.created_at.desc()).limit(200)
+                )
+            ]
+
+    def _job_detail(self, params: dict) -> Any:
+        with self.sessions() as session:
+            job = session.get(SearchJob, int(params["id"]))
+            if not job:
+                raise ValueError("Поиск не найден.")
+            return serialize(job)
+
+    def _list_leads(self, params: dict) -> Any:
+        query = LeadQuery.model_validate(params)
+        with self.sessions() as session:
+            stmt = lead_statement(query)
+            count = session.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
+            leads = list(
+                session.scalars(
+                    stmt.offset((query.page - 1) * query.page_size).limit(query.page_size)
+                )
+            )
+            ids = [lead.id for lead in leads]
+            sources = list(session.scalars(select(LeadSource).where(LeadSource.lead_id.in_(ids))))
+            availability = {
+                item.lead_id: item.extracted_signals.get("browser_capture", {}).get(
+                    "unknown_fields", []
+                )
+                for item in session.scalars(
+                    select(LeadAnalysis).where(LeadAnalysis.lead_id.in_(ids))
+                )
             }
-        if method == "settings.get":
-            return self.settings()
-        if method == "settings.save":
-            settings = {**DEFAULTS, **params}
-            if set(params) - set(DEFAULTS):
-                raise ValueError("Неизвестные настройки; секреты в конфигурации запрещены.")
-            SearchConfiguration(
-                name="Defaults",
-                **{
-                    key: settings[key]
-                    for key in (
-                        "min_followers",
-                        "max_followers",
-                        "activity_days",
-                        "minimum_score",
-                        "target_leads",
+            return {
+                "total": count,
+                "items": [
+                    {
+                        **serialize(lead),
+                        "unknown_fields": availability.get(lead.id, []),
+                        "sources": [
+                            serialize(source) for source in sources if source.lead_id == lead.id
+                        ],
+                    }
+                    for lead in leads
+                ],
+            }
+
+    def _lead_detail(self, params: dict) -> Any:
+        with self.sessions() as session:
+            lead = session.get(Lead, int(params["id"]))
+            if not lead:
+                raise ValueError("Профиль не найден.")
+            analysis = session.get(LeadAnalysis, lead.id)
+            scout = session.get(ScoutAssessment, lead.id)
+            return {
+                **serialize(lead),
+                "scout": self.scout.summary(scout.details) if scout else None,
+                "analysis": serialize(analysis) if analysis else None,
+                "breakdown": [
+                    serialize(item)
+                    for item in session.scalars(
+                        select(LeadScoreBreakdown).where(LeadScoreBreakdown.lead_id == lead.id)
                     )
+                ],
+                "sources": [
+                    serialize(item)
+                    for item in session.scalars(
+                        select(LeadSource).where(LeadSource.lead_id == lead.id)
+                    )
+                ],
+            }
+
+    def _set_lead_status(self, params: dict) -> Any:
+        status = params["status"]
+        if status not in {"new", "reviewed", "qualified", "rejected", "contacted"}:
+            raise ValueError("Неизвестный статус.")
+        with self.sessions.begin() as session:
+            lead = session.get(Lead, int(params["id"]))
+            if not lead:
+                raise ValueError("Профиль не найден.")
+            lead.status = status
+        return {"ok": True}
+
+    def _import_dataset(self, params: dict) -> Any:
+        if any(state in {"running", "paused"} for state in self.manager.states.values()):
+            raise ValueError("Нельзя заменить источник во время поиска.")
+        provider = ImportedDatasetProvider(Path(params["path"]))
+        provider.profiles = [normalize(profile) for profile in provider.profiles]
+        temporary = self.import_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(
+                [profile.model_dump(mode="json") for profile in provider.profiles],
+                ensure_ascii=True,
+            ),
+            encoding="utf-8",
+        )
+        temporary.replace(self.import_path)
+        self.providers = [p for p in self.providers if p.name != "imported"] + [provider]
+        return {"count": len(provider.profiles)}
+
+    def _provider_health(self, params: dict) -> Any:
+        with self.sessions() as session:
+            health = {
+                item.provider: serialize(item) for item in session.scalars(select(ProviderHealth))
+            }
+        available = {provider.name for provider in self.providers}
+        return [
+            health.get(
+                name,
+                {
+                    "provider": name,
+                    "status": "Healthy" if name in available else "Unavailable",
+                    "last_error": None,
                 },
             )
-            ScoringWeights.model_validate(settings["weights"])
-            enabled = settings["enabled_providers"]
-            if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
-                raise ValueError("Источник недоступен.")
-            with self.sessions.begin() as session:
-                for key, value in settings.items():
-                    setting = session.get(Setting, key) or Setting(key=key)
-                    setting.value = value
-                    session.add(setting)
-            return settings
-        if method == "jobs.start":
-            if any(state in {"running", "paused"} for state in self.manager.states.values()):
-                raise ValueError("Сначала завершите активный поиск.")
-            settings = self.settings()
-            self.discovery.providers = [
-                provider
-                for provider in self.providers
-                if provider.name in settings["enabled_providers"]
-            ]
-            if not self.discovery.providers:
-                raise ValueError("Нет включённых источников. Проверьте настройки.")
-            from .scoring import LeadScorer
-
-            self.pipeline.scorer = LeadScorer(ScoringWeights.model_validate(settings["weights"]))
-            return {"id": self.manager.start(SearchConfiguration.model_validate(params))}
-        if method == "jobs.control":
-            with self.sessions() as session:
-                browser_job = session.get(BrowserQueue, int(params["id"])) is not None
-            if browser_job:
-                self.browser_capture.control(int(params["id"]), params["action"])
-                return {"ok": True}
-            self.manager.control(int(params["id"]), params["action"])
-            return {"ok": True}
-        if method == "jobs.list":
-            with self.sessions() as session:
-                return [
-                    serialize(job)
-                    for job in session.scalars(
-                        select(SearchJob).order_by(SearchJob.created_at.desc()).limit(200)
-                    )
-                ]
-        if method == "jobs.detail":
-            with self.sessions() as session:
-                job = session.get(SearchJob, int(params["id"]))
-                if not job:
-                    raise ValueError("Поиск не найден.")
-                return serialize(job)
-        if method == "leads.list":
-            query = LeadQuery.model_validate(params)
-            with self.sessions() as session:
-                stmt = lead_statement(query)
-                count = session.scalar(
-                    select(func.count()).select_from(stmt.order_by(None).subquery())
-                )
-                leads = list(
-                    session.scalars(
-                        stmt.offset((query.page - 1) * query.page_size).limit(query.page_size)
-                    )
-                )
-                ids = [lead.id for lead in leads]
-                sources = list(
-                    session.scalars(select(LeadSource).where(LeadSource.lead_id.in_(ids)))
-                )
-                availability = {
-                    item.lead_id: item.extracted_signals.get("browser_capture", {}).get(
-                        "unknown_fields", []
-                    )
-                    for item in session.scalars(
-                        select(LeadAnalysis).where(LeadAnalysis.lead_id.in_(ids))
-                    )
-                }
-                return {
-                    "total": count,
-                    "items": [
-                        {
-                            **serialize(lead),
-                            "unknown_fields": availability.get(lead.id, []),
-                            "sources": [
-                                serialize(source) for source in sources if source.lead_id == lead.id
-                            ],
-                        }
-                        for lead in leads
-                    ],
-                }
-        if method == "leads.detail":
-            with self.sessions() as session:
-                lead = session.get(Lead, int(params["id"]))
-                if not lead:
-                    raise ValueError("Профиль не найден.")
-                analysis = session.get(LeadAnalysis, lead.id)
-                scout = session.get(ScoutAssessment, lead.id)
-                return {
-                    **serialize(lead),
-                    "scout": self.scout.summary(scout.details) if scout else None,
-                    "analysis": serialize(analysis) if analysis else None,
-                    "breakdown": [
-                        serialize(item)
-                        for item in session.scalars(
-                            select(LeadScoreBreakdown).where(LeadScoreBreakdown.lead_id == lead.id)
-                        )
-                    ],
-                    "sources": [
-                        serialize(item)
-                        for item in session.scalars(
-                            select(LeadSource).where(LeadSource.lead_id == lead.id)
-                        )
-                    ],
-                }
-        if method == "leads.status":
-            status = params["status"]
-            if status not in {"new", "reviewed", "qualified", "rejected", "contacted"}:
-                raise ValueError("Неизвестный статус.")
-            with self.sessions.begin() as session:
-                lead = session.get(Lead, int(params["id"]))
-                if not lead:
-                    raise ValueError("Профиль не найден.")
-                lead.status = status
-            return {"ok": True}
-        if method == "providers.import":
-            if any(state in {"running", "paused"} for state in self.manager.states.values()):
-                raise ValueError("Нельзя заменить источник во время поиска.")
-            provider = ImportedDatasetProvider(Path(params["path"]))
-            provider.profiles = [normalize(profile) for profile in provider.profiles]
-            temporary = self.import_path.with_suffix(".tmp")
-            temporary.write_text(
-                json.dumps(
-                    [profile.model_dump(mode="json") for profile in provider.profiles],
-                    ensure_ascii=True,
-                ),
-                encoding="utf-8",
-            )
-            temporary.replace(self.import_path)
-            self.providers = [p for p in self.providers if p.name != "imported"] + [provider]
-            return {"count": len(provider.profiles)}
-        if method == "providers.health":
-            with self.sessions() as session:
-                health = {
-                    item.provider: serialize(item)
-                    for item in session.scalars(select(ProviderHealth))
-                }
-            available = {provider.name for provider in self.providers}
-            return [
-                health.get(
-                    name,
-                    {
-                        "provider": name,
-                        "status": "Healthy" if name in available else "Unavailable",
-                        "last_error": None,
-                    },
-                )
-                for name in ["mock", "imported", "meta_instagram"]
-            ]
-        if method == "dashboard.get":
-            return self.dashboard()
-        if method == "leads.export":
-            return self.export(params)
-        raise ValueError("Неизвестный метод приложения.")
+            for name in ["mock", "imported", "meta_instagram"]
+        ]
 
     def dashboard(self) -> dict:
         with self.sessions() as session:
@@ -451,31 +465,42 @@ class ApplicationService:
                 stmt = lead_statement(query)
                 if ids is not None:
                     stmt = stmt.where(Lead.id.in_(ids))
-                for lead in session.scalars(stmt.execution_options(yield_per=250)):
-                    row = serialize(lead)
-                    analysis = session.get(LeadAnalysis, lead.id)
-                    if analysis:
-                        missing = analysis.extracted_signals.get("browser_capture", {}).get(
-                            "unknown_fields", []
+                # Related rows are loaded per chunk: per-lead queries made large exports
+                # exceed the desktop RPC timeout.
+                for chunk in session.scalars(stmt.execution_options(yield_per=500)).partitions():
+                    chunk_ids = [lead.id for lead in chunk]
+                    missing_by_lead = {
+                        lead_id: signals.get("browser_capture", {}).get("unknown_fields", [])
+                        for lead_id, signals in session.execute(
+                            select(LeadAnalysis.lead_id, LeadAnalysis.extracted_signals).where(
+                                LeadAnalysis.lead_id.in_(chunk_ids)
+                            )
                         )
-                        for field in missing:
+                    }
+                    sources_by_lead: dict[int, list[str]] = {}
+                    for source in session.scalars(
+                        select(LeadSource)
+                        .where(LeadSource.lead_id.in_(chunk_ids))
+                        .order_by(LeadSource.id)
+                    ):
+                        sources_by_lead.setdefault(source.lead_id, []).append(
+                            f"{source.source_provider}:{source.source_type}:{source.source_value}"
+                        )
+                    for lead in chunk:
+                        row = serialize(lead)
+                        for field in missing_by_lead.get(lead.id, []):
                             row[field] = None
-                    row["genres"] = "; ".join(lead.genres)
-                    row["source"] = "; ".join(
-                        f"{s.source_provider}:{s.source_type}:{s.source_value}"
-                        for s in session.scalars(
-                            select(LeadSource).where(LeadSource.lead_id == lead.id)
-                        )
-                    )
-                    cleaned = {}
-                    for key in columns:
-                        raw = row.get(key)
-                        value = "" if raw is None else str(raw)
-                        if value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
-                            value = "'" + value
-                        cleaned[key] = value
-                    writer.writerow(cleaned)
-                    count += 1
+                        row["genres"] = "; ".join(lead.genres)
+                        row["source"] = "; ".join(sources_by_lead.get(lead.id, []))
+                        cleaned = {}
+                        for key in columns:
+                            raw = row.get(key)
+                            value = "" if raw is None else str(raw)
+                            if value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
+                                value = "'" + value
+                            cleaned[key] = value
+                        writer.writerow(cleaned)
+                        count += 1
             temporary.replace(path)
         except Exception:
             temporary.unlink(missing_ok=True)

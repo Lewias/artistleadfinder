@@ -18,11 +18,32 @@ use tauri::Manager;
 
 type ProxyRelays = Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>;
 
+const CORE_TIMEOUT: &str = "Локальное ядро не ответило вовремя";
+const HUNG_AFTER_TIMEOUTS: u32 = 3;
+
+#[derive(Debug, PartialEq)]
+enum ReplyOrder {
+    Stale,
+    Current,
+    Invalid,
+}
+
+/// A late answer to a request that already timed out must not be taken for the
+/// answer to the current one.
+fn reply_order(response: &Value, expected: u64) -> ReplyOrder {
+    match response["id"].as_u64() {
+        Some(id) if id < expected => ReplyOrder::Stale,
+        Some(id) if id == expected => ReplyOrder::Current,
+        _ => ReplyOrder::Invalid,
+    }
+}
+
 struct Backend {
     child: Child,
     stdin: ChildStdin,
     stdout: Receiver<Result<String, String>>,
     next_id: u64,
+    timeouts: u32,
 }
 impl Backend {
     fn start() -> Result<Self, String> {
@@ -74,6 +95,7 @@ impl Backend {
             stdin,
             stdout,
             next_id: 0,
+            timeouts: 0,
         })
     }
     fn request(&mut self, method: String, params: Value) -> Result<Value, String> {
@@ -85,14 +107,30 @@ impl Backend {
         writeln!(self.stdin, "{}", payload)
             .and_then(|_| self.stdin.flush())
             .map_err(|_| "Связь с ядром потеряна")?;
-        let line = self
-            .stdout
-            .recv_timeout(Duration::from_secs(45))
-            .map_err(|_| "Локальное ядро не ответило вовремя")??;
-        let response: Value = serde_json::from_str(&line).map_err(|_| "Некорректный ответ ядра")?;
-        if response["id"] != self.next_id {
-            return Err("Нарушен порядок ответов ядра".into());
-        }
+        // File import and export scale with user data; everything else is interactive.
+        let limit = if matches!(method.as_str(), "providers.import" | "leads.export") {
+            Duration::from_secs(600)
+        } else {
+            Duration::from_secs(45)
+        };
+        let deadline = Instant::now() + limit;
+        let response = loop {
+            let line = self
+                .stdout
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .map_err(|_| {
+                    self.timeouts += 1;
+                    CORE_TIMEOUT
+                })??;
+            let response: Value =
+                serde_json::from_str(&line).map_err(|_| "Некорректный ответ ядра")?;
+            match reply_order(&response, self.next_id) {
+                ReplyOrder::Stale => continue,
+                ReplyOrder::Current => break response,
+                ReplyOrder::Invalid => return Err("Нарушен порядок ответов ядра".into()),
+            }
+        };
+        self.timeouts = 0;
         if let Some(error) = response["error"].as_str() {
             return Err(error.to_owned());
         }
@@ -140,19 +178,11 @@ async fn backend_request(core: Core, method: String, params: Value) -> Result<Va
         if lock.is_none() {
             *lock = Some(Backend::start()?);
         }
-        let result = lock.as_mut().unwrap().request(method, params);
-        if result
-            .as_ref()
-            .err()
-            .is_some_and(|error| error == "Локальное ядро не ответило вовремя")
-            || lock
-                .as_mut()
-                .unwrap()
-                .child
-                .try_wait()
-                .ok()
-                .flatten()
-                .is_some()
+        let backend = lock.as_mut().unwrap();
+        let result = backend.request(method, params);
+        // A single slow call must not kill running jobs; restart only a hung or exited core.
+        if backend.timeouts >= HUNG_AFTER_TIMEOUTS
+            || backend.child.try_wait().ok().flatten().is_some()
         {
             lock.take();
         }
@@ -506,4 +536,17 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn late_replies_are_skipped_and_foreign_ids_rejected() {
+        assert_eq!(reply_order(&json!({"id": 4}), 5), ReplyOrder::Stale);
+        assert_eq!(reply_order(&json!({"id": 5}), 5), ReplyOrder::Current);
+        assert_eq!(reply_order(&json!({"id": 6}), 5), ReplyOrder::Invalid);
+        assert_eq!(reply_order(&json!({"id": null}), 5), ReplyOrder::Invalid);
+    }
 }

@@ -17,6 +17,9 @@ include = ["artist_lead_finder*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The shared %TEMP%/pytest-of-<user> folder can be left unreadable by another
+# sandbox or account; a local base keeps tests independent of it.
+addopts = "--basetemp=.pytest-tmp"
 
 [tool.ruff]
 target-version = "py312"
