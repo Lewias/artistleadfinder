@@ -6,7 +6,20 @@ export interface ApplicationService {
   openProfile(address: string): Promise<void>;
   openLogs(): Promise<void>;
 }
-export type BrowserAction = 'list' | 'create' | 'update' | 'import' | 'import_cookies' | 'open' | 'save' | 'delete' | 'capture' | 'queue' | 'scout' | 'search' | 'search_cancel';
+export type BrowserAction =
+  | 'list'
+  | 'create'
+  | 'update'
+  | 'import'
+  | 'import_cookies'
+  | 'open'
+  | 'save'
+  | 'delete'
+  | 'capture'
+  | 'queue'
+  | 'scout'
+  | 'search'
+  | 'search_cancel';
 export const api: ApplicationService = {
   request: <T>(method: string, params: object = {}) => invoke<T>('core_request', { method, params }),
   browser: <T>(action: BrowserAction, params: object = {}) => invoke<T>('browser_action', { action, params }),

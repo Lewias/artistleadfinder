@@ -8,12 +8,22 @@ function extract(blocked = false, username = 'artist', loginDialog = false) {
     URL,
     location: { href: `https://www.instagram.com/${username}/`, pathname: `/${username}/` },
     document: {
-      readyState: 'complete', title: 'Artist (@artist)', body: { innerText: 'Artist profile' },
+      readyState: 'complete',
+      title: 'Artist (@artist)',
+      body: { innerText: 'Artist profile' },
       querySelector: (selector: string) => {
-        if (selector === '[role="dialog"]') return loginDialog ? { innerText: 'Зарегистрироваться или Войти' } : null;
+        if (selector === '[role="dialog"]')
+          return loginDialog ? { innerText: 'Зарегистрироваться или Войти' } : null;
         if (selector === 'input[type="password"]') return blocked ? {} : null;
-        if (selector === 'main header') return { innerText: '1200 followers', querySelectorAll: () => [{ href: 'https://l.instagram.com/?u=https%3A%2F%2Fopen.spotify.com%2Fartist%2Fexample' }] };
-        if (selector.includes('description')) return { content: '1200 Followers - Artist on Instagram: "Independent rapper"' };
+        if (selector === 'main header')
+          return {
+            innerText: '1200 followers',
+            querySelectorAll: () => [
+              { href: 'https://l.instagram.com/?u=https%3A%2F%2Fopen.spotify.com%2Fartist%2Fexample' },
+            ],
+          };
+        if (selector.includes('description'))
+          return { content: '1200 Followers - Artist on Instagram: "Independent rapper"' };
         return null;
       },
     },

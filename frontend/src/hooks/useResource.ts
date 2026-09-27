@@ -13,12 +13,26 @@ export function useResource<T>(method: string, params: object = {}, poll = 0) {
     let timer: ReturnType<typeof setTimeout>;
     setLoading(true);
     const load = async () => {
-      try { const value = await api.request<T>(method, JSON.parse(key)); if (!cancelled) { setData(value); setError(''); } }
-      catch (err) { if (!cancelled) setError(String(err)); }
-      finally { if (!cancelled) { setLoading(false); if (poll) timer = setTimeout(load, poll); } }
+      try {
+        const value = await api.request<T>(method, JSON.parse(key));
+        if (!cancelled) {
+          setData(value);
+          setError('');
+        }
+      } catch (err) {
+        if (!cancelled) setError(String(err));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          if (poll) timer = setTimeout(load, poll);
+        }
+      }
     };
     void load();
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [method, key, poll, revision]);
   return { data, error, loading, refresh };
 }
