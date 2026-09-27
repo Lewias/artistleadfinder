@@ -146,4 +146,13 @@ export interface CaptureQueue {
   notices?: string[];
   wait_seconds?: number;
   wait_reason?: string | null;
+  profile_id?: string;
+  found?: number;
+  backlog?: number;
+}
+export interface ScoutAccountRow {
+  profile: BrowserProfile;
+  target: number;
+  found: number;
+  run: CaptureQueue | null;
 }

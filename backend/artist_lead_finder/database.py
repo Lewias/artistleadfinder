@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from platformdirs import user_data_path
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -32,10 +32,21 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 3 for version in versions):
+        if any(version > 4 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
+    # Schema 4 adds columns to an existing table, which create_all does not do.
+    columns = {column["name"] for column in inspect(engine).get_columns("scout_runs")}
+    with engine.begin() as connection:
+        if "backlog" not in columns:
+            connection.execute(
+                text("ALTER TABLE scout_runs ADD COLUMN backlog JSON NOT NULL DEFAULT '[]'")
+            )
+        if "found" not in columns:
+            connection.execute(
+                text("ALTER TABLE scout_runs ADD COLUMN found INTEGER NOT NULL DEFAULT 0")
+            )
     with factory.begin() as session:
         if session.get(SchemaMigration, 1) is None:
             session.add(SchemaMigration(version=1))
@@ -43,4 +54,6 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             session.add(SchemaMigration(version=2))
         if session.get(SchemaMigration, 3) is None:
             session.add(SchemaMigration(version=3))
+        if session.get(SchemaMigration, 4) is None:
+            session.add(SchemaMigration(version=4))
     return engine, factory

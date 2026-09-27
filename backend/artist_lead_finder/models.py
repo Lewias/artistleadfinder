@@ -181,6 +181,18 @@ class ScoutRun(Base):
     tasks: Mapped[list[dict]] = mapped_column(JSON)
     observations: Mapped[dict] = mapped_column(JSON, default=dict)
     notices: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Schema 4: publications read from the source grid but not queued yet.
+    backlog: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    found: Mapped[int] = mapped_column(default=0)
+
+
+class ScoutAccount(Base):
+    """Per browser profile goal: how many suitable leads this account should find."""
+
+    __tablename__ = "scout_accounts"
+    profile_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    target: Mapped[int] = mapped_column(default=100)
+    found: Mapped[int] = mapped_column(default=0)
 
 
 class ScoutPost(Base):

@@ -91,3 +91,9 @@ test('rate limit is flagged separately from login gates', async () => {
   expect(login.blocked).toBe(true);
   expect(login.rate_limited).toBe(false);
 });
+test('source grid collects up to 120 publications', async () => {
+  const links = Array.from({ length: 150 }, (_, index) => `https://www.instagram.com/p/p${index}/`);
+  const result = await extract('/music_news/', '', false, links);
+  expect(result.posts).toHaveLength(120);
+  expect(result.ready).toBe(true);
+});

@@ -18,15 +18,29 @@
   if (parts.length === 1) {
     const username = (meta('og:title') || document.title).match(/@([a-zA-Z0-9_.]{1,30})/)?.[1]?.toLowerCase();
     const posts = [];
-    for (const anchor of [...document.querySelectorAll('main a[href]')].slice(0, 500)) {
-      try {
-        const link = new URL(anchor.href);
-        if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/(?:[\w.]+\/)?(?:p|reel)\/[\w-]+\/?$/.test(link.pathname)) {
-          const canonical = `https://www.instagram.com${link.pathname.replace(/\/$/, '')}/`;
-          if (!posts.includes(canonical)) posts.push(canonical);
-        }
-      } catch { /* Ignore malformed links. */ }
-      if (posts.length >= 12) break;
+    const collect = () => {
+      // Instagram keeps only part of a long grid in the DOM, so links accumulate across scrolls.
+      for (const anchor of [...document.querySelectorAll('main a[href]')].slice(0, 2000)) {
+        try {
+          const link = new URL(anchor.href);
+          if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/(?:[\w.]+\/)?(?:p|reel)\/[\w-]+\/?$/.test(link.pathname)) {
+            const canonical = `https://www.instagram.com${link.pathname.replace(/\/$/, '')}/`;
+            if (!posts.includes(canonical)) posts.push(canonical);
+          }
+        } catch { /* Ignore malformed links. */ }
+        if (posts.length >= 120) break;
+      }
+    };
+    // Scroll to older publications so account goals can be reached; the core queues them in batches.
+    let stable = 0;
+    for (let round = 0; round < 15 && posts.length < 120 && stable < 2; round++) {
+      const before = posts.length;
+      collect();
+      stable = posts.length === before ? stable + 1 : 0;
+      if (posts.length >= 120 || stable >= 2) break;
+      globalThis.scrollTo?.(0, document.body?.scrollHeight || 0);
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      if (location.href !== url.href) return { ready: false };
     }
     return { url: url.href, blocked: false, posts, ready: document.readyState === 'complete'
       && username === parts[0].toLowerCase() && (posts.length > 0 || /private|закрыт|no posts yet|нет публикаций/i.test(body)) };

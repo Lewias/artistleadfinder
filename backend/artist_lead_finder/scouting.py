@@ -7,10 +7,12 @@ from urllib.parse import urlsplit
 from sqlalchemy import select
 
 from .browser_capture import parse_snapshot, profile_url
+from .chromium_runtime import GUEST_ID
 from .models import (
     BrowserQueue,
     Lead,
     LeadSource,
+    ScoutAccount,
     ScoutAssessment,
     ScoutPost,
     ScoutRun,
@@ -158,16 +160,39 @@ MAX_NEW_CANDIDATES_PER_POST = 30
 MAX_COMMENTS_PER_POST = 200
 
 
+# Guest runs keep the first grid screen; account runs scroll deeper to reach their goal.
+GUEST_POSTS_PER_SOURCE = 12
+MAX_POSTS_PER_SOURCE = 120
+POST_BATCH = 12
+
+
 def checked_profiles(session, job_id) -> set[str]:
-    """Candidate profiles already visited by earlier scout runs."""
+    """Candidates visited by earlier runs or already queued by runs still in progress."""
     checked = set()
-    for run, queue in session.execute(
-        select(ScoutRun, BrowserQueue)
+    for run, queue, job in session.execute(
+        select(ScoutRun, BrowserQueue, SearchJob)
         .join(BrowserQueue, BrowserQueue.job_id == ScoutRun.job_id)
+        .join(SearchJob, SearchJob.id == ScoutRun.job_id)
         .where(ScoutRun.job_id != job_id)
     ):
-        checked.update(t["url"] for t in run.tasks[: queue.cursor] if t["kind"] == "profile")
+        active = job.status in {"running", "paused"} and job.stage != "interrupted"
+        tasks = run.tasks if active else run.tasks[: queue.cursor]
+        checked.update(t["url"] for t in tasks if t["kind"] == "profile")
     return checked
+
+
+def take_batch(backlog: list[dict], size: int) -> tuple[list[dict], list[dict]]:
+    """Take publications round-robin by source, so every source contributes early."""
+    queues: dict[str, list[dict]] = {}
+    for item in backlog:
+        queues.setdefault(item["source"], []).append(item)
+    batch = []
+    while len(batch) < size and any(queues.values()):
+        for items in queues.values():
+            if items and len(batch) < size:
+                batch.append(items.pop(0))
+    rest = [item for items in queues.values() for item in items]
+    return batch, rest
 
 
 def add_evidence(session, candidate_url, observation, job_id) -> None:
@@ -222,11 +247,53 @@ def add_evidence(session, candidate_url, observation, job_id) -> None:
 
 
 class ScoutService:
-    def __init__(self, sessions, capture, settings=lambda: {}, pacer=None):
+    def __init__(self, sessions, capture, settings=lambda: {}, pacer_factory=Pacer):
         self.sessions, self.capture = sessions, capture
         self.settings = settings
-        self.pacer = pacer or Pacer()
+        # Pace is per browser profile: each account has its own delays and limits.
+        self.pacer_factory = pacer_factory
+        self.pacers: dict[str, Pacer] = {}
         self.refreshed_date = None
+
+    def pacer_for(self, profile_id: str) -> Pacer:
+        if profile_id not in self.pacers:
+            self.pacers[profile_id] = self.pacer_factory()
+        return self.pacers[profile_id]
+
+    def accounts(self, profile_ids: list[str]) -> dict[str, dict]:
+        """Goal, progress and latest run of each browser profile."""
+        rows = {}
+        with self.sessions() as session:
+            for profile_id in profile_ids:
+                account = session.get(ScoutAccount, profile_id)
+                latest = session.scalar(
+                    select(ScoutRun.job_id)
+                    .join(BrowserQueue, BrowserQueue.job_id == ScoutRun.job_id)
+                    .where(BrowserQueue.profile_id == profile_id)
+                    .order_by(ScoutRun.job_id.desc())
+                    .limit(1)
+                )
+                rows[profile_id] = {
+                    "target": account.target if account else 100,
+                    "found": account.found if account else 0,
+                    "run": latest,
+                }
+        for row in rows.values():
+            row["run"] = self.state(row["run"]) if row["run"] else None
+        return rows
+
+    def set_target(self, params) -> dict:
+        profile_id = str(params["profile_id"])
+        target = int(params["target"])
+        if not 1 <= target <= 10000:
+            raise ValueError("Цель: от 1 до 10000 лидов.")
+        with self.sessions.begin() as session:
+            account = session.get(ScoutAccount, profile_id) or ScoutAccount(profile_id=profile_id)
+            account.target = target
+            if params.get("reset"):
+                account.found = 0
+            session.add(account)
+            return {"target": account.target, "found": account.found}
 
     def pacing(self) -> PacingSettings:
         return PacingSettings.model_validate(self.settings())
@@ -250,6 +317,13 @@ class ScoutService:
 
     def start(self, params, settings):
         urls = self.sources(params["sources"])
+        if params["profile_id"] != GUEST_ID:
+            with self.sessions.begin() as session:
+                account = session.get(ScoutAccount, params["profile_id"])
+                if account is None:
+                    session.add(ScoutAccount(profile_id=params["profile_id"]))
+                elif account.found >= account.target:
+                    raise ValueError("Цель достигнута. Увеличьте цель или сбросьте счётчик.")
         created = self.capture.start(
             {"urls": urls, "profile_id": params["profile_id"], "name": "Лиды из скаут-источников"},
             settings,
@@ -275,9 +349,11 @@ class ScoutService:
                     kind=kind,
                     notices=run.notices,
                     candidates=len(run.observations),
+                    found=run.found,
+                    backlog=len(run.backlog),
                 )
                 wait, reason = (
-                    self.pacer.wait(self.pacing(), kind)
+                    self.pacer_for(result["profile_id"]).wait(self.pacing(), kind)
                     if result["status"] == "running"
                     else (0.0, None)
                 )
@@ -301,7 +377,7 @@ class ScoutService:
             if snapshot.get("private"):
                 details["eligible"] = False
             if details["eligible"]:
-                result = self.capture.capture(job_id, snapshot)
+                result = self.capture.capture(job_id, snapshot, advance=False)
                 with self.sessions.begin() as session:
                     previous = session.get(ScoutAssessment, result["lead_id"])
                     if previous:
@@ -330,6 +406,7 @@ class ScoutService:
                                 source_value=url,
                             )
                         )
+                self.advance(job_id, found=True)
                 return result
             self.advance(
                 job_id, notice=f"@{candidate.username}: недостаточно признаков исполнителя."
@@ -356,15 +433,23 @@ class ScoutService:
             run = session.get(ScoutRun, job_id)
             known = {t["url"] for t in run.tasks}
             if task["kind"] == "source":
-                for raw in snapshot.get("posts", [])[:12]:
+                queue = session.get(BrowserQueue, job_id)
+                limit = (
+                    GUEST_POSTS_PER_SOURCE if queue.profile_id == GUEST_ID else MAX_POSTS_PER_SOURCE
+                )
+                known.update(item["url"] for item in run.backlog)
+                backlog = list(run.backlog)
+                for raw in snapshot.get("posts", [])[:limit]:
                     try:
                         url = post_url(raw)
                     except ValueError:
                         continue
                     if url not in known:
                         # Comments change between runs; never reuse caption nominations.
-                        additions.append({"kind": "post", "url": url, "source": task["source"]})
+                        backlog.append({"kind": "post", "url": url, "source": task["source"]})
                         known.add(url)
+                # Publications wait in the backlog and are queued in batches as needed.
+                run.backlog = backlog
                 if not snapshot.get("posts"):
                     notice = "У источника нет доступных ссылок на публикации: " + task["source"]
             else:
@@ -435,27 +520,43 @@ class ScoutService:
         self.advance(job_id, additions, notice)
         return {"saved": True}
 
-    def advance(self, job_id, additions=None, notice=None):
+    def advance(self, job_id, additions=None, notice=None, found=False):
         with self.sessions.begin() as session:
             queue, job, run = (
                 session.get(BrowserQueue, job_id),
                 session.get(SearchJob, job_id),
                 session.get(ScoutRun, job_id),
             )
+            account = session.get(ScoutAccount, queue.profile_id)
             pacing = self.pacing()
             done = run.tasks[queue.cursor]
-            self.pacer.page_done(pacing, profile=done["kind"] == "profile")
+            self.pacer_for(queue.profile_id).page_done(pacing, profile=done["kind"] == "profile")
+            if found:
+                run.found += 1
+                if account:
+                    account.found += 1
             # Process source pages and publications before candidates, so all evidence is available.
             remaining = run.tasks[queue.cursor + 1 :] + (additions or [])
             remaining.sort(key=lambda task: task["kind"] == "profile")
             notices = [notice] if notice else []
             limit = pacing.profiles_per_run
             checked = sum(t["kind"] == "profile" for t in run.tasks[: queue.cursor + 1])
-            if limit and checked >= limit and any(t["kind"] == "profile" for t in remaining):
+            run_limited = bool(limit and checked >= limit)
+            if run_limited and any(t["kind"] == "profile" for t in remaining):
                 skipped = sum(t["kind"] == "profile" for t in remaining)
                 remaining = [t for t in remaining if t["kind"] != "profile"]
                 notices.append(
                     f"Достигнут лимит {limit} профилей за запуск; не проверено: {skipped}."
+                )
+            if account and account.found >= account.target:
+                remaining = []
+                notices.append(f"Цель достигнута: найдено {account.found} из {account.target}.")
+            elif not remaining and run.backlog and not run_limited:
+                remaining, run.backlog = take_batch(run.backlog, POST_BATCH)
+            elif not remaining and account:
+                notices.append(
+                    "Доступные публикации источников закончились: "
+                    f"найдено {account.found} из {account.target}."
                 )
             run.tasks = run.tasks[: queue.cursor + 1] + remaining
             queue.urls = [task["url"] for task in run.tasks]

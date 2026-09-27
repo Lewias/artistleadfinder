@@ -1996,3 +1996,53 @@ td {
 .profile-proxy-summary {
   margin: 0;
 }
+
+/* Scout accounts: one row per browser profile with its own goal and controls. */
+.scout-accounts {
+  display: grid;
+  gap: 4px;
+}
+.account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: 12px 24px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.account-row .full {
+  grid-column: 1 / -1;
+}
+.account-info {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+.account-info h3 {
+  margin: 0 0 2px;
+}
+.account-info p {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+.account-goal {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.goal-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.goal-line input {
+  width: 96px;
+}
+.account-goal progress {
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .account-row {
+    grid-template-columns: 1fr;
+  }
+}

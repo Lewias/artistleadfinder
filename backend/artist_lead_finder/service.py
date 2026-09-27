@@ -25,6 +25,7 @@ from .models import (
     LeadSource,
     ProviderHealth,
     ScoutAssessment,
+    ScoutRun,
     SearchJob,
     Setting,
 )
@@ -171,6 +172,8 @@ class ApplicationService:
             "scout.commit_internal": lambda p: self.scout.commit(int(p["id"]), p["snapshot"]),
             "scout.results": lambda p: self.scout.results(),
             "scout.skip": lambda p: self.scout.skip(int(p["id"])),
+            "scout.accounts": self._scout_accounts,
+            "scout.account_target": self.scout.set_target,
             "capture.start_internal": lambda p: self.browser_capture.start(p, self.settings()),
             "capture.commit_internal": lambda p: self.browser_capture.capture(
                 int(p["id"]), p["snapshot"]
@@ -196,13 +199,26 @@ class ApplicationService:
 
     def _capture_error(self, params: dict) -> dict:
         if params["reason"] == "rate_limited":
-            self.scout.pacer.rate_limited(self.scout.pacing())
+            profile_id = self.browser_capture.state(int(params["id"]))["profile_id"]
+            self.scout.pacer_for(profile_id).rate_limited(self.scout.pacing())
         self.browser_capture.stop_with_error(int(params["id"]), params["reason"])
         return {"ok": True}
 
     def _capture_latest(self, params: dict) -> dict | None:
-        latest = self.browser_capture.latest()
-        return self.scout.state(latest["id"]) if latest else None
+        """Latest manual link queue; scout runs are shown per account."""
+        with self.sessions() as session:
+            latest = session.scalar(
+                select(BrowserQueue.job_id)
+                .where(BrowserQueue.job_id.not_in(select(ScoutRun.job_id)))
+                .order_by(BrowserQueue.job_id.desc())
+                .limit(1)
+            )
+        return self.browser_capture.state(latest) if latest else None
+
+    def _scout_accounts(self, params: dict) -> list[dict]:
+        profiles = self.browser_sessions.call("browser.list", {})
+        rows = self.scout.accounts([profile["id"] for profile in profiles])
+        return [{"profile": profile, **rows[profile["id"]]} for profile in profiles]
 
     def _system_info(self, params: dict) -> dict:
         return {

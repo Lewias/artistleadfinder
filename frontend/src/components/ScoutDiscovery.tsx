@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import type { BrowserProfile, CaptureQueue } from '../services/types';
 import { useResource } from '../hooks/useResource';
 import { Button } from './ui/button';
 import { LeadDetail } from './LeadDetail';
 import { parseScoutSources } from './scoutSources';
-import { waitLabel } from '../lib/format';
-import { ArrowUpRight, Radar, Radio, ScanSearch, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ScoutAccounts } from './ScoutAccounts';
+import { ArrowUpRight, Radar, Radio, Save, SlidersHorizontal, Sparkles } from 'lucide-react';
 
 type Evidence = { source: string; url: string; caption: string; published_at: string | null };
 type ServiceScore = { score: number; reasons: { text: string; evidence: Evidence | null }[] };
@@ -20,7 +19,6 @@ type ScoutLead = {
   services: Record<string, ServiceScore>;
   evidence: Evidence[];
 };
-const guest = '00000000000000000000000000000000';
 const labels: Record<string, string> = {
   beats: 'Биты',
   mixing: 'Сведение / мастеринг',
@@ -30,12 +28,10 @@ const labels: Record<string, string> = {
 export function ScoutDiscovery() {
   const [sources, setSources] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const [profile, setProfile] = useState(guest);
-  const [profiles, setProfiles] = useState<BrowserProfile[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [lead, setLead] = useState<number | null>(null);
-  const queue = useResource<CaptureQueue | null>('capture.latest', {}, 1500);
   const results = useResource<ScoutLead[]>('scout.results', {}, 4000);
   useEffect(() => {
     void api
@@ -45,23 +41,16 @@ export function ScoutDiscovery() {
         setLoaded(true);
       })
       .catch(err => setError(String(err)));
-    void api
-      .browser<BrowserProfile[]>('list')
-      .then(setProfiles)
-      .catch(err => setError(String(err)));
   }, []);
-  const active =
-    queue.data && ['running', 'paused'].includes(queue.data.status) && queue.data.stage !== 'interrupted';
-  const completedWithoutCandidates =
-    queue.data?.scout && queue.data.status === 'completed' && queue.data.candidates === 0;
   const sourceInput = parseScoutSources(sources);
   const sourceCount = sourceInput.values.length;
+  const sourcesReady = loaded && sourceCount > 0 && !sourceInput.error;
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
     setError('');
+    setMessage('');
     try {
       await operation();
-      queue.refresh();
       results.refresh();
     } catch (err) {
       setError(String(err));
@@ -69,10 +58,11 @@ export function ScoutDiscovery() {
       setBusy(false);
     }
   };
-  const control = (action: string) =>
-    run(async () => {
-      await api.request('jobs.control', { id: queue.data?.id, action });
-    });
+  // Every account start saves the current list, so all accounts read the same sources.
+  const saveSources = async () => {
+    if (!sourcesReady) throw new Error(sourceInput.error || 'Добавьте хотя бы один источник.');
+    return api.request<string[]>('scout.sources', { sources: sourceInput.values });
+  };
   const openEvidence = (url: string) =>
     void run(async () => {
       await api.openProfile(url);
@@ -93,7 +83,7 @@ export function ScoutDiscovery() {
             <textarea
               rows={4}
               maxLength={5000}
-              disabled={!loaded || busy || Boolean(active)}
+              disabled={!loaded || busy}
               value={sources}
               aria-invalid={Boolean(sourceInput.error)}
               aria-describedby={sourceInput.error ? 'scout-source-error' : undefined}
@@ -113,47 +103,26 @@ export function ScoutDiscovery() {
             <span>Один аккаунт на строку</span>
             <span className={sourceCount > 20 ? 'source-over-limit' : ''}>{sourceCount} / 20 источников</span>
           </div>
-          <label>
-            Сессия для чтения Instagram
-            <select
-              value={profile}
-              disabled={busy || Boolean(active)}
-              onChange={event => setProfile(event.target.value)}
-            >
-              <option value={guest}>Без сохранённых cookies</option>
-              {profiles.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
           <div className="actions">
             <Button
-              disabled={!loaded || busy || Boolean(active) || sourceCount === 0 || Boolean(sourceInput.error)}
-              onClick={() =>
-                void run(async () => {
-                  const values = sourceInput.values;
-                  await api.request('scout.sources', { sources: values });
-                  await api.browser('open', { id: profile });
-                  await api.browser('scout', { id: profile, sources: values });
-                })
-              }
-            >
-              <ScanSearch size={17} /> Найти лидов
-            </Button>
-            <Button
               variant="outline"
-              disabled={busy}
+              disabled={busy || !sourcesReady}
               onClick={() =>
                 void run(async () => {
-                  await api.browser('open', { id: profile });
+                  const saved = await saveSources();
+                  setSources(saved.join('\n'));
+                  setMessage(`Источники сохранены: ${saved.length}.`);
                 })
               }
             >
-              Открыть Instagram
+              <Save size={17} /> Сохранить источники
             </Button>
           </div>
+          {message && (
+            <p role="status" className="helper">
+              {message}
+            </p>
+          )}
         </div>
         <aside className="scout-guide">
           <div className="guide-icon">
@@ -195,85 +164,10 @@ export function ScoutDiscovery() {
           </div>
         </aside>
       </div>
-      {queue.data?.scout && (
-        <div className="notice">
-          <h3>
-            {queue.data.stage === 'interrupted'
-              ? 'Запуск прерван — запустите поиск снова'
-              : {
-                  running: 'Поиск выполняется',
-                  paused: 'Требуется внимание',
-                  completed: 'Поиск завершён',
-                  cancelled: 'Поиск отменён',
-                }[queue.data.status] || queue.data.status}
-          </h3>
-          <p>
-            Обработано шагов: {queue.data.cursor} / {queue.data.total} · Кандидатов:{' '}
-            {queue.data.candidates ?? 0}
-          </p>
-          {active && (
-            <>
-              <p>
-                {{
-                  source: 'Читаем источник',
-                  post: 'Разбираем публикацию',
-                  profile: 'Проверяем исполнителя',
-                }[queue.data.kind || ''] || ''}
-                : {queue.data.url}
-              </p>
-              {!!queue.data.wait_seconds && queue.data.wait_reason && (
-                <p className="helper">
-                  {queue.data.wait_reason} Осталось {waitLabel(queue.data.wait_seconds)}.
-                </p>
-              )}
-              <div className="actions">
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void control(queue.data?.status === 'paused' ? 'resume' : 'pause')}
-                >
-                  {queue.data.status === 'paused' ? 'Продолжить' : 'Пауза'}
-                </Button>
-                {queue.data.status === 'paused' && (
-                  <Button
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api.request('scout.skip', { id: queue.data?.id });
-                      })
-                    }
-                  >
-                    Пропустить страницу
-                  </Button>
-                )}
-                <Button variant="outline" disabled={busy} onClick={() => void control('cancel')}>
-                  Отменить
-                </Button>
-              </div>
-            </>
-          )}
-          {queue.data.error && (
-            <p role="alert" className="error-text">
-              {queue.data.error}
-            </p>
-          )}
-          {!!queue.data.notices?.length && (
-            <details>
-              <summary>Пропуски и замечания ({queue.data.notices.length})</summary>
-              {queue.data.notices.map((notice, i) => (
-                <p key={i}>{notice}</p>
-              ))}
-            </details>
-          )}
-        </div>
-      )}
-      {active && !queue.data?.scout && (
-        <p className="helper">Сначала завершите текущую браузерную очередь в дополнительных инструментах.</p>
-      )}
-      {(error || queue.error || results.error) && (
+      <ScoutAccounts saveSources={saveSources} disabled={!sourcesReady} onChange={results.refresh} />
+      {(error || results.error) && (
         <p role="alert" className="error-text">
-          {error || queue.error || results.error}
+          {error || results.error}
         </p>
       )}
       <details className="scout-limits">
@@ -281,14 +175,14 @@ export function ScoutDiscovery() {
           <SlidersHorizontal size={15} /> Как работает оценка и что учитывает поиск
         </summary>
         <p className="helper">
-          За запуск читаются до 12 доступных публикаций каждого источника. С одной публикации берётся не
-          больше 30 новых кандидатов; уже проверенные авторы не открываются повторно, их комментарий
-          добавляется к прежней оценке. Закреплённые записи могут влиять на порядок. Под каждой публикацией
-          читаются до 200 доступных комментариев с ограниченной подгрузкой. При повторном запуске комментарии
-          читаются заново. Оценки показывают соответствие услуге, а не вероятность покупки. Проверяем открытый
-          профиль каждого автора: биографию и признаки исполнителя. Закрытые профили, СМИ и магазины
-          исключаются. Аудио и видео не анализируются. При запросе входа поиск приостанавливается. Отправки
-          сообщений нет.
+          Аккаунт ищет, пока не наберёт свою цель подходящих лидов: сетка каждого источника прокручивается до
+          120 публикаций, они разбираются пачками по 12. С одной публикации берётся не больше 30 новых
+          кандидатов; уже проверенные авторы не открываются повторно, их комментарий добавляется к прежней
+          оценке. Закреплённые записи могут влиять на порядок. Под каждой публикацией читаются до 200
+          доступных комментариев с ограниченной подгрузкой. При повторном запуске комментарии читаются заново.
+          Оценки показывают соответствие услуге, а не вероятность покупки. Проверяем открытый профиль каждого
+          автора: биографию и признаки исполнителя. Закрытые профили, СМИ и магазины исключаются. Аудио и
+          видео не анализируются. При запросе входа поиск приостанавливается. Отправки сообщений нет.
         </p>
       </details>
       <div className="section-heading results-heading">
@@ -309,19 +203,11 @@ export function ScoutDiscovery() {
           <div className="empty-orbit">
             <Radar size={40} strokeWidth={1.3} />
           </div>
-          <h3>
-            {completedWithoutCandidates ? 'Поиск завершён без кандидатов' : 'Здесь начнутся новые знакомства'}
-          </h3>
+          <h3>Здесь начнутся новые знакомства</h3>
           <p>
-            {completedWithoutCandidates ? (
-              'Среди авторов доступных комментариев не нашлось профилей с подтверждёнными признаками исполнителя. Проверьте уведомления поиска или попробуйте другой источник.'
-            ) : (
-              <>
-                Добавьте источники и запустите поиск.
-                <br />
-                Здесь появятся подтверждённые артисты, оценки и контакты.
-              </>
-            )}
+            Добавьте источники и запустите поиск на одном из аккаунтов.
+            <br />
+            Здесь появятся подтверждённые артисты, оценки и контакты.
           </p>
           <span className="tag">БИТЫ · СВЕДЕНИЕ · ПРОДВИЖЕНИЕ</span>
         </div>

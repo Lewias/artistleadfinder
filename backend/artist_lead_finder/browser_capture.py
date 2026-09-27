@@ -179,15 +179,18 @@ class BrowserCaptureService:
             },
         )
         with self.sessions.begin() as session:
+            # One queue per browser profile; different accounts may run in parallel.
             active = session.scalar(
                 select(SearchJob.id)
                 .join(BrowserQueue)
                 .where(
-                    SearchJob.status.in_(["running", "paused"]), SearchJob.stage != "interrupted"
+                    BrowserQueue.profile_id == profile,
+                    SearchJob.status.in_(["running", "paused"]),
+                    SearchJob.stage != "interrupted",
                 )
             )
             if active:
-                raise ValueError("Browser queue already active")
+                raise ValueError("Для этого профиля уже идёт поиск. Остановите или завершите его.")
             job = SearchJob(
                 **config.model_dump(),
                 status="running",
@@ -262,7 +265,7 @@ class BrowserCaptureService:
                 {"provider": "instagram_browser", "message": queue.last_error},
             ]
 
-    def capture(self, job_id: int, snapshot: dict) -> dict:
+    def capture(self, job_id: int, snapshot: dict, advance: bool = True) -> dict:
         state = self.state(job_id)
         if state["status"] != "running":
             return {"saved": False}
@@ -305,12 +308,14 @@ class BrowserCaptureService:
                 job.profiles_analyzed += 1
                 job.artists_detected += int(result.artist)
                 job.qualified_leads += int(result.qualified)
-            queue.cursor += 1
-            queue.last_error = None
-            if queue.cursor >= len(queue.urls):
-                job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
-            else:
-                job.stage = "browser_loading"
+            # Scout runs advance their own queue (pace, goal, publication batches).
+            if advance:
+                queue.cursor += 1
+                queue.last_error = None
+                if queue.cursor >= len(queue.urls):
+                    job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
+                else:
+                    job.stage = "browser_loading"
             return {
                 "saved": True,
                 "lead_id": lead.id,
