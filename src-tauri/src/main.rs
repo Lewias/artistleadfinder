@@ -341,7 +341,7 @@ async fn browser_action(
         }
     }
     let result = backend_request(
-        core,
+        core.clone(),
         "browser.runtime.open".into(),
         json!({"id":id,"proxy_override":proxy_override}),
     )
@@ -356,9 +356,38 @@ async fn browser_action(
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
+    if result.is_ok() {
+        let closing = app.state::<BrowserClosing>().inner().clone();
+        let id = id.to_owned();
+        std::thread::spawn(move || watch_window(core, id, relays, closing));
+    }
     result
 }
 type BrowserClosing = Arc<std::sync::atomic::AtomicBool>;
+
+/// Polls an open profile window so the core notices a manual close promptly: it then
+/// saves the session cookies and shuts the browser, and the proxy relay is stopped.
+fn watch_window(core: Core, id: String, relays: ProxyRelays, closing: BrowserClosing) {
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        if closing.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        let open = tauri::async_runtime::block_on(backend_request(
+            core.clone(),
+            "browser.runtime.is_open".into(),
+            json!({"id":id}),
+        ));
+        if matches!(open, Ok(ref state) if state["open"] == false) {
+            if let Ok(mut map) = relays.lock() {
+                if let Some(stop) = map.remove(&id) {
+                    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+            break;
+        }
+    }
+}
 
 async fn read_script(core: Core, id: String, script: &'static str) -> Result<Value, String> {
     let result = backend_request(

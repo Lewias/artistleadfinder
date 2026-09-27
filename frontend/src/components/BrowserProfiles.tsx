@@ -156,6 +156,9 @@ export function BrowserProfiles() {
   const refresh = async () => setProfiles(await api.browser<BrowserProfile[]>('list'));
   useEffect(() => {
     void refresh().catch(err => setError(String(err)));
+    // Sessions are saved automatically when a browser window closes; keep counts current.
+    const timer = setInterval(() => void refresh().catch(() => undefined), 5000);
+    return () => clearInterval(timer);
   }, []);
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -291,7 +294,7 @@ export function BrowserProfiles() {
                     const result = await api.browser<{ warning?: string }>('open', { id: profile.id });
                     setMessage(
                       result.warning ||
-                        'Браузер открыт. Проверьте вход и сохраните сессию после ручной авторизации.',
+                        'Браузер открыт. Проверьте вход: сессия сохранится автоматически при закрытии окна.',
                     );
                   })
                 }
