@@ -6,6 +6,10 @@ export const activity = (value: string | null) => {
   const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000));
   return days === 0 ? 'Сегодня' : `${days} дн. назад`;
 };
+export const waitLabel = (seconds: number) => {
+  const total = Math.ceil(seconds);
+  return total < 60 ? `${total} с` : `${Math.ceil(total / 60)} мин`;
+};
 export const statusLabels: Record<string, string> = {
   new: 'Новый',
   reviewed: 'Просмотрен',

@@ -169,6 +169,37 @@ function SettingsForm({
           <p className={total === 100 ? 'helper' : 'error-text'}>Сумма весов: {total} / 100</p>
         </section>
         <section className="panel">
+          <h2>Темп сбора Instagram</h2>
+          <fieldset disabled={busy}>
+            {(
+              [
+                ['page_delay_min', 'Пауза между страницами от, с', 3, 300],
+                ['page_delay_max', 'Пауза между страницами до, с', settings.page_delay_min, 600],
+                ['profiles_per_hour', 'Профилей в час (0 — без лимита)', 0, 1000],
+                ['profiles_per_run', 'Профилей за запуск (0 — без лимита)', 0, 100000],
+                ['rate_limit_pause_minutes', 'Перерыв после ограничения, мин', 5, 1440],
+              ] as const
+            ).map(([key, label, min, max]) => (
+              <label key={key}>
+                {label}
+                <input
+                  required
+                  type="number"
+                  min={min}
+                  max={max}
+                  value={settings[key]}
+                  onChange={event => update(key, Number(event.target.value))}
+                />
+              </label>
+            ))}
+          </fieldset>
+          <p className="helper">
+            Пауза выбирается случайно в заданном диапазоне. При лимите в час очередь ждёт и продолжает сама.
+            Если Instagram ограничил запросы, очередь встаёт на паузу и после продолжения выдерживает перерыв.
+            Счётчики сбрасываются при перезапуске приложения.
+          </p>
+        </section>
+        <section className="panel">
           <h2>Источники поиска</h2>
           <div className="genre-options">
             {[

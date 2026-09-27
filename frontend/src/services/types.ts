@@ -107,6 +107,11 @@ export interface SettingsData {
   target_leads: number;
   enabled_providers: string[];
   weights: Record<string, number>;
+  page_delay_min: number;
+  page_delay_max: number;
+  profiles_per_hour: number;
+  profiles_per_run: number;
+  rate_limit_pause_minutes: number;
 }
 export interface ProviderHealth {
   provider: string;
@@ -140,4 +145,6 @@ export interface CaptureQueue {
   error: string | null;
   candidates?: number;
   notices?: string[];
+  wait_seconds?: number;
+  wait_reason?: string | null;
 }

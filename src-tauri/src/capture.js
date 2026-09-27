@@ -10,11 +10,13 @@
     }
     const body = (document.body?.innerText || '').slice(0, 20000);
     const dialog = document.querySelector('[role="dialog"]')?.innerText || '';
-    const blocked = /\/(accounts|challenge)\//.test(location.pathname)
+    // Rate limits need a break; other gates need the user (login, challenge).
+    const rateLimited = /try again later|too many requests|подождите несколько минут|повторите попытку позже/i.test(body);
+    const blocked = rateLimited || /\/(accounts|challenge)\//.test(location.pathname)
       || !!document.querySelector('input[type="password"]')
       || /log in|sign up|войти|зарегистрир/i.test(dialog)
       || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент/i.test(body)
-      || /try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body)
+      || /подтвердите.*личность/i.test(body)
       // Audience-restricted accounts render a login stub without the profile header.
       || /ограниченный профиль|restricted profile|недоступен для определ[её]нных аудиторий|not available (to|for) certain audiences/i.test(body);
     const root = document.querySelector('main header') || document.querySelector('main');
@@ -35,7 +37,7 @@
       } catch { /* Invalid page links are ignored. */ }
     }
     return { url, title: title.slice(0, 1000), description: description.slice(0, 12000),
-      header, external_url: external.slice(0, 2048), blocked,
+      header, external_url: external.slice(0, 2048), blocked, rate_limited: rateLimited,
       private: /this account is private|это закрытый аккаунт|закрытый профиль/i.test(body),
       ready: !blocked && document.readyState === 'complete'
         && titleUsername === username.toLowerCase()

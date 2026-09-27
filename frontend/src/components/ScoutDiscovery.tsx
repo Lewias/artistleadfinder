@@ -5,6 +5,7 @@ import { useResource } from '../hooks/useResource';
 import { Button } from './ui/button';
 import { LeadDetail } from './LeadDetail';
 import { parseScoutSources } from './scoutSources';
+import { waitLabel } from '../lib/format';
 import { ArrowUpRight, Radar, Radio, ScanSearch, SlidersHorizontal, Sparkles } from 'lucide-react';
 
 type Evidence = { source: string; url: string; caption: string; published_at: string | null };
@@ -220,6 +221,11 @@ export function ScoutDiscovery() {
                 }[queue.data.kind || ''] || ''}
                 : {queue.data.url}
               </p>
+              {!!queue.data.wait_seconds && queue.data.wait_reason && (
+                <p className="helper">
+                  {queue.data.wait_reason} Осталось {waitLabel(queue.data.wait_seconds)}.
+                </p>
+              )}
               <div className="actions">
                 <Button
                   variant="outline"

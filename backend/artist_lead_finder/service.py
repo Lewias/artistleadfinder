@@ -29,6 +29,7 @@ from .models import (
     Setting,
 )
 from .normalization import normalize
+from .pacing import PacingSettings
 from .pipeline import CandidatePipeline
 from .providers import ImportedDatasetProvider, MockProvider
 from .schemas import SearchConfiguration
@@ -114,6 +115,7 @@ DEFAULTS = {
     "target_leads": 500,
     "enabled_providers": ["mock"],
     "weights": ScoringWeights().model_dump(),
+    **PacingSettings().model_dump(),
 }
 
 
@@ -137,7 +139,7 @@ class ApplicationService:
         self.discovery = DiscoveryEngine(self.providers)
         self.manager = DiscoveryManager(sessions, self.discovery, self.pipeline)
         self.browser_capture = BrowserCaptureService(sessions)
-        self.scout = ScoutService(sessions, self.browser_capture)
+        self.scout = ScoutService(sessions, self.browser_capture, self.settings)
         self.handlers = self._handlers()
 
     def settings(self) -> dict:
@@ -194,6 +196,8 @@ class ApplicationService:
         }
 
     def _capture_error(self, params: dict) -> dict:
+        if params["reason"] == "rate_limited":
+            self.scout.pacer.rate_limited(self.scout.pacing())
         self.browser_capture.stop_with_error(int(params["id"]), params["reason"])
         return {"ok": True}
 
@@ -227,6 +231,7 @@ class ApplicationService:
             },
         )
         ScoringWeights.model_validate(settings["weights"])
+        PacingSettings.model_validate(settings)
         enabled = settings["enabled_providers"]
         if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
             raise ValueError("Источник недоступен.")

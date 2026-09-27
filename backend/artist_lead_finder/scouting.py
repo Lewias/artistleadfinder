@@ -18,6 +18,7 @@ from .models import (
     SearchJob,
     utcnow,
 )
+from .pacing import Pacer, PacingSettings
 from .providers import Candidate
 
 ARTIST = (
@@ -221,9 +222,14 @@ def add_evidence(session, candidate_url, observation, job_id) -> None:
 
 
 class ScoutService:
-    def __init__(self, sessions, capture):
+    def __init__(self, sessions, capture, settings=lambda: {}, pacer=None):
         self.sessions, self.capture = sessions, capture
+        self.settings = settings
+        self.pacer = pacer or Pacer()
         self.refreshed_date = None
+
+    def pacing(self) -> PacingSettings:
+        return PacingSettings.model_validate(self.settings())
 
     def sources(self, values=None):
         if values is not None:
@@ -263,12 +269,19 @@ class ScoutService:
             run = session.get(ScoutRun, job_id)
             if run:
                 cursor = result["cursor"]
+                kind = run.tasks[cursor]["kind"] if cursor < len(run.tasks) else "done"
                 result.update(
                     scout=True,
-                    kind=run.tasks[cursor]["kind"] if cursor < len(run.tasks) else "done",
+                    kind=kind,
                     notices=run.notices,
                     candidates=len(run.observations),
                 )
+                wait, reason = (
+                    self.pacer.wait(self.pacing(), kind)
+                    if result["status"] == "running"
+                    else (0.0, None)
+                )
+                result.update(wait_seconds=round(wait, 1), wait_reason=reason)
         return result
 
     def commit(self, job_id, snapshot):
@@ -429,15 +442,27 @@ class ScoutService:
                 session.get(SearchJob, job_id),
                 session.get(ScoutRun, job_id),
             )
+            pacing = self.pacing()
+            done = run.tasks[queue.cursor]
+            self.pacer.page_done(pacing, profile=done["kind"] == "profile")
             # Process source pages and publications before candidates, so all evidence is available.
             remaining = run.tasks[queue.cursor + 1 :] + (additions or [])
             remaining.sort(key=lambda task: task["kind"] == "profile")
+            notices = [notice] if notice else []
+            limit = pacing.profiles_per_run
+            checked = sum(t["kind"] == "profile" for t in run.tasks[: queue.cursor + 1])
+            if limit and checked >= limit and any(t["kind"] == "profile" for t in remaining):
+                skipped = sum(t["kind"] == "profile" for t in remaining)
+                remaining = [t for t in remaining if t["kind"] != "profile"]
+                notices.append(
+                    f"Достигнут лимит {limit} профилей за запуск; не проверено: {skipped}."
+                )
             run.tasks = run.tasks[: queue.cursor + 1] + remaining
             queue.urls = [task["url"] for task in run.tasks]
             queue.cursor += 1
             queue.last_error = None
-            if notice:
-                run.notices = [*run.notices[-29:], notice]
+            if notices:
+                run.notices = [*run.notices, *notices][-30:]
             if queue.cursor >= len(queue.urls):
                 job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
             else:

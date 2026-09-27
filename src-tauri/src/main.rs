@@ -414,7 +414,10 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             break;
         };
         if target != url {
-            if cooldown.elapsed() < Duration::from_secs(3) {
+            // The core paces page opens (delays, hourly cap, rate-limit breaks).
+            if cooldown.elapsed() < Duration::from_secs(3)
+                || state["wait_seconds"].as_f64().unwrap_or(0.0) > 0.0
+            {
                 continue;
             }
             if request("browser.runtime.navigate", json!({"id":id,"url":url})).is_err() {
@@ -449,9 +452,14 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
         }
         match observation {
             Ok(snapshot) if snapshot["blocked"] == true => {
+                let reason = if snapshot["rate_limited"] == true {
+                    "rate_limited"
+                } else {
+                    "blocked"
+                };
                 let _ = request(
                     "capture.error_internal",
-                    json!({"id":job_id,"reason":"blocked"}),
+                    json!({"id":job_id,"reason":reason}),
                 );
             }
             Ok(snapshot)

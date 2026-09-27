@@ -83,3 +83,11 @@ test('audience-restricted source is a login gate, not a loading failure', async 
   expect(restricted.blocked).toBe(true);
   expect(restricted.ready).toBe(false);
 });
+test('rate limit is flagged separately from login gates', async () => {
+  const limited = await extract('/music_news/', '', false, [], 'Повторите попытку позже');
+  expect(limited.blocked).toBe(true);
+  expect(limited.rate_limited).toBe(true);
+  const login = await extract('/music_news/', '', true);
+  expect(login.blocked).toBe(true);
+  expect(login.rate_limited).toBe(false);
+});

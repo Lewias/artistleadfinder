@@ -53,3 +53,9 @@ test('audience-restricted profile is reported as a login gate', () => {
   expect(restricted.blocked).toBe(true);
   expect(restricted.ready).toBe(false);
 });
+test('rate limit on a profile is flagged for a break', () => {
+  const limited = extract(false, 'artist', false, 'Please wait a few minutes. Try again later.');
+  expect(limited.blocked).toBe(true);
+  expect(limited.rate_limited).toBe(true);
+  expect(extract(true).rate_limited).toBe(false);
+});

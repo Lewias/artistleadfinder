@@ -3,13 +3,16 @@
   if (!['instagram.com', 'www.instagram.com'].includes(url.hostname)) return { ready: false };
   const body = (document.body?.innerText || '').slice(0, 30000);
   const dialog = document.querySelector('[role="dialog"]')?.innerText || '';
-  const blocked = /\/(accounts|challenge)\//.test(url.pathname)
+  // Rate limits need a break; other gates need the user (login, challenge).
+  const rateLimited = /try again later|too many requests|подождите несколько минут|повторите попытку позже/i.test(body);
+  const blocked = rateLimited
+    || /\/(accounts|challenge)\//.test(url.pathname)
     || Boolean(document.querySelector('input[type="password"]'))
     || /log in|sign up|войти|зарегистрир/i.test(dialog)
-    || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент|try again later|too many requests|подождите несколько минут|повторите попытку позже|подтвердите.*личность/i.test(body)
+    || /зарегистрируйтесь, чтобы|sign up to see|log in to see|смотрите фото, видео и другой контент|подтвердите.*личность/i.test(body)
     // Audience-restricted accounts render a login stub without the publication grid.
     || /ограниченный профиль|restricted profile|недоступен для определ[её]нных аудиторий|not available (to|for) certain audiences/i.test(body);
-  if (blocked) return { url: url.href, ready: false, blocked: true };
+  if (blocked) return { url: url.href, ready: false, blocked: true, rate_limited: rateLimited };
   const meta = key => document.querySelector(`meta[property="${key}"]`)?.content || '';
   const parts = url.pathname.split('/').filter(Boolean);
   if (parts.length === 1) {
@@ -116,9 +119,9 @@
       if (round === 13) { limited = true; break; }
       await new Promise(resolve => setTimeout(resolve, 750));
       if (location.href !== url.href) return { ready: false };
-      if (document.querySelector('input[type="password"]')
-          || /try again later|too many requests|подождите несколько минут/i.test(document.body?.innerText || '')) {
-        return { url: url.href, ready: false, blocked: true };
+      const limitedNow = /try again later|too many requests|подождите несколько минут|повторите попытку позже/i.test(document.body?.innerText || '');
+      if (limitedNow || document.querySelector('input[type="password"]')) {
+        return { url: url.href, ready: false, blocked: true, rate_limited: limitedNow };
       }
     }
     return { url: url.href, ready: document.readyState === 'complete' && Boolean(author),
