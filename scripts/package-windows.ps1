@@ -12,6 +12,7 @@ function Invoke-Checked {
 $testTemporaryPath = Join-Path $projectRoot ('build/test-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $projectRoot 'build') -Force | Out-Null
 Invoke-Checked $pythonRuntime @('-m', 'pytest', 'backend/tests', '-q', '-p', 'no:cacheprovider', '--basetemp', $testTemporaryPath)
+Remove-Item -LiteralPath $testTemporaryPath -Recurse -Force -ErrorAction SilentlyContinue
 Invoke-Checked $pythonRuntime @('-m', 'ruff', 'check', 'backend')
 Invoke-Checked 'npm.cmd' @('run', 'typecheck')
 Invoke-Checked 'npm.cmd' @('run', 'lint')
@@ -27,10 +28,6 @@ Invoke-Checked $pythonRuntime @('scripts/smoke-scout.py', $desktopExecutable)
 $portableDirectory = Join-Path $projectRoot 'artifacts/ArtistLeadFinder-Portable'
 New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
 $portableDirectories = @($portableDirectory)
-foreach ($legacyName in @('ArtistLeadFinder-Portable-Update', 'ArtistLeadFinder-Portable-Fixed', 'ArtistLeadFinder-Portable-Ready')) {
-    $legacyDirectory = Join-Path (Join-Path $projectRoot 'artifacts') $legacyName
-    if (Test-Path -LiteralPath $legacyDirectory -PathType Container) { $portableDirectories += $legacyDirectory }
-}
 $coreExecutable = Join-Path $projectRoot 'src-tauri/binaries/artist-core-x86_64-pc-windows-msvc.exe'
 $desktopHash = (Get-FileHash -LiteralPath $desktopExecutable -Algorithm SHA256).Hash
 $coreHash = (Get-FileHash -LiteralPath $coreExecutable -Algorithm SHA256).Hash
