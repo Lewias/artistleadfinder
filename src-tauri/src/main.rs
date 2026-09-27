@@ -367,7 +367,8 @@ async fn read_script(core: Core, id: String, script: &'static str) -> Result<Val
         json!({"id":id,"script":script}),
     )
     .await?;
-    if result.to_string().len() > 100_000 {
+    // Up to 200 comments of 1500 characters; Cyrillic takes two bytes per character.
+    if result.to_string().len() > 1_000_000 {
         return Err("Слишком большой ответ страницы".into());
     }
     Ok(result)

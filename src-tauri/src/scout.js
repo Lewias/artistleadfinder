@@ -60,7 +60,9 @@
     let stable = 0;
     let limited = false;
     const clicked = new WeakSet();
-    for (let round = 0; round < 8; round++) {
+    // Duplicates are filtered by the core, so read past its 30-new-candidate quota.
+    const full = () => comments.size >= 200 || new Set([...comments.values()].map(c => c.profile_url)).size >= 100;
+    for (let round = 0; round < 14; round++) {
       const before = comments.size;
       let lastRow = null;
       // A comment permalink distinguishes its author from caption tags and recommendations.
@@ -90,9 +92,9 @@
         comments.set(match[2], { profile_url: candidate, text: text.slice(0, 1500),
           published_at: time?.getAttribute('datetime') || null });
         lastRow = row;
-        if (comments.size >= 100) break;
+        if (full()) break;
       }
-      if (comments.size >= 100) { limited = true; break; }
+      if (full()) { limited = true; break; }
       const more = [...document.querySelectorAll('button,[role="button"]')].find(button => {
         const label = (button.innerText || button.getAttribute('aria-label') || '').trim();
         return !clicked.has(button) && /^(?:(?:load|view|show) (?:all |more |previous )?(?:comments|replies)|(?:показать|смотреть|загрузить) (?:все |ещ[её] |предыдущие )?(?:комментарии|ответы))/i.test(label);
@@ -111,7 +113,7 @@
       }
       stable = comments.size === before && !more ? stable + 1 : 0;
       if (stable >= 2) break;
-      if (round === 7) { limited = true; break; }
+      if (round === 13) { limited = true; break; }
       await new Promise(resolve => setTimeout(resolve, 750));
       if (location.href !== url.href) return { ready: false };
       if (document.querySelector('input[type="password"]')

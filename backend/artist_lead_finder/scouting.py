@@ -152,6 +152,74 @@ def assess(candidate, observations, now=None):
     }
 
 
+MAX_NEW_CANDIDATES_PER_POST = 30
+# Duplicates do not use the per-post quota, so more comments are read than candidates kept.
+MAX_COMMENTS_PER_POST = 200
+
+
+def checked_profiles(session, job_id) -> set[str]:
+    """Candidate profiles already visited by earlier scout runs."""
+    checked = set()
+    for run, queue in session.execute(
+        select(ScoutRun, BrowserQueue)
+        .join(BrowserQueue, BrowserQueue.job_id == ScoutRun.job_id)
+        .where(ScoutRun.job_id != job_id)
+    ):
+        checked.update(t["url"] for t in run.tasks[: queue.cursor] if t["kind"] == "profile")
+    return checked
+
+
+def add_evidence(session, candidate_url, observation, job_id) -> None:
+    """Attach a new comment to an already assessed lead without revisiting the profile."""
+    username = candidate_url.split("/")[-2]
+    lead = session.scalar(
+        select(Lead).where(Lead.platform == "instagram", Lead.username == username)
+    )
+    row = session.get(ScoutAssessment, lead.id) if lead else None
+    if row is None:
+        return
+    evidence = {
+        (e["url"], e.get("author"), e["caption"]): e
+        for e in row.details.get("evidence", [])
+        if e.get("kind") == "comment"
+    }
+    evidence[(observation["url"], observation["author"], observation["caption"])] = observation
+    updated = assess(
+        Candidate(
+            platform="instagram",
+            username=lead.username,
+            bio=lead.bio,
+            profile_url=lead.profile_url,
+            external_url=lead.external_url,
+        ),
+        list(evidence.values())[-30:],
+    )
+    updated["profile_checked_at"] = row.details.get(
+        "profile_checked_at", row.details["evaluated_at"]
+    )
+    row.details, row.priority = updated, updated["priority"]
+    row.eligible = row.eligible and updated["eligible"]
+    exists = session.scalar(
+        select(LeadSource.id).where(
+            LeadSource.lead_id == lead.id,
+            LeadSource.search_job_id == job_id,
+            LeadSource.source_provider == "instagram_scout",
+            LeadSource.source_type == "comment",
+            LeadSource.source_value == observation["url"],
+        )
+    )
+    if exists is None:
+        session.add(
+            LeadSource(
+                lead_id=lead.id,
+                search_job_id=job_id,
+                source_provider="instagram_scout",
+                source_type="comment",
+                source_value=observation["url"],
+            )
+        )
+
+
 class ScoutService:
     def __init__(self, sessions, capture):
         self.sessions, self.capture = sessions, capture
@@ -301,7 +369,9 @@ class ScoutService:
                     if snapshot.get("comments_limited"):
                         notice = "Прочитана доступная часть комментариев: " + task["url"]
                     candidates = []
-                    for comment in comments[:100]:
+                    checked = checked_profiles(session, job_id)
+                    fresh, duplicates, limited = 0, set(), False
+                    for comment in comments[:MAX_COMMENTS_PER_POST]:
                         if not isinstance(comment, dict):
                             continue
                         try:
@@ -310,9 +380,12 @@ class ScoutService:
                             continue
                         if candidate == task["source"]:
                             continue
-                        if candidate not in observations and len(observations) >= 100:
-                            notice = "Достигнут лимит 100 кандидатов за запуск."
-                            break
+                        # Candidates already queued in this run or checked in an earlier one
+                        # are duplicates: they gain evidence but are not visited again.
+                        duplicate = candidate in known or candidate in checked
+                        if not duplicate and fresh >= MAX_NEW_CANDIDATES_PER_POST:
+                            limited = True
+                            continue
                         candidates.append(candidate)
                         obs = {
                             "source": task["source"],
@@ -325,9 +398,19 @@ class ScoutService:
                         evidence = observations.get(candidate, [])
                         if obs not in evidence:
                             observations[candidate] = [*evidence, obs][-30:]
-                        if candidate not in known:
+                        if duplicate:
+                            duplicates.add(candidate)
+                            if candidate in checked and candidate not in known:
+                                add_evidence(session, candidate, obs, job_id)
+                        else:
+                            fresh += 1
                             additions.append({"kind": "profile", "url": candidate})
                             known.add(candidate)
+                    summary = f"{canonical}: новых кандидатов {fresh}, повторов {len(duplicates)}"
+                    if limited:
+                        summary += f"; достигнут лимит {MAX_NEW_CANDIDATES_PER_POST} новых"
+                    if duplicates or limited:
+                        notice = f"{notice}; {summary}" if notice else summary
                     stored = session.get(ScoutPost, canonical)
                     if stored is None:
                         stored = ScoutPost(url=canonical, source=task["source"])

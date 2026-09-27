@@ -254,3 +254,81 @@ def test_empty_comments_do_not_fall_back_to_caption(tmp_path):
     assert state["notices"]
     service.shutdown()
     engine.dispose()
+
+
+def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
+    engine, sessions = open_database(tmp_path / "quota.db")
+    service = ApplicationService(sessions, tmp_path)
+    params = {"sources": [SOURCE], "profile_id": "0" * 32}
+    posts = [f"https://www.instagram.com/p/post{n}/" for n in range(5)]
+
+    def commenters(post, count):
+        return [
+            dict(profile_url=f"https://www.instagram.com/fan_{post}_{i}/", text="fire")
+            for i in range(count)
+        ]
+
+    job = service.call("scout.start_internal", params)["id"]
+
+    def commit(snapshot):
+        return service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
+
+    commit(dict(url=SOURCE, ready=True, posts=posts))
+    # Post 0: the artist, 40 other unique commenters and a repeated comment from the artist.
+    commit(
+        dict(
+            url=posts[0],
+            ready=True,
+            author="music_news",
+            comments=[
+                dict(profile_url=ARTIST, text="I need beats"),
+                *commenters(0, 40),
+                dict(profile_url=ARTIST, text="Still need beats"),
+            ],
+        )
+    )
+    # Posts 1-4 repeat the artist; duplicates must not use the 30-candidate quota.
+    for n in range(1, 5):
+        commit(
+            dict(
+                url=posts[n],
+                ready=True,
+                author="music_news",
+                comments=[dict(profile_url=ARTIST, text=f"beats {n}"), *commenters(n, 35)],
+            )
+        )
+    state = service.call("capture.state", {"id": job})
+    assert state["candidates"] == 150  # 5 posts x 30 new; the old 100-per-run cap is gone
+    with sessions() as session:
+        run = session.get(ScoutRun, job)
+        profiles = [t["url"] for t in run.tasks if t["kind"] == "profile"]
+    assert len(profiles) == len(set(profiles)) == 150
+    assert ARTIST in profiles
+    assert any("новых кандидатов 30, повторов 1; достигнут лимит 30" in n for n in state["notices"])
+
+    while (state := service.call("capture.state", {"id": job}))["status"] == "running":
+        url = state["url"]
+        commit(profile() if url == ARTIST else profile(url.split("/")[-2], "Just a fan"))
+    [lead] = service.call("scout.results", {})
+    assert lead["username"] == "new_rapper"
+    evidence_before = len(lead["evidence"])
+
+    # A later run treats the already checked artist as a duplicate and only adds evidence.
+    job = service.call("scout.start_internal", params)["id"]
+    commit(dict(url=SOURCE, ready=True, posts=[posts[0]]))
+    commit(
+        dict(
+            url=posts[0],
+            ready=True,
+            author="music_news",
+            comments=[dict(profile_url=ARTIST, text="Need a mix for my new track")],
+        )
+    )
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "completed"  # no profile revisit was queued
+    assert any("новых кандидатов 0, повторов 1" in n for n in state["notices"])
+    [lead] = service.call("scout.results", {})
+    assert len(lead["evidence"]) == min(evidence_before + 1, 5)
+    assert lead["evidence"][-1]["caption"] == "Need a mix for my new track"
+    service.shutdown()
+    engine.dispose()
