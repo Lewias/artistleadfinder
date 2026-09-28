@@ -121,7 +121,9 @@ function AccountCard({
   const percent = Math.min(100, Math.round((row.found / Math.max(1, row.target)) * 100));
   const continuing = (run?.status === 'paused' && run.stage !== 'interrupted') || (row.found > 0 && !reached);
   const status = runStatus(row);
-  const tone = reached ? 'green' : running ? 'violet' : run?.error ? 'amber' : 'muted';
+  // Errors of finished runs are history, not something that needs attention now.
+  const attention = active && Boolean(run?.error);
+  const tone = reached ? 'green' : running ? 'violet' : attention ? 'amber' : 'muted';
   return (
     <article className="panel account-card">
       <div className="account-head">
@@ -224,7 +226,7 @@ function AccountCard({
           )}
         </p>
       )}
-      {(error || run?.error) && (
+      {(error || attention) && (
         <p role="alert" className="error-text">
           {error || run?.error}
         </p>

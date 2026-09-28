@@ -107,7 +107,7 @@ textarea {
 /* ---------- Shell ---------- */
 .app-shell {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 262px minmax(0, 1fr);
   height: 100%;
 }
 .sidebar {
@@ -122,8 +122,8 @@ textarea {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 2px 8px 22px;
+  gap: 8px;
+  padding: 2px 6px 22px;
 }
 .brand-logo {
   display: grid;

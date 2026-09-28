@@ -5,6 +5,7 @@ import { useResource } from '../hooks/useResource';
 import { Button } from './ui/button';
 import { LeadDetail } from './LeadDetail';
 import { PageHeader } from './PageHeader';
+import { plural } from '../lib/format';
 import { parseScoutSources, sourceEntries, sourceHandle } from './scoutSources';
 import { ScoutAccounts } from './ScoutAccounts';
 
@@ -89,7 +90,7 @@ export function ScoutDiscovery() {
   const full = sources.length >= MAX_SOURCES;
   return (
     <section className="scout-workspace">
-      <PageHeader page="discovery" count={`${sources.length} источников`} />
+      <PageHeader page="discovery" count={plural(sources.length, ['источник', 'источника', 'источников'])} />
       <div className="panel source-board">
         <div className="chip-cloud" aria-label="Источники">
           {sources.map(url => (
