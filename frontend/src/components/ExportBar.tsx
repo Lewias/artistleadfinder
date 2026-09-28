@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api } from '../services/api';
 import type { LeadQuery } from '../services/types';
+import { Download } from 'lucide-react';
 import { Button } from './ui/button';
 
 export function ExportBar({ query, selected }: { query: LeadQuery; selected: number[] }) {
@@ -35,17 +36,20 @@ export function ExportBar({ query, selected }: { query: LeadQuery; selected: num
     <div className="export-bar">
       <div className="actions">
         <Button
-          variant="outline"
-          disabled={busy || !selected.length}
-          onClick={() => void exportLeads('selected')}
+          variant="green"
+          disabled={busy}
+          title="Экспорт в CSV по текущим фильтрам"
+          onClick={() => void exportLeads('filtered')}
         >
-          Выбранные ({selected.length}) → CSV
+          <Download size={15} /> Экспорт
         </Button>
-        <Button variant="outline" disabled={busy} onClick={() => void exportLeads('filtered')}>
-          По фильтрам → CSV
-        </Button>
+        {selected.length > 0 && (
+          <Button variant="outline" disabled={busy} onClick={() => void exportLeads('selected')}>
+            Выбранные ({selected.length})
+          </Button>
+        )}
         <Button variant="outline" disabled={busy} onClick={() => void exportLeads('all')}>
-          Вся база → CSV
+          Вся база
         </Button>
       </div>
       {busy && (

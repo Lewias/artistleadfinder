@@ -36,3 +36,17 @@ export function parseScoutSources(text: string): { values: string[]; error: stri
   }
   return { values, error: '' };
 }
+
+/** Splits typed or pasted text into entries; bare handles like `rapgoat.tv` become `@rapgoat.tv`. */
+export function sourceEntries(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map(value => value.trim())
+    .filter(Boolean)
+    .map(value => (/^[a-zA-Z0-9_.]{1,30}$/.test(value) ? `@${value}` : value));
+}
+
+/** Instagram username shown on a source chip. */
+export function sourceHandle(url: string): string {
+  return url.match(/instagram\.com\/([^/?#]+)/i)?.[1] ?? url.replace(/^@/, '');
+}

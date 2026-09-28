@@ -17,18 +17,21 @@ const split = (value: string) =>
 export function Discovery() {
   const settings = useResource<SettingsData>('settings.get');
   const jobs = useResource<SearchJob[]>('jobs.list', {}, 1000);
-  if (!settings.data) return <DataState {...settings} retry={settings.refresh} />;
   return (
     <>
       <ScoutDiscovery />
-      <details>
-        <summary>Дополнительные инструменты: поиск ссылок, ручной сбор и импорт</summary>
+      <details className="extra-tools">
+        <summary>Дополнительные инструменты: ручной сбор ссылок и демонстрационный поиск</summary>
         <BrowserDiscovery />
         <div className="notice">
           Ниже — поиск по демонстрационному или импортированному набору. Для реальных страниц используйте
           браузер выше.
         </div>
-        <DiscoveryForm settings={settings.data} jobs={jobs.data || []} refresh={jobs.refresh} />
+        {settings.data ? (
+          <DiscoveryForm settings={settings.data} jobs={jobs.data || []} refresh={jobs.refresh} />
+        ) : (
+          <DataState {...settings} retry={settings.refresh} />
+        )}
         {jobs.error && <DataState {...jobs} retry={jobs.refresh} />}
       </details>
     </>

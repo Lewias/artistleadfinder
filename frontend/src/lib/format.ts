@@ -10,6 +10,12 @@ export const waitLabel = (seconds: number) => {
   const total = Math.ceil(seconds);
   return total < 60 ? `${total} с` : `${Math.ceil(total / 60)} мин`;
 };
+export const sourceLabels: Record<string, string> = {
+  mock: 'Демо',
+  imported: 'Импорт',
+  instagram_scout: 'Скаут',
+  instagram_browser: 'Браузер',
+};
 export const statusLabels: Record<string, string> = {
   new: 'Новый',
   reviewed: 'Просмотрен',

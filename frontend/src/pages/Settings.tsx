@@ -6,6 +6,7 @@ import type { ProviderHealth, SettingsData } from '../services/types';
 import { date } from '../lib/format';
 import { DataState } from '../components/DataState';
 import { Button } from '../components/ui/button';
+import { PageHeader } from '../components/PageHeader';
 
 const weightNames: Record<string, string> = {
   artist: 'Вероятный артист',
@@ -19,7 +20,13 @@ const weightNames: Record<string, string> = {
 export function Settings() {
   const resource = useResource<SettingsData>('settings.get');
   const health = useResource<ProviderHealth[]>('providers.health', {}, 5000);
-  if (!resource.data) return <DataState {...resource} retry={resource.refresh} />;
+  if (!resource.data)
+    return (
+      <>
+        <PageHeader page="settings" />
+        <DataState {...resource} retry={resource.refresh} />
+      </>
+    );
   return (
     <SettingsForm
       initial={resource.data}
@@ -86,6 +93,7 @@ function SettingsForm({
   };
   return (
     <>
+      <PageHeader page="settings" />
       <form onSubmit={event => void submit(event)} className="settings-layout">
         <section className="panel">
           <h2>Поиск по умолчанию</h2>

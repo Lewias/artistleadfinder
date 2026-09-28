@@ -6,6 +6,7 @@ import { DataState, StatusBadge } from '../components/DataState';
 import { JobProgress } from '../components/JobProgress';
 import { Button } from '../components/ui/button';
 import { Leads } from './Leads';
+import { PageHeader } from '../components/PageHeader';
 
 function duration(job: SearchJob) {
   if (!job.started_at) return '—';
@@ -23,6 +24,7 @@ export function SearchHistory() {
   const job = resource.data?.find(item => item.id === selected);
   return (
     <>
+      <PageHeader page="history" count={resource.data?.length} />
       <DataState {...resource} retry={resource.refresh} />
       {resource.data && (
         <>

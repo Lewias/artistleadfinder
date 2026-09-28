@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseScoutSources } from './scoutSources';
+import { parseScoutSources, sourceEntries, sourceHandle } from './scoutSources';
 
 test('identifies the mistyped source in a multiline list without changing the input', () => {
   const values = [
@@ -32,4 +32,14 @@ test('reports the source limit and allows an empty form without an error', () =>
   expect(parseScoutSources(Array.from({ length: 21 }, (_, i) => `@source${i}`).join('\n')).error).toContain(
     '20',
   );
+});
+
+test('chip input accepts bare handles, handles and links; chips show the username', () => {
+  expect(sourceEntries(' rapgoat.tv, @topdailyrap\nhttps://www.instagram.com/rapczn/ ')).toEqual([
+    '@rapgoat.tv',
+    '@topdailyrap',
+    'https://www.instagram.com/rapczn/',
+  ]);
+  expect(parseScoutSources(sourceEntries('rapgoat.tv viralraps').join('\n')).error).toBe('');
+  expect(sourceHandle('https://www.instagram.com/rapgoat.tv/')).toBe('rapgoat.tv');
 });

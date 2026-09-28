@@ -5,24 +5,32 @@ import { number, date, statusLabels } from '../lib/format';
 import { DataState, StatusBadge } from '../components/DataState';
 import { Button } from '../components/ui/button';
 import type { PageId } from '../navigation';
+import { PageHeader } from '../components/PageHeader';
 
 export function Dashboard({ navigate }: { navigate: (page: PageId) => void }) {
   const resource = useResource<DashboardData>('dashboard.get', {}, 5000);
   const { data } = resource;
-  if (!data) return <DataState {...resource} retry={resource.refresh} />;
+  if (!data)
+    return (
+      <>
+        <PageHeader page="dashboard" />
+        <DataState {...resource} retry={resource.refresh} />
+      </>
+    );
   return (
     <>
+      <PageHeader page="dashboard" />
       {resource.error && <DataState {...resource} retry={resource.refresh} />}
-      <div className="metrics">
+      <div className="stat-cards">
         {[
           { label: 'Всего профилей', value: data.total },
           { label: 'Подходящие лиды', value: data.qualified },
           { label: 'Открыто сегодня', value: data.today },
           { label: 'Активные поиски', value: data.active },
         ].map(metric => (
-          <div className="metric" key={metric.label}>
-            <span>{metric.label}</span>
+          <div className="stat-card" key={metric.label}>
             <strong>{number(metric.value)}</strong>
+            <span>{metric.label}</span>
           </div>
         ))}
       </div>
@@ -39,7 +47,7 @@ export function Dashboard({ navigate }: { navigate: (page: PageId) => void }) {
               Перейти к скаутингу <ArrowRight size={16} />
             </Button>
           </div>
-          <Compass size={100} strokeWidth={0.7} color="#7a2bf0" />
+          <Compass size={96} strokeWidth={0.8} />
         </div>
       }
       <div className="dashboard-grid">

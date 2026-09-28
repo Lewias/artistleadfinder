@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, Square, UserRound } from 'lucide-react';
+import { Activity, ExternalLink, Globe2, Play, RotateCcw, SkipForward, Square, Target } from 'lucide-react';
 import { api } from '../services/api';
 import type { ScoutAccountRow } from '../services/types';
 import { useResource } from '../hooks/useResource';
@@ -23,31 +23,37 @@ export function ScoutAccounts({
   onChange: () => void;
 }) {
   const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 2000);
-  if (accounts.data?.length === 0) {
-    return (
-      <div className="panel">
-        <h2>Аккаунты</h2>
-        <p className="helper">
-          Создайте браузерный профиль во вкладке «Профили» и войдите в Instagram — здесь появится строка для
-          запуска поиска.
-        </p>
-      </div>
-    );
-  }
+  const rows = accounts.data || [];
+  const running = rows.filter(row => row.run?.status === 'running' && row.run.stage !== 'interrupted').length;
+  const found = rows.reduce((sum, row) => sum + row.found, 0);
   return (
-    <div className="panel scout-accounts">
-      <h2>Аккаунты</h2>
-      <p className="helper">
-        У каждого аккаунта своя цель, свой темп и своё окно браузера. Аккаунты работают независимо и могут
-        искать одновременно; один и тот же кандидат не проверяется дважды.
-      </p>
+    <section className="accounts-section">
+      <div className="section-title">
+        <h2>
+          Аккаунты <span className="page-count">{rows.length}</span>
+        </h2>
+        <div className="stat-pills">
+          <span className="stat-pill">
+            <Activity size={13} /> Запущено <b>{running}</b>
+          </span>
+          <span className="stat-pill">
+            <Target size={13} /> Найдено <b>{found}</b>
+          </span>
+        </div>
+      </div>
       {accounts.error && (
         <p role="alert" className="error-text">
           {accounts.error}
         </p>
       )}
-      {accounts.data?.map(row => (
-        <AccountRow
+      {accounts.data?.length === 0 && (
+        <div className="panel empty-panel">
+          Создайте профиль в разделе «Аккаунты» и войдите в Instagram — здесь появится карточка для запуска
+          поиска.
+        </div>
+      )}
+      {rows.map(row => (
+        <AccountCard
           key={row.profile.id}
           row={row}
           disabled={disabled}
@@ -58,11 +64,11 @@ export function ScoutAccounts({
           }}
         />
       ))}
-    </div>
+    </section>
   );
 }
 
-function AccountRow({
+function AccountCard({
   row,
   disabled,
   saveSources,
@@ -80,6 +86,7 @@ function AccountRow({
   const { profile, run } = row;
   const id = profile.id;
   const active = Boolean(run && ['running', 'paused'].includes(run.status) && run.stage !== 'interrupted');
+  const running = active && run?.status === 'running';
   const reached = row.found >= row.target;
   const targetValue = Number(target);
   const targetValid = Number.isInteger(targetValue) && targetValue >= 1 && targetValue <= 10000;
@@ -113,49 +120,25 @@ function AccountRow({
     });
   const percent = Math.min(100, Math.round((row.found / Math.max(1, row.target)) * 100));
   const continuing = (run?.status === 'paused' && run.stage !== 'interrupted') || (row.found > 0 && !reached);
+  const status = runStatus(row);
+  const tone = reached ? 'green' : running ? 'violet' : run?.error ? 'amber' : 'muted';
   return (
-    <article className="account-row">
-      <div className="account-info">
-        <div className="avatar">
-          <UserRound size={18} />
-        </div>
+    <article className="panel account-card">
+      <div className="account-head">
         <div>
           <h3>{profile.name}</h3>
-          <p className="helper">
-            {profile.cookie_count
-              ? `Сессия сохранена (${profile.cookie_count} cookies)`
-              : 'Сессия не сохранена'}
-            {' · '}
-            {profile.proxy ? `Прокси ${profile.proxy.host}:${profile.proxy.port}` : 'Без прокси'}
-          </p>
-          <p>
-            <strong>{runStatus(row)}</strong>
-            {run && active && run.kind && stepLabels[run.kind] && (
-              <span className="helper">
-                {' '}
-                · {stepLabels[run.kind]}
-                {run.url ? `: ${run.url}` : ''}
-              </span>
-            )}
-          </p>
-          {active && run?.status === 'running' && !!run.wait_seconds && run.wait_reason && (
-            <p className="helper">
-              {run.wait_reason} Осталось {waitLabel(run.wait_seconds)}.
-            </p>
-          )}
-          {run && (
-            <p className="helper">
-              В последнем запуске: найдено {run.found ?? 0}, кандидатов {run.candidates ?? 0}, публикаций в
-              запасе {run.backlog ?? 0}
-            </p>
-          )}
+          <div className="account-meta">
+            <Globe2 size={13} />
+            <span>{profile.proxy ? `${profile.proxy.host}:${profile.proxy.port}` : '—'}</span>
+            <span className={`dot ${profile.cookie_count ? 'ok' : 'off'}`} />
+            <span>{profile.cookie_count ? 'Сессия сохранена' : 'Нет сессии'}</span>
+          </div>
         </div>
+        <span className={`status-chip ${tone}`}>{status}</span>
       </div>
-      <div className="account-goal">
-        <div className="goal-line">
-          <span>
-            Найдено <strong>{row.found}</strong> из
-          </span>
+      <div className="account-controls">
+        <label className="goal-field" title="Цель: сколько подходящих лидов найти">
+          <Target size={15} aria-hidden="true" />
           <input
             aria-label={`Цель для ${profile.name}`}
             type="number"
@@ -166,53 +149,88 @@ function AccountRow({
             onChange={event => setTarget(event.target.value)}
             onBlur={() => targetValid && void act(() => saveTarget())}
           />
-          <span>лидов</span>
-        </div>
-        <progress value={percent} max={100} />
-        <div className="actions">
-          {run?.status === 'running' && active ? (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => void act(() => api.request('jobs.control', { id: run.id, action: 'pause' }))}
-            >
-              <Square size={15} /> Стоп
-            </Button>
-          ) : (
-            <Button disabled={busy || disabled || !targetValid || reached} onClick={() => void start()}>
-              <Play size={15} /> {continuing ? 'Продолжить' : 'Запуск'}
-            </Button>
-          )}
-          {run?.status === 'paused' && active && run.error && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => void act(() => api.request('scout.skip', { id: run.id }))}
-            >
-              Пропустить страницу
-            </Button>
-          )}
-          {reached && (
-            <Button variant="outline" disabled={busy} onClick={() => void act(() => saveTarget(true))}>
-              Новая цель с нуля
-            </Button>
-          )}
+        </label>
+        {running ? (
           <Button
             variant="outline"
             disabled={busy}
+            onClick={() => void act(() => api.request('jobs.control', { id: run!.id, action: 'pause' }))}
+          >
+            <Square size={14} /> Стоп
+          </Button>
+        ) : (
+          <Button disabled={busy || disabled || !targetValid || reached} onClick={() => void start()}>
+            <Play size={14} /> {continuing ? 'Продолжить' : 'Запуск'}
+          </Button>
+        )}
+        <span className="goal-progress">
+          Найдено <b>{row.found}</b> из {row.target}
+        </span>
+        <div className="icon-actions">
+          {run?.status === 'paused' && active && run.error && (
+            <Button
+              icon
+              variant="outline"
+              aria-label="Пропустить страницу"
+              title="Пропустить страницу"
+              disabled={busy}
+              onClick={() => void act(() => api.request('scout.skip', { id: run.id }))}
+            >
+              <SkipForward size={16} />
+            </Button>
+          )}
+          {reached && (
+            <Button
+              icon
+              variant="outline"
+              aria-label="Новая цель с нуля"
+              title="Новая цель с нуля"
+              disabled={busy}
+              onClick={() => void act(() => saveTarget(true))}
+            >
+              <RotateCcw size={16} />
+            </Button>
+          )}
+          <Button
+            icon
+            variant="outline"
+            aria-label="Открыть браузер"
+            title="Открыть браузер"
+            disabled={busy}
             onClick={() => void act(() => api.browser('open', { id }))}
           >
-            Открыть браузер
+            <ExternalLink size={16} />
           </Button>
         </div>
       </div>
+      <div className="goal-bar" aria-hidden="true">
+        <i style={{ width: `${percent}%` }} />
+      </div>
+      {run && (
+        <p className="account-detail">
+          {active && run.kind && stepLabels[run.kind] ? (
+            <>
+              {stepLabels[run.kind]}
+              {run.url ? ` · ${run.url.replace('https://www.instagram.com', '')}` : ''}
+              {running && !!run.wait_seconds && run.wait_reason
+                ? ` · ${run.wait_reason} Осталось ${waitLabel(run.wait_seconds)}.`
+                : ''}
+            </>
+          ) : (
+            <>
+              Последний запуск: найдено {run.found ?? 0}, кандидатов {run.candidates ?? 0}, публикаций в
+              запасе {run.backlog ?? 0}
+            </>
+          )}
+        </p>
+      )}
       {(error || run?.error) && (
-        <p role="alert" className="error-text full">
+        <p role="alert" className="error-text">
           {error || run?.error}
         </p>
       )}
       {!!run?.notices?.length && (
-        <details className="full">
+        <details className="account-notices">
           <summary>Пропуски и замечания ({run.notices.length})</summary>
           {run.notices.map((notice, i) => (
             <p key={i}>{notice}</p>

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Cookie, Globe2, Plus, ShieldCheck } from 'lucide-react';
+import { Cookie, ExternalLink, Globe2, Pencil, Plus, Save, ShieldCheck, Trash2, X } from 'lucide-react';
+import { PageHeader } from './PageHeader';
 import { api } from '../services/api';
 import type { BrowserProfile, BrowserProxy } from '../services/types';
 import { Button } from './ui/button';
@@ -153,6 +154,7 @@ export function BrowserProfiles() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const refresh = async () => setProfiles(await api.browser<BrowserProfile[]>('list'));
   useEffect(() => {
     void refresh().catch(err => setError(String(err)));
@@ -178,6 +180,7 @@ export function BrowserProfiles() {
     void run(async () => {
       await api.browser('create', { name: draft.name.trim(), proxy: getProxy(draft) });
       setDraft(emptyForm());
+      setCreating(false);
       setMessage('Профиль создан. Откройте его, чтобы войти в Instagram вручную, или импортируйте cookies.');
     });
   };
@@ -200,93 +203,109 @@ export function BrowserProfiles() {
       setMessage('Настройки профиля сохранены. Прокси применится при следующем открытии браузера.');
     });
   };
+  const withSession = profiles.filter(profile => profile.cookie_count > 0).length;
+  const withProxy = profiles.filter(profile => profile.proxy).length;
   return (
     <div className="profiles-page">
-      <div className="profiles-intro">
-        <ShieldCheck size={19} />
-        <span>
-          Каждый профиль открывается в отдельной сессии. Сохранённые cookies и настройки прокси защищены
-          Windows DPAPI.
+      <PageHeader
+        page="profiles"
+        count={profiles.length}
+        actions={
+          <Button onClick={() => setCreating(value => !value)}>
+            {creating ? <X size={16} /> : <Plus size={16} />} {creating ? 'Закрыть' : 'Новый профиль'}
+          </Button>
+        }
+      >
+        <div className="stat-pills">
+          <span className="stat-pill">
+            <Cookie size={13} /> Сессии <b>{withSession}</b>
+          </span>
+          <span className="stat-pill">
+            <Globe2 size={13} /> С прокси <b>{withProxy}</b>
+          </span>
+        </div>
+      </PageHeader>
+      <div className="panel info-bar">
+        <ShieldCheck size={17} />
+        <span>Изоляция сессий</span>
+        <span className="tag">Windows DPAPI</span>
+        <span className="helper">
+          Каждый профиль — отдельное окно Chromium. Cookies и пароль прокси хранятся зашифрованными.
         </span>
       </div>
-      <section className="panel profile-create">
-        <div className="profile-section-title">
-          <div>
-            <span className="profile-kicker">НОВЫЙ ПРОФИЛЬ</span>
-            <h2>Добавить профиль</h2>
-            <p className="helper">
-              Создайте пустую сессию. Войти можно вручную после открытия окна или через импорт собственных
-              cookies.
-            </p>
-          </div>
-          <Plus size={22} />
-        </div>
-        <form onSubmit={create}>
-          <label>
-            Название профиля
-            <input
-              maxLength={80}
-              required
-              value={draft.name}
+      {creating && (
+        <section className="panel profile-create">
+          <h2>Новый профиль</h2>
+          <p className="helper">
+            Создайте пустую сессию. Войти можно вручную после открытия окна или через импорт собственных
+            cookies.
+          </p>
+          <form onSubmit={create}>
+            <label>
+              Название профиля
+              <input
+                maxLength={80}
+                required
+                value={draft.name}
+                disabled={busy}
+                placeholder="Например, рабочий Instagram"
+                onChange={event => setDraft({ ...draft, name: event.target.value })}
+              />
+            </label>
+            <ProxyFields
+              value={draft.proxy}
+              input={draft.proxyInput}
               disabled={busy}
-              placeholder="Например, рабочий Instagram"
-              onChange={event => setDraft({ ...draft, name: event.target.value })}
+              onChange={proxy => setDraft(current => ({ ...current, proxy }))}
+              onInputChange={proxyInput => setDraft(current => ({ ...current, proxyInput }))}
             />
-          </label>
-          <ProxyFields
-            value={draft.proxy}
-            input={draft.proxyInput}
-            disabled={busy}
-            onChange={proxy => setDraft(current => ({ ...current, proxy }))}
-            onInputChange={proxyInput => setDraft(current => ({ ...current, proxyInput }))}
-          />
-          <Button type="submit" disabled={busy || !draft.name.trim()}>
-            Создать профиль
-          </Button>
-        </form>
-        <p className="helper profile-footnote">
-          Поддерживаются HTTP и SOCKS5 с логином и паролем. Пароль хранится зашифрованным и не показывается
-          после сохранения.
+            <div className="actions">
+              <Button type="submit" disabled={busy || !draft.name.trim()}>
+                Создать профиль
+              </Button>
+            </div>
+          </form>
+          <p className="helper">
+            Поддерживаются HTTP и SOCKS5 с логином и паролем. Пароль не показывается после сохранения.
+          </p>
+        </section>
+      )}
+      {message && (
+        <p role="status" className="notice">
+          {message}
         </p>
-      </section>
-      <div className="profile-list-heading">
-        <h2>
-          Ваши профили <span>{profiles.length}</span>
-        </h2>
-        <p className="helper">Для смены прокси или cookies сначала закройте окно соответствующего профиля.</p>
-      </div>
+      )}
+      {error && (
+        <p role="alert" className="error-text">
+          {error}
+        </p>
+      )}
       {profiles.length === 0 && (
-        <div className="panel profile-empty">Пока нет профилей. Создайте первый выше.</div>
+        <div className="panel empty-panel">Пока нет профилей. Нажмите «Новый профиль».</div>
       )}
       <div className="profile-list">
         {profiles.map(profile => (
-          <section className="panel profile-card" key={profile.id}>
-            <div className="profile-card-head">
-              <div className="profile-avatar">{profile.name.charAt(0).toUpperCase()}</div>
-              <div className="profile-identity">
+          <section className="panel account-card" key={profile.id}>
+            <div className="account-head">
+              <div>
                 <h3>{profile.name}</h3>
-                <span>Instagram · отдельная сессия</span>
+                <div className="account-meta">
+                  <Globe2 size={13} />
+                  <span>
+                    {profile.proxy
+                      ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}${profile.proxy.has_password ? ' · с авторизацией' : ''}`
+                      : '—'}
+                  </span>
+                  <span className={`dot ${profile.cookie_count ? 'ok' : 'off'}`} />
+                  <span>
+                    {profile.cookie_count
+                      ? `Сессия сохранена · ${profile.cookie_count} cookies`
+                      : 'Cookies не добавлены'}
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="profile-facts">
-              <div>
-                <Cookie size={16} />
-                <span>
-                  {profile.cookie_count
-                    ? `${profile.cookie_count} cookies сохранено`
-                    : 'Cookies не добавлены'}
-                </span>
-              </div>
-              <div>
-                <Globe2 size={16} />
-                <span>
-                  {profile.proxy
-                    ? `${profile.proxy.scheme.toUpperCase()} · ${profile.proxy.host}:${profile.proxy.port}${profile.proxy.has_password ? ' · с авторизацией' : ''}`
-                    : 'Без прокси'}
-                </span>
-              </div>
-            </div>
-            <div className="actions profile-actions">
+            <div className="account-controls">
               <Button
                 disabled={busy}
                 onClick={() =>
@@ -299,34 +318,62 @@ export function BrowserProfiles() {
                   })
                 }
               >
-                Открыть браузер
+                <ExternalLink size={15} /> Открыть браузер
               </Button>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await api.browser('save', { id: profile.id });
-                    setMessage('Cookies текущей сессии сохранены.');
-                  })
-                }
-              >
-                Сохранить сессию
-              </Button>
-              <Button variant="outline" disabled={busy} onClick={() => pickCookies(profile)}>
-                Импорт cookies
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  setEditing(editing === profile.id ? null : profile.id);
-                  setEditDraft(fromProfile(profile));
-                  setDeleting(null);
-                }}
-              >
-                Настроить
-              </Button>
+              <div className="icon-actions">
+                <Button
+                  icon
+                  variant="outline"
+                  aria-label="Сохранить сессию"
+                  title="Сохранить сессию сейчас"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await api.browser('save', { id: profile.id });
+                      setMessage('Cookies текущей сессии сохранены.');
+                    })
+                  }
+                >
+                  <Save size={16} />
+                </Button>
+                <Button
+                  icon
+                  variant="outline"
+                  aria-label="Импорт cookies"
+                  title="Импорт cookies"
+                  disabled={busy}
+                  onClick={() => pickCookies(profile)}
+                >
+                  <Cookie size={16} />
+                </Button>
+                <Button
+                  icon
+                  variant="outline"
+                  aria-label="Настроить профиль"
+                  title="Название и прокси"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditing(editing === profile.id ? null : profile.id);
+                    setEditDraft(fromProfile(profile));
+                    setDeleting(null);
+                  }}
+                >
+                  <Pencil size={16} />
+                </Button>
+                <Button
+                  icon
+                  variant="danger"
+                  aria-label="Удалить профиль"
+                  title="Удалить профиль"
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleting(deleting === profile.id ? null : profile.id);
+                    setEditing(null);
+                  }}
+                >
+                  <Trash2 size={16} />
+                </Button>
+              </div>
             </div>
             {editing === profile.id && (
               <form className="profile-editor" onSubmit={event => saveProfile(event, profile.id)}>
@@ -354,17 +401,8 @@ export function BrowserProfiles() {
                   <Button type="button" variant="outline" onClick={() => setEditing(null)}>
                     Отмена
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setEditing(null);
-                      setDeleting(profile.id);
-                    }}
-                  >
-                    Удалить профиль
-                  </Button>
                 </div>
+                <p className="helper">Для смены прокси сначала закройте окно этого профиля.</p>
               </form>
             )}
             {deleting === profile.id && (
@@ -375,6 +413,7 @@ export function BrowserProfiles() {
                 </p>
                 <div className="actions">
                   <Button
+                    variant="danger"
                     disabled={busy}
                     onClick={() =>
                       void run(async () => {
@@ -395,19 +434,9 @@ export function BrowserProfiles() {
           </section>
         ))}
       </div>
-      {message && (
-        <p role="status" className="notice">
-          {message}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
       <p className="helper">
-        Файл cookies остаётся на вашем устройстве. Импорт принимает только cookies Instagram в формате JSON
-        или Netscape cookies.txt до 1 МБ. Наличие cookies не подтверждает успешный вход.
+        Импорт принимает только cookies Instagram в формате JSON или Netscape cookies.txt до 1 МБ. Наличие
+        cookies не подтверждает успешный вход.
       </p>
     </div>
   );

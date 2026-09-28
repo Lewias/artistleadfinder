@@ -1,12 +1,22 @@
 import type { ButtonHTMLAttributes } from 'react';
 
-type Props = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default' | 'outline' };
-export function Button({ className, variant = 'default', ...props }: Props) {
+type Variant = 'default' | 'outline' | 'violet' | 'green' | 'danger';
+type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: Variant;
+  /** Round icon-only button; pass an aria-label. */
+  icon?: boolean;
+};
+const variants: Record<Variant, string> = {
+  default: 'button-primary',
+  outline: 'button-outline',
+  violet: 'button-violet',
+  green: 'button-green',
+  danger: 'button-danger',
+};
+export function Button({ className, variant = 'default', icon = false, ...props }: Props) {
   return (
     <button
-      className={['button', variant === 'outline' ? 'button-outline' : 'button-primary', className]
-        .filter(Boolean)
-        .join(' ')}
+      className={['button', variants[variant], icon && 'button-icon', className].filter(Boolean).join(' ')}
       {...props}
     />
   );

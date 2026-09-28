@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { SlidersHorizontal, Search } from 'lucide-react';
+import { FilterX, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
-import type { Lead, LeadQuery } from '../services/types';
+import type { DashboardData, Lead, LeadQuery } from '../services/types';
+import { PageHeader } from '../components/PageHeader';
 import { defaultQuery } from '../services/leadQuery';
-import { number, date, activity, genres, statusLabels } from '../lib/format';
+import { number, date, activity, genres, sourceLabels, statusLabels } from '../lib/format';
 import { DataState, StatusBadge } from '../components/DataState';
 import { LeadDetail } from '../components/LeadDetail';
 import { Button } from '../components/ui/button';
@@ -19,62 +20,75 @@ export function Leads({ jobId }: { jobId?: number }) {
   const toggle = (id: number) =>
     setSelected(current => (current.includes(id) ? current.filter(value => value !== id) : [...current, id]));
   const items = resource.data?.items || [];
+  const reset = () => {
+    setQuery({ ...defaultQuery, ...(jobId ? { job_id: jobId } : {}) });
+    setSelected([]);
+  };
+  const toolbar = (
+    <>
+      <Button variant="outline" onClick={resource.refresh}>
+        <RefreshCw size={15} /> Обновить
+      </Button>
+      <Button variant="outline" onClick={reset}>
+        <FilterX size={15} /> Сбросить
+      </Button>
+      <ExportBar query={query} selected={selected} />
+    </>
+  );
   return (
     <>
-      <section className="panel filters">
-        <div className="filters-header">
-          <div>
-            <h2>Найти артиста</h2>
-            <p>Поиск по собранным профилям</p>
-          </div>
-          <span className="filter-total">{number(resource.data?.total || 0)} профилей</span>
-        </div>
-        <div className="filter-grid filter-primary">
-          <label className="search-filter">
-            Поиск профиля
-            <span className="input-with-icon">
-              <Search size={17} aria-hidden="true" />
-              <input
-                placeholder="Имя, username или биография"
-                value={query.search}
-                onChange={event => update('search', event.target.value)}
-              />
-            </span>
-          </label>
-          <label>
-            Жанр
-            <select value={query.genre} onChange={event => update('genre', event.target.value)}>
-              <option value="">Все жанры</option>
-              {genres.map(genre => (
-                <option key={genre}>{genre}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Статус
-            <select value={query.status} onChange={event => update('status', event.target.value)}>
-              <option value="">Все статусы</option>
-              {['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(status => (
-                <option key={status} value={status}>
-                  {statusLabels[status]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Источник
-            <select value={query.source} onChange={event => update('source', event.target.value)}>
-              <option value="">Все</option>
-              <option value="mock">Демо</option>
-              <option value="imported">Импорт</option>
-              <option value="instagram_scout">Скаут-источники</option>
-              <option value="instagram_browser">Instagram из браузера</option>
-            </select>
-          </label>
-        </div>
+      {jobId ? (
+        <div className="actions embedded-toolbar">{toolbar}</div>
+      ) : (
+        <>
+          <PageHeader page="leads" count={number(resource.data?.total || 0)} actions={toolbar} />
+          <LeadStats />
+        </>
+      )}
+      <section className="panel filter-bar">
+        <label className="search-filter">
+          <span className="input-with-icon">
+            <Search size={16} aria-hidden="true" />
+            <input
+              aria-label="Поиск профиля"
+              placeholder="Имя, username или биография"
+              value={query.search}
+              onChange={event => update('search', event.target.value)}
+            />
+          </span>
+        </label>
+        <select aria-label="Жанр" value={query.genre} onChange={event => update('genre', event.target.value)}>
+          <option value="">Все жанры</option>
+          {genres.map(genre => (
+            <option key={genre}>{genre}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Статус"
+          value={query.status}
+          onChange={event => update('status', event.target.value)}
+        >
+          <option value="">Все статусы</option>
+          {['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(status => (
+            <option key={status} value={status}>
+              {statusLabels[status]}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Источник"
+          value={query.source}
+          onChange={event => update('source', event.target.value)}
+        >
+          <option value="">Все источники</option>
+          <option value="mock">Демо</option>
+          <option value="imported">Импорт</option>
+          <option value="instagram_scout">Скаут-источники</option>
+          <option value="instagram_browser">Instagram из браузера</option>
+        </select>
         <details className="advanced-filters">
           <summary>
-            <SlidersHorizontal size={16} /> Дополнительные фильтры
+            <SlidersHorizontal size={15} /> Ещё фильтры
           </summary>
           <div className="filter-grid">
             <label>
@@ -142,24 +156,7 @@ export function Leads({ jobId }: { jobId?: number }) {
             </label>
           </div>
         </details>
-        <div className="table-toolbar">
-          <span>Выбрано: {selected.length}</span>
-          <div className="actions">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setQuery({ ...defaultQuery, ...(jobId ? { job_id: jobId } : {}) });
-                setSelected([]);
-              }}
-            >
-              Сбросить фильтры
-            </Button>
-            <Button variant="outline" onClick={resource.refresh}>
-              Обновить
-            </Button>
-          </div>
-        </div>
-        <ExportBar query={query} selected={selected} />
+        <span className="selection-count">Выбрано: {selected.length}</span>
       </section>
       <DataState {...resource} retry={resource.refresh} />
       {resource.data && (
@@ -222,14 +219,15 @@ export function Leads({ jobId }: { jobId?: number }) {
                     <td>{activity(lead.last_activity_at)}</td>
                     <td>
                       <span
+                        className="source-chip"
                         title={lead.sources
                           .map(source => `${source.source_type}: ${source.source_value}`)
                           .join('\n')}
                       >
                         {[
                           ...new Set(
-                            lead.sources.map(source =>
-                              source.source_provider === 'mock' ? 'Демо' : source.source_provider,
+                            lead.sources.map(
+                              source => sourceLabels[source.source_provider] || source.source_provider,
                             ),
                           ),
                         ].join(', ')}
@@ -274,5 +272,24 @@ export function Leads({ jobId }: { jobId?: number }) {
       )}
       {detail && <LeadDetail id={detail} close={() => setDetail(undefined)} refresh={resource.refresh} />}
     </>
+  );
+}
+
+function LeadStats() {
+  const stats = useResource<DashboardData>('dashboard.get', {}, 15000);
+  if (!stats.data) return null;
+  return (
+    <div className="stat-cards">
+      {[
+        { label: 'Всего', value: stats.data.total },
+        { label: 'Подходят', value: stats.data.qualified },
+        { label: 'Сегодня', value: stats.data.today },
+      ].map(item => (
+        <div className="stat-card" key={item.label}>
+          <strong>{number(item.value)}</strong>
+          <span>{item.label}</span>
+        </div>
+      ))}
+    </div>
   );
 }
