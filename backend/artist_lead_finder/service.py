@@ -145,7 +145,11 @@ class ApplicationService:
         self.browser_capture = BrowserCaptureService(sessions)
         self.ai_keys = AIKeyStore(data_dir)
         self.scout = ScoutService(
-            sessions, self.browser_capture, self.settings, ai=OpenRouterClassifier(self.ai_keys)
+            sessions,
+            self.browser_capture,
+            self.settings,
+            ai=OpenRouterClassifier(self.ai_keys),
+            debug_sink=self._save_scout_debug,
         )
         self.handlers = self._handlers()
 
@@ -213,12 +217,40 @@ class ApplicationService:
         }
 
     def _capture_error(self, params: dict) -> dict:
-        if params["reason"] == "rate_limited":
-            profile_id = self.browser_capture.state(int(params["id"]))["profile_id"]
+        job_id, reason = int(params["id"]), params["reason"]
+        # Scout decides first: retry a transient failure or skip an unavailable page.
+        if self.scout.on_error(job_id, reason):
+            return {"ok": True, "continued": True}
+        if reason == "rate_limited":
+            profile_id = self.browser_capture.state(job_id)["profile_id"]
             self.scout.pacer_for(profile_id).rate_limited(self.scout.pacing())
-        self.browser_capture.stop_with_error(int(params["id"]), params["reason"])
-        self.scout.on_error(int(params["id"]), params["reason"])
+        self.browser_capture.stop_with_error(job_id, reason)
         return {"ok": True}
+
+    def _save_scout_debug(self, job_id: int, step: dict, payload: dict) -> None:
+        """Scout debug artifact: URL, parser reason, sanitised fragment and a screenshot.
+
+        Written only when Scout debug mode is on; never contains cookies or credentials.
+        """
+        folder = self.data_dir / "scout-debug"
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        name = f"{stamp}-job{job_id}-{step.get('kind', 'page')}"
+        artifact = {
+            "url": step.get("url"),
+            "kind": step.get("kind"),
+            "source": step.get("source"),
+            "reason": str(payload.get("reason", ""))[:200],
+            "html": str(payload.get("html", ""))[:20000],
+        }
+        (folder / f"{name}.json").write_text(
+            json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        try:
+            profile_id = self.browser_capture.state(job_id)["profile_id"]
+            self.chromium.screenshot(profile_id, folder / f"{name}.png")
+        except Exception:
+            log.warning("scout_debug_screenshot_failed")
 
     def _set_ai_key(self, params: dict) -> dict:
         self.ai_keys.save(str(params.get("key", "")))

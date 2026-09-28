@@ -15,6 +15,7 @@ import type { ScoutAccountRow } from '../services/types';
 import { waitLabel } from '../lib/format';
 import { Button } from './ui/button';
 import { runStatus } from './scoutStatus';
+import { DiscoveryMetricsTable } from './DiscoveryMetrics';
 
 const stepLabels: Record<string, string> = {
   source: 'Сетка источника',
@@ -252,6 +253,12 @@ function AccountCard({
             <dd className={stats.errors ? 'bad' : ''}>{stats.errors}</dd>
           </div>
         </dl>
+      )}
+      {stats?.providers && Object.keys(stats.providers).length > 0 && (
+        <details className="discovery-metrics">
+          <summary>Discovery по источникам</summary>
+          <DiscoveryMetricsTable providers={stats.providers} />
+        </details>
       )}
       {run && active && run.kind && stepLabels[run.kind] && (
         <p className="account-detail">

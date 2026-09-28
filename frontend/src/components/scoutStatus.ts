@@ -58,6 +58,8 @@ export function eventText(event: ScoutEvent): string {
       return 'Остановлено, прогресс сохранён';
     case 'scout:error':
       return `Ошибка: ${skipReasons[p.reason || ''] || p.reason}${p.profile ? ` · ${at(p.profile)}` : ''}`;
+    case 'discovery:page':
+      return `Разбор страницы · ${p.method} · ${at(p.source)}`;
     case 'scout:done':
       return `Готово · найдено ${p.leads ?? 0}, пропущено ${p.skipped ?? 0}`;
     default:

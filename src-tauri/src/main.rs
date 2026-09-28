@@ -370,9 +370,20 @@ type BrowserClosing = Arc<std::sync::atomic::AtomicBool>;
 /// Page reader for the current queue step; follow lists take their paging args.
 fn page_script(state: &Value) -> &'static str {
     match (state["scout"] == true, state["kind"].as_str().unwrap_or("")) {
+        (true, "source" | "tagged_grid") => include_str!("grid.js"),
+        (true, "stories") => include_str!("story.js"),
         (true, "followers" | "following") => include_str!("follow.js"),
         (true, "profile") | (false, _) => include_str!("capture.js"),
         (true, _) => include_str!("scout.js"),
+    }
+}
+
+/// Stop reason for a blocked page: the script's typed reason when it gives one.
+fn block_reason(snapshot: &Value) -> &str {
+    match snapshot["block_reason"].as_str() {
+        Some(reason @ ("login" | "checkpoint" | "rate_limited" | "unavailable")) => reason,
+        _ if snapshot["rate_limited"] == true => "rate_limited",
+        _ => "blocked",
     }
 }
 
@@ -426,6 +437,7 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
     let mut target = String::new();
     let mut navigated = Instant::now();
     let mut cooldown = Instant::now();
+    let mut attempt = 0;
     loop {
         std::thread::sleep(Duration::from_millis(500));
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
@@ -458,6 +470,12 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
         let Some(url) = state["url"].as_str() else {
             break;
         };
+        // The core retried a transient failure: open the page again.
+        let current_attempt = state["attempt"].as_u64().unwrap_or(0);
+        if current_attempt != attempt {
+            attempt = current_attempt;
+            target.clear();
+        }
         if target != url {
             // The core paces page opens (delays, hourly cap, rate-limit breaks).
             if cooldown.elapsed() < Duration::from_secs(3)
@@ -490,11 +508,7 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
         }
         match observation {
             Ok(snapshot) if snapshot["blocked"] == true => {
-                let reason = if snapshot["rate_limited"] == true {
-                    "rate_limited"
-                } else {
-                    "blocked"
-                };
+                let reason = block_reason(&snapshot);
                 let _ = request(
                     "capture.error_internal",
                     json!({"id":job_id,"reason":reason}),
@@ -595,8 +609,18 @@ mod tests {
         assert_eq!(page_script(&scout("profile")), include_str!("capture.js"));
         assert_eq!(page_script(&scout("followers")), include_str!("follow.js"));
         assert_eq!(page_script(&scout("following")), include_str!("follow.js"));
-        assert_eq!(page_script(&scout("tagged_grid")), include_str!("scout.js"));
+        assert_eq!(page_script(&scout("source")), include_str!("grid.js"));
+        assert_eq!(page_script(&scout("tagged_grid")), include_str!("grid.js"));
+        assert_eq!(page_script(&scout("stories")), include_str!("story.js"));
         assert_eq!(page_script(&scout("post")), include_str!("scout.js"));
+        assert_eq!(page_script(&scout("tagged_post")), include_str!("scout.js"));
+        assert_eq!(page_script(&scout("story_media")), include_str!("scout.js"));
+        assert_eq!(
+            block_reason(&json!({"block_reason": "checkpoint"})),
+            "checkpoint"
+        );
+        assert_eq!(block_reason(&json!({"rate_limited": true})), "rate_limited");
+        assert_eq!(block_reason(&json!({"block_reason": "weird"})), "blocked");
         assert_eq!(
             page_script(&json!({"kind": "source"})),
             include_str!("capture.js")

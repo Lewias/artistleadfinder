@@ -9,7 +9,7 @@ const methods: { id: ScoutMethod; label: string; hint?: string }[] = [
   { id: 'posts', label: 'Posts / Reels', hint: 'автор и соавторы публикаций' },
   { id: 'comments', label: 'Комментарии', hint: 'авторы комментариев' },
   { id: 'tagged', label: 'Tagged posts' },
-  { id: 'stories', label: 'Stories', hint: 'пока отключено' },
+  { id: 'stories', label: 'Stories', hint: 'упоминания, ссылки, репосты; нужна сессия' },
   { id: 'followers', label: 'Followers' },
   { id: 'following', label: 'Following' },
 ];
@@ -56,13 +56,14 @@ export function ScoutSettingsPanel() {
     }
   };
   const follow = settings.scout_methods.includes('followers') || settings.scout_methods.includes('following');
-  const numberField = (name: keyof SettingsData, label: string, min: number, max: number) => (
+  const numberField = (name: keyof SettingsData, label: string, min: number, max: number, step = 1) => (
     <label>
       {label}
       <input
         type="number"
         min={min}
         max={max}
+        step={step}
         value={settings[name] as number}
         disabled={busy}
         onChange={event => update(name, Number(event.target.value) as never)}
@@ -79,11 +80,11 @@ export function ScoutSettingsPanel() {
           <h3>Методы поиска</h3>
           <div className="check-list">
             {methods.map(method => (
-              <label key={method.id} className={method.id === 'stories' ? 'muted' : ''}>
+              <label key={method.id}>
                 <input
                   type="checkbox"
                   checked={settings.scout_methods.includes(method.id)}
-                  disabled={busy || method.id === 'stories'}
+                  disabled={busy}
                   onChange={event => toggleMethod(method.id, event.target.checked)}
                 />
                 {method.label}
@@ -221,6 +222,68 @@ export function ScoutSettingsPanel() {
           </p>
         </section>
       </div>
+      <details className="scout-advanced">
+        <summary>Дополнительно: прокрутка, stories, повторы, отладка</summary>
+        <div className="scout-settings-grid">
+          <section>
+            <h3>Posts / Tagged</h3>
+            <div className="field-row">
+              {numberField('scout_max_posts_per_source', 'Публикаций на источник', 1, 200)}
+              {numberField('scout_max_scroll_rounds', 'Раундов прокрутки', 0, 40)}
+              {numberField('scout_scroll_delay_ms', 'Пауза прокрутки, мс', 300, 5000)}
+              {numberField('scout_max_no_progress_rounds', 'Раундов без новых', 1, 10)}
+            </div>
+          </section>
+          <section>
+            <h3>Stories</h3>
+            <div className="field-row">
+              {numberField('scout_max_stories_per_source', 'Историй на источник', 1, 100)}
+              {numberField('scout_story_delay_ms', 'Пауза между кадрами, мс', 500, 5000)}
+              {numberField('scout_story_confidence', 'Порог уверенности', 0.5, 1, 0.05)}
+              {numberField('scout_story_ttl_hours', 'Не повторять, ч', 1, 720)}
+            </div>
+          </section>
+          <section>
+            <h3>Ошибки и отладка</h3>
+            <div className="field-row">
+              {numberField('scout_max_retries', 'Повторов при сбое загрузки', 0, 5)}
+              {numberField('scout_max_item_failures', 'Попыток на публикацию', 1, 10)}
+            </div>
+            <div className="check-list">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.scout_debug}
+                  disabled={busy}
+                  onChange={event => update('scout_debug', event.target.checked)}
+                />
+                Режим отладки Scout
+                <small>
+                  При сбое разбора сохраняет URL, причину, очищенный HTML и скриншот в папку данных.
+                </small>
+              </label>
+            </div>
+            <label>
+              Не считать кандидатами
+              <textarea
+                rows={3}
+                value={settings.scout_ignore_usernames.join('\n')}
+                disabled={busy}
+                placeholder={'@label_account\n@own_brand'}
+                onChange={event =>
+                  update(
+                    'scout_ignore_usernames',
+                    event.target.value
+                      .split(/[\s,]+/)
+                      .map(value => value.trim().replace(/^@/, ''))
+                      .filter(Boolean),
+                  )
+                }
+              />
+            </label>
+          </section>
+        </div>
+      </details>
       <div className="board-footer">
         <Button
           disabled={busy}

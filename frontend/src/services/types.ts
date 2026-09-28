@@ -125,6 +125,26 @@ export interface SettingsData {
   scout_follow_max: number;
   scout_ai_mode: 'off' | 'uncertain' | 'always';
   scout_ai_model: string;
+  scout_max_posts_per_source: number;
+  scout_max_scroll_rounds: number;
+  scout_scroll_delay_ms: number;
+  scout_max_no_progress_rounds: number;
+  scout_max_stories_per_source: number;
+  scout_story_delay_ms: number;
+  scout_story_confidence: number;
+  scout_story_ttl_hours: number;
+  scout_max_retries: number;
+  scout_max_item_failures: number;
+  scout_debug: boolean;
+  scout_ignore_usernames: string[];
+}
+export interface DiscoveryMetrics {
+  itemsSeen: number;
+  itemsProcessed: number;
+  candidatesFound: number;
+  duplicatesSkipped: number;
+  alreadyProcessed: number;
+  failures: number;
 }
 export type ScoutMethod = 'posts' | 'comments' | 'tagged' | 'stories' | 'followers' | 'following';
 export interface ScoutStats {
@@ -137,6 +157,7 @@ export interface ScoutStats {
   current_profile: string | null;
   sources: string[];
   sources_done: string[];
+  providers?: Record<string, Record<string, DiscoveryMetrics>>;
 }
 export interface ScoutSourceRow {
   url: string;

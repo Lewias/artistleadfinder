@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Music Blog (@musicblog) • Instagram photos and videos</title>
+<meta property="og:title" content="Music Blog (@musicblog) • Instagram photos and videos"></head>
+<body style="height:3000px"><main><div id="grid">
+<a href="/p/P1/">1</a><a href="/musicblog/reel/R2/">2</a><a href="/p/P3/">3</a>
+</div></main>
+<script>
+  // Lazy grid: every scroll appends two more publications until 9 exist.
+  let next = 4;
+  addEventListener('scroll', () => {
+    for (let i = 0; i < 2 && next <= 9; i++, next++) {
+      const a = document.createElement('a');
+      a.href = next % 3 === 0 ? `/tv/T${next}/` : `/p/P${next}/`;
+      a.textContent = String(next);
+      document.getElementById('grid').appendChild(a);
+    }
+    // Like Instagram, loading more rows makes the page longer.
+    document.body.style.height = `${document.body.scrollHeight + 1000}px`;
+  });
+</script></body></html>

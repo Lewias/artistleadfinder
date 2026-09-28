@@ -246,6 +246,12 @@ class BrowserCaptureService:
     def stop_with_error(self, job_id: int, message: str):
         messages = {
             "blocked": "Требуется вход или подтверждение. Проверьте браузер и продолжите очередь.",
+            "login": "Instagram требует вход. Войдите в окне браузера и продолжите очередь.",
+            "checkpoint": (
+                "Instagram просит подтвердить аккаунт (checkpoint). Пройдите проверку в окне"
+                " браузера вручную и продолжите очередь."
+            ),
+            "unavailable": "Страница недоступна.",
             "rate_limited": (
                 "Instagram ограничил запросы. После продолжения очередь выдержит перерыв."
             ),

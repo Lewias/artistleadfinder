@@ -41,7 +41,15 @@ def run(status, **extra):
             "wait_seconds": 0, "wait_reason": None, "profile_id": "a" * 32,
             "stats": {"discovered": 44, "analyzed": 41, "leads": 12, "skipped": 29, "errors": 1,
                       "current_source": "https://www.instagram.com/rapgoat.tv/",
-                      "current_profile": "lil_nova", "sources": [], "sources_done": []}}
+                      "current_profile": "lil_nova", "sources": [], "sources_done": [],
+                      "providers": {
+                          "rapgoat.tv": {
+                              "posts": {"itemsSeen": 42, "itemsProcessed": 17, "candidatesFound": 9,
+                                        "duplicatesSkipped": 3, "alreadyProcessed": 11, "failures": 1},
+                              "tagged": {"itemsSeen": 12, "itemsProcessed": 8, "candidatesFound": 6,
+                                         "duplicatesSkipped": 1, "alreadyProcessed": 2, "failures": 0},
+                              "stories": {"itemsSeen": 5, "itemsProcessed": 5, "candidatesFound": 3,
+                                          "duplicatesSkipped": 0, "alreadyProcessed": 0, "failures": 0}}}}}
     base.update(extra)
     return base
 
@@ -111,7 +119,11 @@ SETTINGS = {"min_followers": 1000, "max_followers": 50000, "activity_days": 30, 
             "scout_skip_processed": True, "scout_skip_recent_sources": True,
             "scout_source_cooldown_hours": 24, "scout_sources_per_run": 5, "scout_follow_page_size": 12,
             "scout_follow_delay_seconds": 2, "scout_follow_max": 100, "scout_ai_mode": "uncertain",
-            "scout_ai_model": "anthropic/claude-haiku-4.5"}
+            "scout_ai_model": "anthropic/claude-haiku-4.5", "scout_max_posts_per_source": 120,
+            "scout_max_scroll_rounds": 15, "scout_scroll_delay_ms": 1200, "scout_max_no_progress_rounds": 2,
+            "scout_max_stories_per_source": 20, "scout_story_delay_ms": 1500, "scout_story_confidence": 0.8,
+            "scout_story_ttl_hours": 48, "scout_max_retries": 2, "scout_max_item_failures": 3,
+            "scout_debug": False, "scout_ignore_usernames": []}
 LOG = """[@lil_nova]
 
 source: @rapgoat.tv
@@ -142,6 +154,9 @@ EVENTS = [
                              "log": LOG.replace("lil_nova", "beatstore_x").replace("LEAD SAVED",
                                                 "SKIPPED - WRONG_PROFILE_TYPE")}),
         ("scout:error", {"reason": "RATE_LIMITED", "profile": "some_user"}),
+        ("discovery:page", {"source": "rapgoat.tv", "method": "posts", "log": "\n".join([
+            "[Scout][Posts][@rapgoat.tv]", "Opening reel CxABC123", "Post author: @artist123 (via metadata)",
+            "Collaborators: @artist456", "Candidates emitted: @artist123, @artist456"])}),
     ], start=1)
 ]
 CORE = {
@@ -233,6 +248,9 @@ def main():
                 page.locator("nav button").nth(index).click()
                 page.wait_for_timeout(700)
                 slug = f"{index:02d}"
+                if os.environ.get("ALF_PREVIEW_OPEN_DETAILS"):
+                    # Show collapsed sections (settings, metrics) in the screenshots.
+                    page.eval_on_selector_all("details", "els => els.forEach(el => { el.open = true; })")
                 page.eval_on_selector(".main", "el => el.scrollTo(0, 0)")
                 page.wait_for_timeout(200)
                 page.screenshot(path=str(out / f"{slug}-view.png"))

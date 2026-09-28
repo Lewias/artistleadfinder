@@ -51,22 +51,81 @@ def queued_elsewhere(session, job_id: int) -> set[str]:
     return queued
 
 
+def post_key(kind: str, source: str, shortcode: str) -> str:
+    """Tagged posts get their own namespace so they never collide with source posts."""
+    return f"tagged:{source}:{shortcode}" if kind == "tagged_post" else shortcode
+
+
+def story_key(source: str, story_id: str) -> str:
+    return f"story:{source}:{story_id}"
+
+
 def processed_post(session, post_id: str) -> bool:
-    return session.get(ScoutProcessedPost, post_id) is not None
+    row = session.get(ScoutProcessedPost, post_id)
+    return row is not None and row.status != "failed"
 
 
-def mark_post(session, post_id: str, source: str, kind: str) -> None:
-    if session.get(ScoutProcessedPost, post_id) is None:
-        session.add(ScoutProcessedPost(post_id=post_id, source_username=source, kind=kind))
+def mark_post(
+    session, post_id: str, source: str, kind: str, status="processed", error=None
+) -> None:
+    """Record a publication outcome; failures keep counting attempts instead of finishing it."""
+    row = session.get(ScoutProcessedPost, post_id)
+    if row is None:
+        row = ScoutProcessedPost(post_id=post_id, source_username=source, kind=kind, attempts=0)
+        session.add(row)
+    elif row.status != "failed" and status == "failed":
+        return  # Never downgrade a finished publication.
+    row.status = status
+    row.attempts = (row.attempts or 0) + 1
+    row.last_error = str(error)[:200] if error else None
+    row.processed_at = utcnow()
+
+
+def skip_list(session, source: str, kind: str, max_failures: int, limit: int = 2000) -> list[str]:
+    """Shortcodes a grid of `source` must not return again (one query per page step)."""
+    rows = session.scalars(
+        select(ScoutProcessedPost)
+        .where(ScoutProcessedPost.source_username == source, ScoutProcessedPost.kind == kind)
+        .order_by(ScoutProcessedPost.processed_at.desc())
+        .limit(limit)
+    )
+    return [
+        row.post_id.split(":")[-1]
+        for row in rows
+        if row.status != "failed" or (row.attempts or 0) >= max_failures
+    ]
 
 
 def processed_story(session, story_id: str) -> bool:
-    return session.get(ScoutProcessedStory, story_id) is not None
+    row = session.get(ScoutProcessedStory, story_id)
+    return row is not None and row.status != "failed"
 
 
-def mark_story(session, story_id: str, source: str) -> None:
-    if session.get(ScoutProcessedStory, story_id) is None:
-        session.add(ScoutProcessedStory(story_id=story_id, source_username=source))
+def mark_story(session, story_id: str, source: str, status="processed", error=None) -> None:
+    row = session.get(ScoutProcessedStory, story_id)
+    if row is None:
+        row = ScoutProcessedStory(story_id=story_id, source_username=source, attempts=0)
+        session.add(row)
+    row.status = status
+    row.attempts = (row.attempts or 0) + 1
+    row.last_error = str(error)[:200] if error else None
+    row.processed_at = utcnow()
+
+
+def story_skip_list(session, source: str, ttl_hours: int, max_failures: int) -> list[str]:
+    """Story media ids of `source` already handled within the TTL."""
+    since = utcnow() - timedelta(hours=ttl_hours)
+    rows = session.scalars(
+        select(ScoutProcessedStory).where(
+            ScoutProcessedStory.source_username == source,
+            ScoutProcessedStory.processed_at >= since,
+        )
+    )
+    return [
+        row.story_id.split(":")[-1]
+        for row in rows
+        if row.status != "failed" or (row.attempts or 0) >= max_failures
+    ]
 
 
 def in_cooldown(source: ScoutSource, hours: int, now: datetime | None = None) -> bool:

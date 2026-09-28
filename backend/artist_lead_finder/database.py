@@ -32,7 +32,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 5 for version in versions):
+        if any(version > 6 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
@@ -42,6 +42,16 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "backlog": "JSON NOT NULL DEFAULT '[]'",
             "found": "INTEGER NOT NULL DEFAULT 0",
             "stats": "JSON NOT NULL DEFAULT '{}'",
+        },
+        "scout_processed_posts": {
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'processed'",
+            "attempts": "INTEGER NOT NULL DEFAULT 1",
+            "last_error": "VARCHAR(200)",
+        },
+        "scout_processed_stories": {
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'processed'",
+            "attempts": "INTEGER NOT NULL DEFAULT 1",
+            "last_error": "VARCHAR(200)",
         },
         "scout_sources": {
             "last_scanned_at": "DATETIME",
@@ -70,4 +80,6 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             session.add(SchemaMigration(version=4))
         if session.get(SchemaMigration, 5) is None:
             session.add(SchemaMigration(version=5))
+        if session.get(SchemaMigration, 6) is None:
+            session.add(SchemaMigration(version=6))
     return engine, factory

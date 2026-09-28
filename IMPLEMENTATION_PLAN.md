@@ -221,3 +221,14 @@ posts/reels (автор и соавторы), комментарии, tagged, fo
 Проверки: 69 pytest, 31 Vitest, 4 cargo test, Clippy, tsc, ESLint, Ruff,
 Prettier, scout smoke. Живой прогон по Instagram (tagged, followers, collab)
 не выполнялся; селекторы проверены на фикстурах.
+
+
+## Обновление 28.09.2026 — Instagram Candidate Discovery
+Провайдеры Posts/Reels, Tagged, Stories (плюс followers/following и комментарии)
+с единым интерфейсом start/handle: браузером по-прежнему шагает очередь, поэтому
+провайдер — возобновляемый генератор, состояние в БД. normalize_instagram_username,
+parse_instagram_post_url, CandidateGate, типизированные ошибки с повторами только
+временных сбоев, ленивая прокрутка grid.js, story.js, цепочка стратегий автора,
+метрики по провайдерам, режим отладки, схема 6. Проверки: 111 pytest (включая 9
+тестов на HTML-фикстурах в Chromium), 30 Vitest, cargo test, clippy, tsc, ESLint,
+Ruff, scout smoke. На живом Instagram разметка stories и соавторов не проверялась.

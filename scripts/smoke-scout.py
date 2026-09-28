@@ -34,7 +34,7 @@ def page_html(title, description, body):
 def main():
     scripts = {
         name: (ROOT / "src-tauri" / "src" / f"{name}.js").read_text(encoding="utf-8")
-        for name in ("scout", "capture")
+        for name in ("scout", "capture", "grid", "story", "follow")
     }
     if len(sys.argv) > 1:
         executable = Path(sys.argv[1]).read_bytes()
@@ -96,8 +96,13 @@ def main():
                             break
                         kinds.append(state["kind"])
                         page.goto(state["url"], wait_until="load")
-                        script = scripts["capture" if state["kind"] == "profile" else "scout"]
-                        snapshot = page.evaluate(script)
+                        # Same script choice as page_script() in src-tauri/src/main.rs.
+                        name = {"profile": "capture", "source": "grid", "tagged_grid": "grid",
+                                "stories": "story", "followers": "follow",
+                                "following": "follow"}.get(state["kind"], "scout")
+                        args = state.get("args")
+                        snapshot = (page.evaluate(scripts[name], args) if args is not None
+                                    else page.evaluate(scripts[name]))
                         assert snapshot.get("ready"), f"Loaded {state['kind']} not recognized"
                         service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
                 finally:

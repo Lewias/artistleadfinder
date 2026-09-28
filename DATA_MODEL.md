@@ -75,3 +75,9 @@ allowlist полей; values передаются bind parameters. UI не за�
 profile_type/score/confidence/reasons, source_username, discovery_method,
 origin_url, ai_model/ai_confidence, first/last_seen_at). В `scout_sources`
 добавлены last_scanned_at, status, leads_found, added_at; в `scout_runs` — stats.
+
+Миграция 6: в `scout_processed_posts` и `scout_processed_stories` добавлены
+status (processed | unavailable | failed), attempts и last_error. Ключи:
+shortcode для публикаций источника, `tagged:<source>:<shortcode>` для отмеченных,
+`story:<source>:<media id>` для историй. Публикация помечается обработанной только
+после завершённого разбора; сбойная повторяется до `scout_max_item_failures` раз.

@@ -24,6 +24,21 @@ class ScoutSettings(BaseModel):
     scout_follow_page_size: int = Field(default=12, ge=5, le=50)
     scout_follow_delay_seconds: int = Field(default=2, ge=1, le=10)
     scout_follow_max: int = Field(default=100, ge=1, le=1000)
+    # Posts / tagged grids: lazy scrolling until enough unprocessed publications are found.
+    scout_max_posts_per_source: int = Field(default=120, ge=1, le=200)
+    scout_max_scroll_rounds: int = Field(default=15, ge=0, le=40)
+    scout_scroll_delay_ms: int = Field(default=1200, ge=300, le=5000)
+    scout_max_no_progress_rounds: int = Field(default=2, ge=1, le=10)
+    # Stories: frames per source, pause between frames, confidence threshold, reuse window.
+    scout_max_stories_per_source: int = Field(default=20, ge=1, le=100)
+    scout_story_delay_ms: int = Field(default=1500, ge=500, le=5000)
+    scout_story_confidence: float = Field(default=0.8, ge=0.5, le=1.0)
+    scout_story_ttl_hours: int = Field(default=48, ge=1, le=24 * 30)
+    # Transient navigation failures are retried; a publication failing this often is skipped.
+    scout_max_retries: int = Field(default=2, ge=0, le=5)
+    scout_max_item_failures: int = Field(default=3, ge=1, le=10)
+    scout_debug: bool = False
+    scout_ignore_usernames: list[str] = Field(default_factory=list, max_length=500)
     scout_ai_mode: Literal["off", "uncertain", "always"] = "uncertain"
     scout_ai_model: str = Field(default="anthropic/claude-haiku-4.5", min_length=3, max_length=120)
 

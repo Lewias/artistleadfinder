@@ -206,18 +206,29 @@ class ScoutProcessedProfile(Base):
 
 
 class ScoutProcessedPost(Base):
+    """Publication memory. Keys: shortcode (source posts), tagged:<source>:<shortcode>."""
+
     __tablename__ = "scout_processed_posts"
     post_id: Mapped[str] = mapped_column(String(120), primary_key=True)
     source_username: Mapped[str] = mapped_column(String(40))
     kind: Mapped[str] = mapped_column(String(20))
     processed_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Schema 6: processed | unavailable | failed, with retry bookkeeping.
+    status: Mapped[str] = mapped_column(String(20), default="processed")
+    attempts: Mapped[int] = mapped_column(default=1)
+    last_error: Mapped[str | None] = mapped_column(String(200))
 
 
 class ScoutProcessedStory(Base):
+    """Story memory keyed story:<source>:<media id>; reused only within the TTL."""
+
     __tablename__ = "scout_processed_stories"
     story_id: Mapped[str] = mapped_column(String(120), primary_key=True)
     source_username: Mapped[str] = mapped_column(String(40))
     processed_at: Mapped[datetime] = mapped_column(default=utcnow)
+    status: Mapped[str] = mapped_column(String(20), default="processed")
+    attempts: Mapped[int] = mapped_column(default=1)
+    last_error: Mapped[str | None] = mapped_column(String(200))
 
 
 class ScoutAICache(Base):

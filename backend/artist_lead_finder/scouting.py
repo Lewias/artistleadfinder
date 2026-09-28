@@ -14,9 +14,18 @@ from .browser_capture import profile_url
 from .chromium_runtime import GUEST_ID
 from .lead_scout import events, memory
 from .lead_scout.ai import AIUnavailable
-from .lead_scout.candidates import profile_link
+from .lead_scout.candidates import CandidateGate, profile_link
 from .lead_scout.classifier import classify
-from .lead_scout.discovery import Context, initial_tasks, post_url, provider_for, source_name
+from .lead_scout.discovery import (
+    GROUP_OF_METHOD,
+    METRIC_KEYS,
+    DiscoveryContext,
+    initial_tasks,
+    post_url,
+    provider_for,
+    source_name,
+)
+from .lead_scout.errors import InstagramUnavailableError, error_for
 from .lead_scout.filters import (
     ALREADY_PROCESSED,
     PROFILE_UNAVAILABLE,
@@ -165,6 +174,17 @@ def assess(candidate, observations, now=None):
 MAX_NEW_CANDIDATES_PER_POST = 30
 POST_BATCH = 12
 PAGE_KINDS_WITH_QUOTA = {"post", "tagged_post"}
+PUBLICATION_KINDS = {"post", "tagged_post", "story_media"}
+GROUP_OF_KIND = {
+    "source": "posts",
+    "post": "posts",
+    "tagged_grid": "tagged",
+    "tagged_post": "tagged",
+    "stories": "stories",
+    "story_media": "stories",
+    "followers": "followers",
+    "following": "following",
+}
 
 
 def take_batch(backlog: list[dict], size: int) -> tuple[list[dict], list[dict]]:
@@ -261,9 +281,13 @@ def empty_stats(sources: list[str]) -> dict:
 class ScoutService:
     """Drives Lead Scout runs page by page; each stage lives in the lead_scout package."""
 
-    def __init__(self, sessions, capture, settings=lambda: {}, pacer_factory=Pacer, ai=None):
+    def __init__(
+        self, sessions, capture, settings=lambda: {}, pacer_factory=Pacer, ai=None, debug_sink=None
+    ):
         self.sessions, self.capture = sessions, capture
         self.settings = settings
+        # Optional (job_id, step, payload) -> None; stores debug artifacts when enabled.
+        self.debug_sink = debug_sink
         # Pace is per browser profile: each account has its own delays and limits.
         self.pacer_factory = pacer_factory
         self.pacers: dict[str, Pacer] = {}
@@ -423,10 +447,12 @@ class ScoutService:
                     + (" или дождитесь конца кулдауна." if cooling else ".")
                 )
         tasks, notices = [], []
-        for url in picked:
-            added, messages = initial_tasks(url, scout)
-            tasks += added
-            notices += [message for message in messages if message not in notices]
+        with self.sessions() as session:
+            for url in picked:
+                ctx = self._context(session, scout, profile, url, set())
+                added, messages = initial_tasks(url, ctx)
+                tasks += added
+                notices += [message for message in messages if message not in notices]
         if not tasks:
             raise ValueError("Включите хотя бы один доступный метод поиска в настройках Scout.")
         if cooling:
@@ -480,6 +506,8 @@ class ScoutService:
                     scout=True,
                     kind=task["kind"],
                     args=task.get("args"),
+                    # Changes when a transient failure is retried: the queue opens the page again.
+                    attempt=int((stats.get("attempts") or {}).get(str(cursor), 0)),
                     notices=run.notices,
                     candidates=stats["discovered"],
                     found=run.found,
@@ -505,7 +533,7 @@ class ScoutService:
         if task["kind"] == "profile":
             return self._analyze(job_id, task, snapshot, state)
         actual = snapshot.get("url", "")
-        if task["kind"] in {"post", "tagged_post"}:
+        if task["kind"] in PUBLICATION_KINDS:
             matches = post_url(actual) == task["url"]
         elif task["kind"] == "source":
             matches = profile_url(actual) == task["url"]
@@ -519,11 +547,11 @@ class ScoutService:
         with self.sessions.begin() as session:
             run = session.get(ScoutRun, job_id)
             queue = session.get(BrowserQueue, job_id)
-            ctx = Context(
-                settings=scout,
-                guest=queue.profile_id == GUEST_ID,
-                is_post_processed=lambda pid: memory.processed_post(session, pid),
-            )
+            # Per-run candidate set: usernames already queued in this scan run.
+            yielded = {
+                t["url"].rstrip("/").split("/")[-1] for t in run.tasks if t["kind"] == "profile"
+            }
+            ctx = self._context(session, scout, queue.profile_id, task["source"], yielded)
             result = provider.handle(task, snapshot, ctx)
             notices += result.notices
             known = {t["url"] for t in run.tasks} | {item["url"] for item in run.backlog}
@@ -532,15 +560,37 @@ class ScoutService:
                 *[item for item in result.backlog if item["url"] not in known],
             ]
             stats = {**empty_stats([]), **(run.stats or {})}
+            source = source_name(task["source"])
+            self._add_metrics(stats, source, result.group, result.metrics)
             quota = MAX_NEW_CANDIDATES_PER_POST if task["kind"] in PAGE_KINDS_WITH_QUOTA else None
             observations = dict(run.observations)
-            additions, summary = self._accept(
+            additions, summary = self.process_candidates(
                 session, job_id, run, observations, known, stats, result.candidates, quota, scout
             )
+            additions = [*result.steps, *additions]
             if summary:
                 notices.append(summary)
-            for pid, kind in result.processed_posts:
-                memory.mark_post(session, pid, source_name(task["source"]), kind)
+            # Publications and stories count as processed only after extraction finished.
+            for code, kind, status, error in result.posts:
+                memory.mark_post(
+                    session, memory.post_key(kind, source, code), source, kind, status, error
+                )
+            for story_id, status, error in result.stories:
+                memory.mark_story(
+                    session, memory.story_key(source, story_id), source, status, error
+                )
+            if result.log:
+                events.emit(
+                    session,
+                    job_id,
+                    "discovery:page",
+                    source=source,
+                    method=result.group,
+                    url=task["url"],
+                    log="\n".join(result.log),
+                )
+            if result.debug and scout.scout_debug and self.debug_sink:
+                self.debug_sink(job_id, task, result.debug)
             if task["kind"] == "post":
                 stored = session.get(ScoutPost, task["url"]) or ScoutPost(
                     url=task["url"], source=task["source"]
@@ -554,12 +604,47 @@ class ScoutService:
         self.advance(job_id, additions, notices)
         return {"saved": True}
 
-    def _accept(self, session, job_id, run, observations, known, stats, candidates, quota, scout):
-        """Duplicate check and per-page quota; returns profile tasks to queue and a summary."""
+    def _context(self, session, scout, profile_id, source_url, yielded) -> DiscoveryContext:
+        source = source_name(source_url)
+
+        def skip(name: str, kind: str) -> list[str]:
+            if kind == "story":
+                return memory.story_skip_list(
+                    session, name, scout.scout_story_ttl_hours, scout.scout_max_item_failures
+                )
+            return memory.skip_list(session, name, kind, scout.scout_max_item_failures)
+
+        return DiscoveryContext(
+            settings=scout,
+            guest=profile_id == GUEST_ID,
+            gate=CandidateGate(source, set(scout.scout_ignore_usernames), yielded),
+            skip=skip,
+        )
+
+    @staticmethod
+    def _add_metrics(stats: dict, source: str, group: str, delta: dict) -> None:
+        providers = dict(stats.get("providers") or {})
+        per_source = dict(providers.get(source) or {})
+        current = {key: 0 for key in METRIC_KEYS} | dict(per_source.get(group) or {})
+        for key, value in delta.items():
+            current[key] = current.get(key, 0) + int(value)
+        per_source[group] = current
+        providers[source] = per_source
+        stats["providers"] = providers
+
+    def process_candidates(
+        self, session, job_id, run, observations, known, stats, candidates, quota, scout
+    ):
+        """Scout pipeline entry for discovered candidates: duplicate checks and page quota.
+
+        Returns profile tasks to queue and a summary; providers never reach the lead store.
+        """
         elsewhere = memory.queued_elsewhere(session, job_id)
         fresh, duplicates, limited, additions = 0, set(), False, []
         for candidate, observation in candidates:
             url = profile_link(candidate.username)
+            group = GROUP_OF_METHOD.get(candidate.method, candidate.method)
+            source = candidate.source_username
             if observation:
                 evidence = observations.get(url, [])
                 if observation not in evidence:
@@ -569,6 +654,10 @@ class ScoutService:
             if url in known or url in elsewhere or earlier:
                 if url not in duplicates:
                     duplicates.add(url)
+                    key = (
+                        "alreadyProcessed" if earlier and url not in known else "duplicatesSkipped"
+                    )
+                    self._add_metrics(stats, source, group, {key: 1})
                     if earlier and url not in known:
                         stats["skipped"] += 1
                         events.emit(
@@ -590,6 +679,7 @@ class ScoutService:
             known.add(url)
             additions.append(candidate.task())
             stats["discovered"] += 1
+            self._add_metrics(stats, source, group, {"candidatesFound": 1})
             events.emit(
                 session,
                 job_id,
@@ -898,11 +988,59 @@ class ScoutService:
                     **{k: stats[k] for k in ("discovered", "analyzed", "leads", "skipped")},
                 )
 
-    def on_error(self, job_id: int, reason: str) -> None:
+    def on_error(self, job_id: int, reason: str) -> bool:
+        """Handle a page error of a scout run; True when the run keeps going unpaused.
+
+        Transient failures (timeouts, failed navigation) are retried up to the configured
+        limit; unavailable pages are skipped. Login, checkpoint and rate limits stop the run
+        and go back to the queue as typed errors; nothing tries to get around them.
+        """
+        error = error_for(reason)
+        scout = self.scout_settings()
         with self.sessions.begin() as session:
             run = session.get(ScoutRun, job_id)
-            if run is None:
-                return
+            queue = session.get(BrowserQueue, job_id)
+            job = session.get(SearchJob, job_id)
+            if run is None or job.status != "running":
+                return False
+            stats = {**empty_stats([]), **(run.stats or {})}
+            cursor = str(queue.cursor)
+            attempts = dict(stats.get("attempts") or {})
+            if error.retryable and attempts.get(cursor, 0) < scout.scout_max_retries:
+                attempts[cursor] = attempts.get(cursor, 0) + 1
+                stats["attempts"] = attempts
+                run.stats = stats
+                return True
+            task = run.tasks[queue.cursor] if queue.cursor < len(run.tasks) else {}
+            if error is InstagramUnavailableError or error.retryable:
+                # Give up on this page only: record the failure and move on.
+                source = source_name(task.get("source") or "")
+                if task.get("kind") in {"post", "tagged_post"}:
+                    code = post_url(task["url"]).rstrip("/").split("/")[-1]
+                    memory.mark_post(
+                        session,
+                        memory.post_key(task["kind"], source, code),
+                        source,
+                        task["kind"],
+                        "unavailable" if error is InstagramUnavailableError else "failed",
+                        reason,
+                    )
+                self._add_metrics(
+                    stats, source, GROUP_OF_KIND.get(task.get("kind"), "posts"), {"failures": 1}
+                )
+                stats["errors"] += 1
+                run.stats = stats
+                events.emit(
+                    session, job_id, "scout:error", reason=reason, url=task.get("url"), skipped=True
+                )
+                skip_page = True
+            else:
+                skip_page = False
+        if skip_page:
+            self.advance(job_id, notice=f"Страница пропущена ({reason}): {task.get('url')}")
+            return True
+        with self.sessions.begin() as session:
+            run = session.get(ScoutRun, job_id)
             stats = {**empty_stats([]), **(run.stats or {})}
             stats["errors"] += 1
             run.stats = stats
@@ -915,9 +1053,11 @@ class ScoutService:
                 job_id,
                 "scout:error",
                 reason=RATE_LIMITED if reason == "rate_limited" else reason,
+                error=error.__name__,
                 profile=stats["current_profile"],
                 source=source_name(stats["current_source"] or ""),
             )
+        return False
 
     def event_list(self, params) -> list[dict]:
         with self.sessions() as session:

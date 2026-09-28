@@ -181,6 +181,14 @@ class ChromiumRuntime:
         normalized = str(value or "Lax").lower()
         return {"strict": "Strict", "none": "None", "no_restriction": "None"}.get(normalized, "Lax")
 
+    def screenshot(self, identifier: str, path) -> bool:
+        """Debug screenshot of a profile window's page; False when the window is gone."""
+        window = self._window(identifier)
+        if not window:
+            return False
+        window.page.screenshot(path=str(path), full_page=False)
+        return True
+
     def save(self, identifier: str) -> dict:
         if identifier == GUEST_ID:
             raise ValueError("Guest session cannot be saved")

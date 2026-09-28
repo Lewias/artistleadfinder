@@ -5,7 +5,7 @@ import type { ScoutAccountRow, ScoutEvent } from '../services/types';
 import { eventText } from './scoutStatus';
 
 type Tab = 'events' | 'log';
-type LogFilter = 'all' | 'lead' | 'skipped';
+type LogFilter = 'all' | 'lead' | 'skipped' | 'discovery';
 
 export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
   const runs = accounts
@@ -24,7 +24,8 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
       event.payload.log &&
       (filter === 'all' ||
         (filter === 'lead' && event.type === 'lead:found') ||
-        (filter === 'skipped' && event.type === 'profile:skipped')),
+        (filter === 'skipped' && event.type === 'profile:skipped') ||
+        (filter === 'discovery' && event.type === 'discovery:page')),
   );
   return (
     <section className="panel scout-activity">
@@ -86,6 +87,7 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
                 ['all', 'Все'],
                 ['lead', 'Лиды'],
                 ['skipped', 'Пропущенные'],
+                ['discovery', 'Discovery'],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -103,7 +105,16 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
           <div className="log-viewer">
             {logs.length === 0 && <p className="helper">Записей пока нет.</p>}
             {[...logs].reverse().map(event => (
-              <pre key={event.id} className={event.type === 'lead:found' ? 'log-lead' : 'log-skip'}>
+              <pre
+                key={event.id}
+                className={
+                  event.type === 'lead:found'
+                    ? 'log-lead'
+                    : event.type === 'discovery:page'
+                      ? 'log-page'
+                      : 'log-skip'
+                }
+              >
                 {event.payload.log}
               </pre>
             ))}

@@ -1812,3 +1812,30 @@ tbody tr:hover td {
 .scout-activity > .segmented {
   justify-self: start;
 }
+.discovery-metrics > summary,
+.scout-advanced > summary {
+  color: var(--muted);
+  font-size: 13px;
+}
+.scout-advanced {
+  margin-bottom: 16px;
+}
+.metrics-table {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.metrics-table table {
+  font-size: 12.5px;
+}
+.metrics-table th,
+.metrics-table td {
+  padding: 8px 12px;
+}
+.metrics-table td.bad {
+  color: var(--red);
+  font-weight: 700;
+}
+.log-viewer pre.log-page {
+  border-left-color: var(--violet);
+}

@@ -18,6 +18,7 @@ EVENT_TYPES = {
     "scout:stop",
     "scout:error",
     "scout:done",
+    "discovery:page",
 }
 RETENTION_DAYS = 30
 
