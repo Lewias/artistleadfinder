@@ -27,6 +27,22 @@ class Window:
     browser: Browser
     context: BrowserContext
     page: Page
+    # Set when Instagram answered HTTP 429 since the last navigation.
+    rate_limited: bool = False
+
+
+def watch_rate_limits(window: Window) -> None:
+    """Flag the window when any Instagram request (page or API call) gets HTTP 429."""
+
+    def on_response(response) -> None:
+        try:
+            host = (urlparse(response.url).hostname or "").lower()
+        except ValueError:
+            return
+        if response.status == 429 and (host == "instagram.com" or host.endswith(".instagram.com")):
+            window.rate_limited = True
+
+    window.context.on("response", on_response)
 
 
 class ChromiumRuntime:
@@ -139,7 +155,9 @@ class ChromiumRuntime:
             if cookies:
                 context.add_cookies(cookies)
             page = context.new_page()
-            self.windows[identifier] = Window(browser, context, page)
+            window = Window(browser, context, page)
+            watch_rate_limits(window)
+            self.windows[identifier] = window
             try:
                 page.goto(
                     "https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000
@@ -182,12 +200,13 @@ class ChromiumRuntime:
         host = (parsed.hostname or "").lower()
         if parsed.scheme != "https" or host not in {"instagram.com", "www.instagram.com"}:
             raise ValueError("Only Instagram profile pages are supported")
+        window.rate_limited = False
         try:
             window.page.goto(url, wait_until="domcontentloaded", timeout=12000)
         except Exception:
             if not self._window(identifier):
                 raise ValueError("Browser window is closed") from None
-        return {"ok": True}
+        return {"ok": True, "rate_limited": window.rate_limited}
 
     def evaluate(self, identifier: str, script: str) -> dict:
         window = self._window(identifier)
@@ -198,6 +217,10 @@ class ChromiumRuntime:
         result = window.page.evaluate(script)
         if not isinstance(result, dict):
             raise ValueError("Invalid browser result")
+        if window.rate_limited:
+            # Chromium shows its own error page for HTTP 429, which page scripts cannot
+            # recognise; report it so the queue pauses and waits out the break.
+            return {**result, "ready": False, "blocked": True, "rate_limited": True}
         return result
 
     def shutdown(self) -> None:
