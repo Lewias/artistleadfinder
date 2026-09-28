@@ -13,7 +13,15 @@ Pydantic и SQLite. UI не требует браузера. Рассылка и
 classification, scoring, repositories, jobs, RPC.
 `backend/tests` — воспроизводимые проверки ядра.
 
-Конвейер: SearchConfig → DiscoveryEngine → SourceProvider → Candidate →
+Lead Scout (`backend/artist_lead_finder/lead_scout/`): candidates (единый
+кандидат), discovery (провайдеры по типу страницы), resolver
+(resolve_instagram_profile), contacts, classifier, ai (OpenRouter), filters,
+memory, events. `ScoutService` ведёт этапы по страницам очереди браузера:
+source → discovery → candidate → duplicate check → profile → classification →
+AI при необходимости → filters → lead. Rust выбирает скрипт страницы по шагу
+(scout.js, capture.js, follow.js) и передаёт параметры пагинации.
+
+Конвейер демо/импорта: SearchConfig → DiscoveryEngine → SourceProvider → Candidate →
 Normalizer → Deduplicator → ProfileAnalyzer → RuleBasedClassifier →
 GenreClassifier → LeadScorer → Repository → SQLite → ApplicationService.
 Провайдеры не знают о БД, UI и оценках. Первые источники: MockProvider и

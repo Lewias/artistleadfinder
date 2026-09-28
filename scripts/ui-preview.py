@@ -38,7 +38,10 @@ def run(status, **extra):
             "candidates": 44, "found": 12, "backlog": 36, "notices": [
                 "https://www.instagram.com/p/C9x1/: новых кандидатов 30, повторов 4",
                 "@beatstore_x: недостаточно признаков исполнителя."],
-            "wait_seconds": 0, "wait_reason": None, "profile_id": "a" * 32}
+            "wait_seconds": 0, "wait_reason": None, "profile_id": "a" * 32,
+            "stats": {"discovered": 44, "analyzed": 41, "leads": 12, "skipped": 29, "errors": 1,
+                      "current_source": "https://www.instagram.com/rapgoat.tv/",
+                      "current_profile": "lil_nova", "sources": [], "sources_done": []}}
     base.update(extra)
     return base
 
@@ -102,11 +105,57 @@ SETTINGS = {"min_followers": 1000, "max_followers": 50000, "activity_days": 30, 
             "weights": {"artist": 30, "music_bio": 15, "music_link": 15, "recent_activity": 15,
                         "followers": 10, "genre": 10, "strong_activity": 5},
             "page_delay_min": 8, "page_delay_max": 20, "profiles_per_hour": 60,
-            "profiles_per_run": 0, "rate_limit_pause_minutes": 30}
+            "profiles_per_run": 0, "rate_limit_pause_minutes": 30,
+            "scout_methods": ["posts", "comments", "tagged"], "scout_profile_type": "artists",
+            "scout_min_followers": 0, "scout_max_followers": 1000000, "scout_only_contacts": False,
+            "scout_skip_processed": True, "scout_skip_recent_sources": True,
+            "scout_source_cooldown_hours": 24, "scout_sources_per_run": 5, "scout_follow_page_size": 12,
+            "scout_follow_delay_seconds": 2, "scout_follow_max": 100, "scout_ai_mode": "uncertain",
+            "scout_ai_model": "anthropic/claude-haiku-4.5"}
+LOG = """[@lil_nova]
+
+source: @rapgoat.tv
+method: comment
+followers: 1900
+
+local classification:
+artist
+confidence: 89
+score: 17
+
+signals:
++ Bio contains rapper
++ Spotify link found
++ Release phrase: new single
+
+RESULT:
+LEAD SAVED"""
+EVENTS = [
+    {"id": i, "job_id": 7, "type": t, "payload": pl, "created_at": f"2026-09-28T10:{i:02d}:00+00:00"}
+    for i, (t, pl) in enumerate([
+        ("scout:start", {"sources": ["rapgoat.tv", "topdailyrap"]}),
+        ("source:start", {"source": "rapgoat.tv"}),
+        ("candidate:found", {"username": "lil_nova", "method": "comment", "source": "rapgoat.tv"}),
+        ("profile:analyzing", {"username": "lil_nova"}),
+        ("lead:found", {"username": "lil_nova", "category": "artist", "confidence": 89, "log": LOG}),
+        ("profile:skipped", {"username": "beatstore_x", "reason": "WRONG_PROFILE_TYPE",
+                             "log": LOG.replace("lil_nova", "beatstore_x").replace("LEAD SAVED",
+                                                "SKIPPED - WRONG_PROFILE_TYPE")}),
+        ("scout:error", {"reason": "RATE_LIMITED", "profile": "some_user"}),
+    ], start=1)
+]
 CORE = {
     "system.info": {"version": "0.1.0", "data_dir": "C:/data", "log_dir": "C:/data/logs", "transport": "stdio"},
     "scout.sources": [f"https://www.instagram.com/{s}/" for s in SOURCES],
     "scout.accounts": ACCOUNTS,
+    "scout.source_list": [
+        {"url": f"https://www.instagram.com/{s}/", "username": s, "enabled": i != 3,
+         "last_scanned_at": None if i > 4 else "2026-09-28T08:00:00+00:00",
+         "status": ["done", "scanning", "queued", "new", "rate_limited"][i % 5], "leads_found": (i * 7) % 23}
+        for i, s in enumerate(SOURCES[:9])
+    ],
+    "scout.events": EVENTS,
+    "ai.status": {"configured": False},
     "scout.results": RESULTS,
     "capture.latest": None,
     "leads.list": {"total": 1606, "items": LEADS},
@@ -206,6 +255,11 @@ def main():
                 page.locator("text=Массовый").first.click(force=True)
                 page.wait_for_timeout(300)
                 page.screenshot(path=str(out / "state-bulk.png"))
+                if page.locator("text=Журнал профилей").count():
+                    page.locator("text=Журнал профилей").first.click()
+                    page.wait_for_timeout(300)
+                    page.locator(".scout-activity").scroll_into_view_if_needed()
+                    page.screenshot(path=str(out / "state-log.png"))
                 page.locator("nav button", has_text="База артистов").click()
                 page.wait_for_timeout(600)
                 page.locator(".profile-cell").first.click()

@@ -1,3 +1,4 @@
+/* eslint-disable-next-line @typescript-eslint/no-unused-expressions -- evaluated as a function by Playwright */
 async (args) => {
   // Followers / following dialog of a source: page through the list with a delay between
   // pages, stop at the limit, the end of the list or the time budget. Never retries blocks.

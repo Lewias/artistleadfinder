@@ -2,10 +2,11 @@
 export const pages = [
   {
     id: 'discovery',
-    label: 'Скаутинг',
+    label: 'Lead Scout',
     eyebrow: 'INSTAGRAM',
-    title: 'Поиск артистов',
-    description: 'Источники общие для всех аккаунтов. Каждый аккаунт ищет до своей цели.',
+    title: 'Lead Scout',
+    description:
+      'SMM-источники → связанные профили → проверка артиста → фильтры → лид. Сообщения не отправляются.',
     placement: 'main',
   },
   {

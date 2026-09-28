@@ -1,13 +1,16 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
-import { ArrowUpRight, AtSign, CornerDownLeft, Layers, Radar, SlidersHorizontal, X } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowUpRight, Radar, SlidersHorizontal } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
+import type { ScoutAccountRow, ScoutSourceRow } from '../services/types';
 import { Button } from './ui/button';
 import { LeadDetail } from './LeadDetail';
 import { PageHeader } from './PageHeader';
 import { plural } from '../lib/format';
-import { parseScoutSources, sourceEntries, sourceHandle } from './scoutSources';
 import { ScoutAccounts } from './ScoutAccounts';
+import { ScoutActivity } from './ScoutActivity';
+import { ScoutSettingsPanel } from './ScoutSettingsPanel';
+import { ScoutSources } from './ScoutSourceTable';
 
 type Evidence = { source: string; url: string; caption: string; published_at: string | null };
 type ServiceScore = { score: number; reasons: { text: string; evidence: Evidence | null }[] };
@@ -26,163 +29,50 @@ const labels: Record<string, string> = {
   mixing: 'Сведение / мастеринг',
   promotion: 'Продвижение',
 };
-const MAX_SOURCES = 20;
 
 export function ScoutDiscovery() {
-  const [sources, setSources] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [bulk, setBulk] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [lead, setLead] = useState<number | null>(null);
+  const sources = useResource<ScoutSourceRow[]>('scout.source_list', {}, 5000);
+  const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 2000);
   const results = useResource<ScoutLead[]>('scout.results', {}, 4000);
-  useEffect(() => {
-    void api
-      .request<string[]>('scout.sources', {})
-      .then(value => {
-        setSources(value);
-        setLoaded(true);
-      })
-      .catch(err => setError(String(err)));
-  }, []);
-  // Chips are saved at once; an empty list is kept locally because the core needs at least one.
-  const store = async (next: string[]) => {
-    const checked = parseScoutSources(next.join('\n'));
-    if (checked.error) {
-      setError(checked.error);
-      return false;
-    }
-    setError('');
-    if (!next.length) {
-      setSources([]);
-      return true;
-    }
-    setSaving(true);
-    try {
-      setSources(await api.request<string[]>('scout.sources', { sources: next }));
-      return true;
-    } catch (err) {
-      setError(String(err));
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-  const add = async (text: string) => {
-    const entries = sourceEntries(text);
-    if (!entries.length) return false;
-    const known = new Set(sources.map(url => sourceHandle(url).toLowerCase()));
-    const fresh = entries.filter(entry => !known.has(sourceHandle(entry).toLowerCase()));
-    return store([...sources, ...fresh]);
-  };
-  const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    void add(draft).then(ok => ok && setDraft(''));
-  };
-  // Every account start saves the current list, so all accounts read the same sources.
-  const saveSources = async () => {
-    if (!sources.length) throw new Error('Добавьте хотя бы один источник.');
-    return api.request<string[]>('scout.sources', { sources });
-  };
+  const enabled = sources.data?.filter(row => row.enabled).length ?? 0;
   const openEvidence = (url: string) => void api.openProfile(url).catch(err => setError(String(err)));
-  const full = sources.length >= MAX_SOURCES;
   return (
     <section className="scout-workspace">
-      <PageHeader page="discovery" count={plural(sources.length, ['источник', 'источника', 'источников'])} />
-      <div className="panel source-board">
-        <div className="chip-cloud" aria-label="Источники">
-          {sources.map(url => (
-            <span className="chip" key={url}>
-              {sourceHandle(url)}
-              <button
-                aria-label={`Удалить ${sourceHandle(url)}`}
-                disabled={saving}
-                onClick={() => void store(sources.filter(item => item !== url))}
-              >
-                <X size={14} />
-              </button>
-            </span>
-          ))}
-          {loaded && !sources.length && (
-            <p className="helper">Источников пока нет. Добавьте аккаунты музыкальных пабликов ниже.</p>
-          )}
-        </div>
-        {bulk === null ? (
-          <label className="chip-input">
-            <AtSign size={17} aria-hidden="true" />
-            <input
-              aria-label="Новый источник"
-              placeholder={full ? 'Достигнут предел в 20 источников' : 'Добавьте источники и нажмите Enter…'}
-              value={draft}
-              disabled={!loaded || saving || full}
-              onChange={event => setDraft(event.target.value)}
-              onKeyDown={onKey}
-            />
-            <kbd aria-hidden="true">
-              <CornerDownLeft size={13} />
-            </kbd>
-          </label>
-        ) : (
-          <div className="bulk-input">
-            <textarea
-              rows={4}
-              aria-label="Список источников"
-              placeholder={'rapgoat.tv\n@topdailyrap\nhttps://www.instagram.com/rapczn/'}
-              value={bulk}
-              onChange={event => setBulk(event.target.value)}
-            />
-            <div className="actions">
-              <Button
-                disabled={saving || !bulk.trim()}
-                onClick={() => void add(bulk).then(ok => ok && setBulk(null))}
-              >
-                Добавить
-              </Button>
-              <Button variant="outline" onClick={() => setBulk(null)}>
-                Отмена
-              </Button>
-            </div>
-          </div>
-        )}
-        <div className="board-footer">
-          <div className="actions">
-            <Button variant="outline" disabled={bulk !== null || full} onClick={() => setBulk('')}>
-              <Layers size={16} /> Массовый
-            </Button>
-          </div>
-          <span className="board-status">
-            {saving ? 'Сохраняем…' : `${sources.length} / ${MAX_SOURCES} источников · сохранено`}
-          </span>
-        </div>
-        {error && (
-          <p role="alert" className="error-text">
-            {error}
-          </p>
-        )}
-      </div>
-      <ScoutAccounts
-        saveSources={saveSources}
-        disabled={!loaded || !sources.length}
-        onChange={results.refresh}
+      <PageHeader
+        page="discovery"
+        count={plural(enabled, ['активный источник', 'активных источника', 'активных источников'])}
       />
-      {results.error && (
+      <ScoutSources rows={sources.data} refresh={sources.refresh} />
+      <ScoutSettingsPanel />
+      <ScoutAccounts
+        rows={accounts.data}
+        error={accounts.error}
+        disabled={!enabled}
+        refresh={() => {
+          accounts.refresh();
+          sources.refresh();
+          results.refresh();
+        }}
+      />
+      <ScoutActivity accounts={accounts.data || []} />
+      {(error || results.error) && (
         <p role="alert" className="error-text">
-          {results.error}
+          {error || results.error}
         </p>
       )}
       <details className="scout-limits">
         <summary>
-          <SlidersHorizontal size={15} /> Как работает оценка и что учитывает поиск
+          <SlidersHorizontal size={15} /> Как работает Lead Scout
         </summary>
         <p className="helper">
-          Аккаунт ищет, пока не наберёт свою цель подходящих лидов: сетка каждого источника прокручивается до
-          120 публикаций, они разбираются пачками по 12. С одной публикации берётся не больше 30 новых
-          кандидатов; уже проверенные авторы не открываются повторно, их комментарий добавляется к прежней
-          оценке. Под каждой публикацией читаются до 200 доступных комментариев. Оценки показывают
-          соответствие услуге, а не вероятность покупки. Закрытые профили, СМИ и магазины исключаются. При
-          запросе входа поиск приостанавливается. Отправки сообщений нет.
+          Источник → поиск кандидатов выбранными методами (авторы и соавторы публикаций, комментаторы,
+          отметки, подписчики) → проверка дублей → профиль → локальная классификация (артист / продюсер /
+          медиа / другое) → при необходимости AI → фильтры (подписчики, тип профиля, контакты) → лид в базе.
+          Разобранные публикации и профили запоминаются и не проверяются повторно. Источники сканируются по
+          очереди, недавно просканированные пропускаются до конца кулдауна. При ограничении Instagram очередь
+          встаёт на паузу и выдерживает перерыв. Сообщения не отправляются.
         </p>
       </details>
       <div className="section-title">
@@ -202,7 +92,7 @@ export function ScoutDiscovery() {
             <Radar size={36} strokeWidth={1.4} />
           </div>
           <h3>Здесь начнутся новые знакомства</h3>
-          <p>Добавьте источники и запустите поиск на одном из аккаунтов.</p>
+          <p>Добавьте источники и запустите Lead Scout на одном из аккаунтов.</p>
         </div>
       )}
       {results.data?.map(item => (

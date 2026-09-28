@@ -1,36 +1,52 @@
 import { useEffect, useState } from 'react';
-import { Activity, ExternalLink, Globe2, Play, RotateCcw, SkipForward, Square, Target } from 'lucide-react';
+import {
+  Activity,
+  ExternalLink,
+  Globe2,
+  Pause,
+  Play,
+  RotateCcw,
+  SkipForward,
+  Square,
+  Target,
+} from 'lucide-react';
 import { api } from '../services/api';
 import type { ScoutAccountRow } from '../services/types';
-import { useResource } from '../hooks/useResource';
 import { waitLabel } from '../lib/format';
 import { Button } from './ui/button';
 import { runStatus } from './scoutStatus';
 
 const stepLabels: Record<string, string> = {
-  source: 'Читаем источник',
-  post: 'Разбираем публикацию',
-  profile: 'Проверяем исполнителя',
+  source: 'Сетка источника',
+  tagged_grid: 'Отметки источника',
+  post: 'Публикация',
+  tagged_post: 'Отмеченная публикация',
+  followers: 'Подписчики источника',
+  following: 'Подписки источника',
+  profile: 'Проверка профиля',
 };
+const handle = (url: string | null | undefined) =>
+  url ? `@${url.replace(/\/$/, '').split('/').pop()}` : '—';
 
 export function ScoutAccounts({
-  saveSources,
+  rows,
+  error,
+  refresh,
   disabled,
-  onChange,
 }: {
-  saveSources: () => Promise<string[]>;
+  rows: ScoutAccountRow[] | undefined;
+  error: string;
+  refresh: () => void;
   disabled: boolean;
-  onChange: () => void;
 }) {
-  const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 2000);
-  const rows = accounts.data || [];
-  const running = rows.filter(row => row.run?.status === 'running' && row.run.stage !== 'interrupted').length;
-  const found = rows.reduce((sum, row) => sum + row.found, 0);
+  const list = rows || [];
+  const running = list.filter(row => row.run?.status === 'running' && row.run.stage !== 'interrupted').length;
+  const found = list.reduce((sum, row) => sum + row.found, 0);
   return (
     <section className="accounts-section">
       <div className="section-title">
         <h2>
-          Аккаунты <span className="page-count">{rows.length}</span>
+          Аккаунты <span className="page-count">{list.length}</span>
         </h2>
         <div className="stat-pills">
           <span className="stat-pill">
@@ -41,28 +57,19 @@ export function ScoutAccounts({
           </span>
         </div>
       </div>
-      {accounts.error && (
+      {error && (
         <p role="alert" className="error-text">
-          {accounts.error}
+          {error}
         </p>
       )}
-      {accounts.data?.length === 0 && (
+      {rows?.length === 0 && (
         <div className="panel empty-panel">
           Создайте профиль в разделе «Аккаунты» и войдите в Instagram — здесь появится карточка для запуска
-          поиска.
+          Lead Scout.
         </div>
       )}
-      {rows.map(row => (
-        <AccountCard
-          key={row.profile.id}
-          row={row}
-          disabled={disabled}
-          saveSources={saveSources}
-          refresh={() => {
-            accounts.refresh();
-            onChange();
-          }}
-        />
+      {list.map(row => (
+        <AccountCard key={row.profile.id} row={row} disabled={disabled} refresh={refresh} />
       ))}
     </section>
   );
@@ -71,12 +78,10 @@ export function ScoutAccounts({
 function AccountCard({
   row,
   disabled,
-  saveSources,
   refresh,
 }: {
   row: ScoutAccountRow;
   disabled: boolean;
-  saveSources: () => Promise<string[]>;
   refresh: () => void;
 }) {
   const [target, setTarget] = useState(String(row.target));
@@ -87,10 +92,11 @@ function AccountCard({
   const id = profile.id;
   const active = Boolean(run && ['running', 'paused'].includes(run.status) && run.stage !== 'interrupted');
   const running = active && run?.status === 'running';
+  const paused = active && run?.status === 'paused';
   const reached = row.found >= row.target;
   const targetValue = Number(target);
   const targetValid = Number.isInteger(targetValue) && targetValue >= 1 && targetValue <= 10000;
-  const act = async (operation: () => Promise<void>) => {
+  const act = async (operation: () => Promise<unknown>) => {
     setBusy(true);
     setError('');
     try {
@@ -107,23 +113,23 @@ function AccountCard({
       await api.request('scout.account_target', { profile_id: id, target: targetValue, reset });
     }
   };
+  const control = (action: 'pause' | 'resume' | 'cancel') =>
+    act(async () => {
+      if (action === 'resume') await api.browser('open', { id });
+      await api.request('jobs.control', { id: run!.id, action });
+    });
   const start = () =>
     act(async () => {
       await saveTarget();
       await api.browser('open', { id });
-      if (run?.status === 'paused' && run.stage !== 'interrupted') {
-        await api.request('jobs.control', { id: run.id, action: 'resume' });
-      } else {
-        const sources = await saveSources();
-        await api.browser('scout', { id, sources });
-      }
+      // The core picks the next sources by rotation and cooldown.
+      await api.browser('scout', { id });
     });
   const percent = Math.min(100, Math.round((row.found / Math.max(1, row.target)) * 100));
-  const continuing = (run?.status === 'paused' && run.stage !== 'interrupted') || (row.found > 0 && !reached);
   const status = runStatus(row);
-  // Errors of finished runs are history, not something that needs attention now.
   const attention = active && Boolean(run?.error);
   const tone = reached ? 'green' : running ? 'violet' : attention ? 'amber' : 'muted';
+  const stats = run?.stats;
   return (
     <article className="panel account-card">
       <div className="account-head">
@@ -152,24 +158,31 @@ function AccountCard({
             onBlur={() => targetValid && void act(() => saveTarget())}
           />
         </label>
-        {running ? (
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => void act(() => api.request('jobs.control', { id: run!.id, action: 'pause' }))}
-          >
-            <Square size={14} /> Стоп
+        {running && (
+          <Button variant="outline" disabled={busy} onClick={() => void control('pause')}>
+            <Pause size={14} /> Пауза
           </Button>
-        ) : (
+        )}
+        {paused && (
+          <Button disabled={busy} onClick={() => void control('resume')}>
+            <Play size={14} /> Продолжить
+          </Button>
+        )}
+        {!active && (
           <Button disabled={busy || disabled || !targetValid || reached} onClick={() => void start()}>
-            <Play size={14} /> {continuing ? 'Продолжить' : 'Запуск'}
+            <Play size={14} /> {row.found > 0 && !reached ? 'Продолжить поиск' : 'Start Scout'}
+          </Button>
+        )}
+        {active && (
+          <Button variant="danger" disabled={busy} onClick={() => void control('cancel')}>
+            <Square size={14} /> Stop
           </Button>
         )}
         <span className="goal-progress">
           Найдено <b>{row.found}</b> из {row.target}
         </span>
         <div className="icon-actions">
-          {run?.status === 'paused' && active && run.error && (
+          {paused && run?.error && (
             <Button
               icon
               variant="outline"
@@ -208,22 +221,46 @@ function AccountCard({
       <div className="goal-bar" aria-hidden="true">
         <i style={{ width: `${percent}%` }} />
       </div>
-      {run && (
+      {stats && (
+        <dl className="run-stats">
+          <div>
+            <dt>Источник</dt>
+            <dd>{handle(stats.current_source)}</dd>
+          </div>
+          <div>
+            <dt>Профиль</dt>
+            <dd>{stats.current_profile ? `@${stats.current_profile}` : '—'}</dd>
+          </div>
+          <div>
+            <dt>Найдено профилей</dt>
+            <dd>{stats.discovered}</dd>
+          </div>
+          <div>
+            <dt>Проанализировано</dt>
+            <dd>{stats.analyzed}</dd>
+          </div>
+          <div>
+            <dt>Лидов</dt>
+            <dd className="good">{stats.leads}</dd>
+          </div>
+          <div>
+            <dt>Пропущено</dt>
+            <dd>{stats.skipped}</dd>
+          </div>
+          <div>
+            <dt>Ошибок</dt>
+            <dd className={stats.errors ? 'bad' : ''}>{stats.errors}</dd>
+          </div>
+        </dl>
+      )}
+      {run && active && run.kind && stepLabels[run.kind] && (
         <p className="account-detail">
-          {active && run.kind && stepLabels[run.kind] ? (
-            <>
-              {stepLabels[run.kind]}
-              {run.url ? ` · ${run.url.replace('https://www.instagram.com', '')}` : ''}
-              {running && !!run.wait_seconds && run.wait_reason
-                ? ` · ${run.wait_reason} Осталось ${waitLabel(run.wait_seconds)}.`
-                : ''}
-            </>
-          ) : (
-            <>
-              Последний запуск: найдено {run.found ?? 0}, кандидатов {run.candidates ?? 0}, публикаций в
-              запасе {run.backlog ?? 0}
-            </>
-          )}
+          {stepLabels[run.kind]}
+          {run.url ? ` · ${run.url.replace('https://www.instagram.com', '')}` : ''}
+          {running && !!run.wait_seconds && run.wait_reason
+            ? ` · ${run.wait_reason} Осталось ${waitLabel(run.wait_seconds)}.`
+            : ''}
+          {run.backlog ? ` · публикаций в запасе ${run.backlog}` : ''}
         </p>
       )}
       {(error || attention) && (

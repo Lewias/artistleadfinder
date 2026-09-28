@@ -111,6 +111,56 @@ export interface SettingsData {
   profiles_per_hour: number;
   profiles_per_run: number;
   rate_limit_pause_minutes: number;
+  scout_methods: ScoutMethod[];
+  scout_profile_type: 'artists' | 'artists_producers' | 'everyone';
+  scout_min_followers: number;
+  scout_max_followers: number;
+  scout_only_contacts: boolean;
+  scout_skip_processed: boolean;
+  scout_skip_recent_sources: boolean;
+  scout_source_cooldown_hours: number;
+  scout_sources_per_run: number;
+  scout_follow_page_size: number;
+  scout_follow_delay_seconds: number;
+  scout_follow_max: number;
+  scout_ai_mode: 'off' | 'uncertain' | 'always';
+  scout_ai_model: string;
+}
+export type ScoutMethod = 'posts' | 'comments' | 'tagged' | 'stories' | 'followers' | 'following';
+export interface ScoutStats {
+  discovered: number;
+  analyzed: number;
+  leads: number;
+  skipped: number;
+  errors: number;
+  current_source: string | null;
+  current_profile: string | null;
+  sources: string[];
+  sources_done: string[];
+}
+export interface ScoutSourceRow {
+  url: string;
+  username: string;
+  enabled: boolean;
+  last_scanned_at: string | null;
+  status: string;
+  leads_found: number;
+}
+export interface ScoutEvent {
+  id: number;
+  job_id: number;
+  type: string;
+  payload: {
+    username?: string;
+    source?: string;
+    method?: string;
+    reason?: string;
+    category?: string;
+    confidence?: number;
+    log?: string;
+    [key: string]: unknown;
+  };
+  created_at: string;
 }
 export interface ProviderHealth {
   provider: string;
@@ -149,6 +199,7 @@ export interface CaptureQueue {
   profile_id?: string;
   found?: number;
   backlog?: number;
+  stats?: ScoutStats;
 }
 export interface ScoutAccountRow {
   profile: BrowserProfile;

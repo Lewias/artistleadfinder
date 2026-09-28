@@ -65,3 +65,13 @@ analysis/breakdown/source, не к leads при удалении search job.
 
 CSV экспорт читает данные порциями. Фильтры и сортировка используют
 allowlist полей; values передаются bind parameters. UI не загружает всю БД.
+
+Миграция 5 (Lead Scout): `scout_processed_profiles` (username PK, источник,
+метод, результат, причина), `scout_processed_posts` (shortcode PK),
+`scout_processed_stories`, `scout_ai_cache` (username PK, категория,
+уверенность, модель), `scout_state` (курсор ротации источников),
+`scout_events` (события и журнал запусков, хранятся 30 дней) и
+`lead_scout_profiles` (lead_id PK: instagram_id, posts_count, emails, phones,
+profile_type/score/confidence/reasons, source_username, discovery_method,
+origin_url, ai_model/ai_confidence, first/last_seen_at). В `scout_sources`
+добавлены last_scanned_at, status, leads_found, added_at; в `scout_runs` — stats.

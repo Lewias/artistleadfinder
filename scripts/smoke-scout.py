@@ -69,6 +69,8 @@ def main():
         folder = Path(temporary)
         engine, sessions = open_database(folder / "test.sqlite3")
         service = ApplicationService(sessions, folder)
+        # The fixture pages cover the posts and comments methods.
+        service.call("settings.save", {"scout_methods": ["posts", "comments"]})
         try:
             job = service.call("scout.start_internal", {
                 "sources": [SOURCE], "profile_id": "0" * 32,

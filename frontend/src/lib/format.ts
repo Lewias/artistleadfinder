@@ -37,3 +37,11 @@ export const statusLabels: Record<string, string> = {
   cancelled: 'Отменён',
 };
 export const genres = ['Hip-Hop', 'Trap', 'R&B', 'Pop', 'Indie', 'Electronic', 'Rock', 'Soul'];
+export const relativeTime = (value: string | null, empty = 'Ещё не сканировался') => {
+  if (!value) return empty;
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return 'только что';
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} ч назад` : `${Math.round(hours / 24)} дн назад`;
+};
