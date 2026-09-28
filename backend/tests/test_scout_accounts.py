@@ -46,7 +46,7 @@ def post_snapshot(url, commenters, author="music_news"):
 def service(tmp_path):
     engine, sessions = open_database(tmp_path / "accounts.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"profiles_per_hour": 0})
+    service.call("settings.save", {"profiles_per_hour": 0, "scout_methods": ["posts", "comments"]})
     yield service
     service.shutdown()
     engine.dispose()
@@ -130,16 +130,17 @@ def test_accounts_run_in_parallel_without_checking_the_same_candidate(service):
     second = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": SECOND})["id"]
     with pytest.raises(ValueError, match="уже идёт поиск"):
         service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": ACCOUNT})
-    for job in (first, second):
+    # Processed publications are shared too, so each account reads a different post.
+    for job, number in ((first, 1), (second, 2)):
         service.call(
             "scout.commit_internal",
-            {"id": job, "snapshot": dict(url=SOURCE, ready=True, posts=[post(1)])},
+            {"id": job, "snapshot": dict(url=SOURCE, ready=True, posts=[post(number)])},
         )
         service.call(
             "scout.commit_internal",
             {
                 "id": job,
-                "snapshot": post_snapshot(post(1), [artist("shared"), artist(f"own{job}")]),
+                "snapshot": post_snapshot(post(number), [artist("shared"), artist(f"own{job}")]),
             },
         )
     with service.scout.sessions() as session:

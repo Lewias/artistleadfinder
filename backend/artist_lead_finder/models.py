@@ -173,6 +173,11 @@ class ScoutSource(Base):
     __tablename__ = "scout_sources"
     url: Mapped[str] = mapped_column(String(240), primary_key=True)
     enabled: Mapped[bool] = mapped_column(default=True)
+    # Schema 5: scan bookkeeping shown in the Lead Scout source table.
+    last_scanned_at: Mapped[datetime | None]
+    status: Mapped[str] = mapped_column(String(40), default="new")
+    leads_found: Mapped[int] = mapped_column(default=0)
+    added_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class ScoutRun(Base):
@@ -184,6 +189,86 @@ class ScoutRun(Base):
     # Schema 4: publications read from the source grid but not queued yet.
     backlog: Mapped[list[dict]] = mapped_column(JSON, default=list)
     found: Mapped[int] = mapped_column(default=0)
+    # Schema 5: progress counters, current source/profile and finished sources.
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ScoutProcessedProfile(Base):
+    """Every candidate the scout has decided on, so later runs do not repeat it."""
+
+    __tablename__ = "scout_processed_profiles"
+    username: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source_username: Mapped[str] = mapped_column(String(40))
+    method: Mapped[str] = mapped_column(String(20))
+    result: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(String(40))
+    processed_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutProcessedPost(Base):
+    __tablename__ = "scout_processed_posts"
+    post_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    source_username: Mapped[str] = mapped_column(String(40))
+    kind: Mapped[str] = mapped_column(String(20))
+    processed_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutProcessedStory(Base):
+    __tablename__ = "scout_processed_stories"
+    story_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    source_username: Mapped[str] = mapped_column(String(40))
+    processed_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutAICache(Base):
+    __tablename__ = "scout_ai_cache"
+    username: Mapped[str] = mapped_column(String(40), primary_key=True)
+    category: Mapped[str] = mapped_column(String(20))
+    confidence: Mapped[int]
+    model: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutState(Base):
+    """Small scout bookkeeping values, such as the source rotation cursor."""
+
+    __tablename__ = "scout_state"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+
+
+class ScoutEvent(Base):
+    __tablename__ = "scout_events"
+    __table_args__ = (Index("ix_scout_events_job", "job_id", "id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("search_jobs.id"))
+    type: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class LeadScoutProfile(Base):
+    """Lead Scout details kept next to the CRM lead."""
+
+    __tablename__ = "lead_scout_profiles"
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True
+    )
+    instagram_id: Mapped[str | None] = mapped_column(String(40))
+    posts_count: Mapped[int | None]
+    emails: Mapped[list[str]] = mapped_column(JSON, default=list)
+    phones: Mapped[list[str]] = mapped_column(JSON, default=list)
+    profile_type: Mapped[str] = mapped_column(String(20))
+    profile_score: Mapped[int] = mapped_column(default=0)
+    profile_confidence: Mapped[int] = mapped_column(default=0)
+    profile_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_username: Mapped[str] = mapped_column(String(40))
+    discovery_method: Mapped[str] = mapped_column(String(20))
+    origin_url: Mapped[str | None] = mapped_column(String(2048))
+    ai_model: Mapped[str | None] = mapped_column(String(120))
+    ai_confidence: Mapped[int | None]
+    first_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class ScoutAccount(Base):

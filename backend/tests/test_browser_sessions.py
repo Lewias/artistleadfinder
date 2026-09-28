@@ -17,8 +17,10 @@ def test_cookie_formats_filter_domains_expiry_and_secrets():
     cookies = parse_cookies(json.dumps(rows))
     assert len(cookies) == 1
     assert cookies[0]["secure"]
-    text = ("# Netscape HTTP Cookie File\n"
-            "#HttpOnly_.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\ttest-secret")
+    text = (
+        "# Netscape HTTP Cookie File\n"
+        "#HttpOnly_.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\ttest-secret"
+    )
     assert parse_cookies(text)[0]["httpOnly"]
     with pytest.raises(ValueError):
         parse_cookies('[{"domain":".instagram.com","name":"sessionid","value":"x;bad"}]')
@@ -57,12 +59,26 @@ def test_create_edit_proxy_and_replace_cookies(tmp_path, monkeypatch):
 
     monkeypatch.setattr(browser_sessions, "protect", reversible_test_cipher)
     store = BrowserSessions(tmp_path)
-    proxy = {"scheme": "socks5", "host": "proxy.example.com", "port": 1080,
-             "username": "my-user", "password": "fixture-proxy-password"}
+    proxy = {
+        "scheme": "socks5",
+        "host": "proxy.example.com",
+        "port": 1080,
+        "username": "my-user",
+        "password": "fixture-proxy-password",
+    }
     profile = store.call("browser.create", {"name": "  Work  ", "proxy": proxy})
-    assert profile == {"id": profile["id"], "name": "Work", "cookie_count": 0,
-                       "proxy": {"scheme": "socks5", "host": "proxy.example.com", "port": 1080,
-                                 "username": "my-user", "has_password": True}}
+    assert profile == {
+        "id": profile["id"],
+        "name": "Work",
+        "cookie_count": 0,
+        "proxy": {
+            "scheme": "socks5",
+            "host": "proxy.example.com",
+            "port": 1080,
+            "username": "my-user",
+            "has_password": True,
+        },
+    }
     assert b"proxy.example.com" not in store.path(profile["id"]).read_bytes()
     assert b"fixture-proxy-password" not in store.path(profile["id"]).read_bytes()
     assert "fixture-proxy-password" not in json.dumps(store.call("browser.list", {}))
@@ -80,17 +96,30 @@ def test_create_edit_proxy_and_replace_cookies(tmp_path, monkeypatch):
     assert BrowserSessions(tmp_path).call("browser.list", {}) == [renamed]
 
 
-@pytest.mark.parametrize("proxy", [
-    {"scheme": "https", "host": "proxy.example.com", "port": 443},
-    {"scheme": "http", "host": "proxy.example.com", "port": 0},
-    {"scheme": "http", "host": "proxy.example.com", "port": True},
-    {"scheme": "http", "host": "host --bypass", "port": 8080},
-    {"scheme": "http", "host": "proxy.example.com", "port": 8080, "username": "x"},
-    {"scheme": "http", "host": "proxy.example.com", "port": 8080,
-     "username": "x", "password": ""},
-    {"scheme": "socks5", "host": "proxy.example.com", "port": 1080,
-     "username": "x:y", "password": "secret"},
-])
+@pytest.mark.parametrize(
+    "proxy",
+    [
+        {"scheme": "https", "host": "proxy.example.com", "port": 443},
+        {"scheme": "http", "host": "proxy.example.com", "port": 0},
+        {"scheme": "http", "host": "proxy.example.com", "port": True},
+        {"scheme": "http", "host": "host --bypass", "port": 8080},
+        {"scheme": "http", "host": "proxy.example.com", "port": 8080, "username": "x"},
+        {
+            "scheme": "http",
+            "host": "proxy.example.com",
+            "port": 8080,
+            "username": "x",
+            "password": "",
+        },
+        {
+            "scheme": "socks5",
+            "host": "proxy.example.com",
+            "port": 1080,
+            "username": "x:y",
+            "password": "secret",
+        },
+    ],
+)
 def test_invalid_proxy_rejected(proxy):
     with pytest.raises(ValueError):
         validate_proxy(proxy)

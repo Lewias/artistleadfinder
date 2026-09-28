@@ -11,6 +11,7 @@ from artist_lead_finder.service import ApplicationService
 
 SOURCE = "https://www.instagram.com/music_news/"
 POST = "https://www.instagram.com/p/one/"
+SECOND_POST = "https://www.instagram.com/p/two/"
 ARTIST = "https://www.instagram.com/new_rapper/"
 NOW = datetime(2026, 9, 22, tzinfo=timezone.utc)
 
@@ -75,6 +76,7 @@ def test_validate_publication_urls():
 def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
     engine, sessions = open_database(tmp_path / "scout.db")
     service = ApplicationService(sessions, tmp_path)
+    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
     params = {"sources": [SOURCE], "profile_id": "0" * 32}
     job = service.call("scout.start_internal", params)["id"]
 
@@ -110,12 +112,18 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
         assert session.scalar(select(func.count()).select_from(ScoutPost)) == 1
     service.call("leads.status", {"id": result["lead_id"], "status": "contacted"})
     assert service.call("scout.results", {}) == []
+    # A processed publication is not read again; a new one is.
     job = service.call("scout.start_internal", params)["id"]
     commit(dict(url=SOURCE, ready=True, posts=[POST]))
-    assert service.call("capture.state", {"id": job})["kind"] == "post"
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "completed"
+    assert any("уже разобраны" in notice for notice in state["notices"])
+    job = service.call("scout.start_internal", params)["id"]
+    commit(dict(url=SOURCE, ready=True, posts=[POST, SECOND_POST]))
+    assert service.call("capture.state", {"id": job})["url"] == SECOND_POST
     commit(
         dict(
-            url=POST,
+            url=SECOND_POST,
             ready=True,
             author="music_news",
             comments=[dict(profile_url=ARTIST, text="New comment")],
@@ -123,7 +131,8 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
     )
     with sessions() as session:
         assert len(session.get(ScoutRun, job).observations[ARTIST]) == 1
-    commit(profile())
+    # Already processed: evidence is attached, the profile is not queued again.
+    assert service.call("capture.state", {"id": job})["status"] == "completed"
     assert service.call("scout.results", {}) == []
     service.shutdown()
     restarted = ApplicationService(sessions, tmp_path)
@@ -136,6 +145,7 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
 def test_source_mismatch_pause_skip_and_cancel(tmp_path):
     engine, sessions = open_database(tmp_path / "scout.db")
     service = ApplicationService(sessions, tmp_path)
+    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
     service.call("jobs.control", {"id": job, "action": "pause"})
     assert not service.call("scout.commit_internal", {"id": job, "snapshot": {}})["saved"]
@@ -157,9 +167,10 @@ def test_source_mismatch_pause_skip_and_cancel(tmp_path):
             ),
         },
     )
-    assert service.call("capture.state", {"id": job})["notices"]
-    with sessions() as session:
-        assert session.get(ScoutPost, POST) is None
+    # A publication by someone else on the source grid: its author is the candidate.
+    state = service.call("capture.state", {"id": job})
+    assert state["kind"] == "profile" and state["url"] == "https://www.instagram.com/wrong/"
+    service.call("jobs.control", {"id": job, "action": "cancel"})
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
     service.call("capture.error_internal", {"id": job, "reason": "blocked"})
     service.call("scout.skip", {"id": job})
@@ -177,6 +188,7 @@ def test_service_scores_age_without_new_browser_visit(tmp_path, monkeypatch):
     monkeypatch.setattr(scouting, "utcnow", lambda: NOW)
     engine, sessions = open_database(tmp_path / "aging.db")
     service = ApplicationService(sessions, tmp_path)
+    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
     job = service.call(
         "scout.start_internal",
         {
@@ -209,6 +221,7 @@ def test_service_scores_age_without_new_browser_visit(tmp_path, monkeypatch):
 def test_only_comment_authors_are_checked_and_private_profiles_rejected(tmp_path):
     engine, sessions = open_database(tmp_path / "comments.db")
     service = ApplicationService(sessions, tmp_path)
+    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
 
     def commit(snapshot):
@@ -243,6 +256,7 @@ def test_only_comment_authors_are_checked_and_private_profiles_rejected(tmp_path
 def test_empty_comments_do_not_fall_back_to_caption(tmp_path):
     engine, sessions = open_database(tmp_path / "empty.db")
     service = ApplicationService(sessions, tmp_path)
+    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
     for snapshot in [
         dict(url=SOURCE, ready=True, posts=[POST]),
@@ -259,6 +273,7 @@ def test_empty_comments_do_not_fall_back_to_caption(tmp_path):
 def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
     engine, sessions = open_database(tmp_path / "quota.db")
     service = ApplicationService(sessions, tmp_path)
+    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
     params = {"sources": [SOURCE], "profile_id": "0" * 32}
     posts = [f"https://www.instagram.com/p/post{n}/" for n in range(5)]
 
@@ -315,10 +330,11 @@ def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
 
     # A later run treats the already checked artist as a duplicate and only adds evidence.
     job = service.call("scout.start_internal", params)["id"]
-    commit(dict(url=SOURCE, ready=True, posts=[posts[0]]))
+    fresh_post = "https://www.instagram.com/p/fresh/"
+    commit(dict(url=SOURCE, ready=True, posts=[posts[0], fresh_post]))
     commit(
         dict(
-            url=posts[0],
+            url=fresh_post,
             ready=True,
             author="music_news",
             comments=[dict(profile_url=ARTIST, text="Need a mix for my new track")],

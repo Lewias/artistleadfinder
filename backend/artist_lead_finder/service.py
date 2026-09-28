@@ -17,6 +17,8 @@ from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
 from .discovery import DiscoveryEngine
 from .jobs import DiscoveryManager
+from .lead_scout.ai import AIKeyStore, OpenRouterClassifier
+from .lead_scout.settings import ScoutSettings
 from .models import (
     BrowserQueue,
     Lead,
@@ -117,6 +119,7 @@ DEFAULTS = {
     "enabled_providers": ["mock"],
     "weights": ScoringWeights().model_dump(),
     **PacingSettings().model_dump(),
+    **ScoutSettings().model_dump(),
 }
 
 
@@ -140,7 +143,10 @@ class ApplicationService:
         self.discovery = DiscoveryEngine(self.providers)
         self.manager = DiscoveryManager(sessions, self.discovery, self.pipeline)
         self.browser_capture = BrowserCaptureService(sessions)
-        self.scout = ScoutService(sessions, self.browser_capture, self.settings)
+        self.ai_keys = AIKeyStore(data_dir)
+        self.scout = ScoutService(
+            sessions, self.browser_capture, self.settings, ai=OpenRouterClassifier(self.ai_keys)
+        )
         self.handlers = self._handlers()
 
     def settings(self) -> dict:
@@ -166,13 +172,22 @@ class ApplicationService:
             "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
-            "browser.runtime.eval": lambda p: chromium.evaluate(p["id"], p["script"]),
+            "browser.runtime.eval": lambda p: chromium.evaluate(
+                p["id"], p["script"], p.get("args")
+            ),
             "scout.sources": lambda p: self.scout.sources(p.get("sources")),
             "scout.start_internal": lambda p: self.scout.start(p, self.settings()),
             "scout.commit_internal": lambda p: self.scout.commit(int(p["id"]), p["snapshot"]),
             "scout.results": lambda p: self.scout.results(),
             "scout.skip": lambda p: self.scout.skip(int(p["id"])),
             "scout.accounts": self._scout_accounts,
+            "scout.source_list": self.scout.source_rows,
+            "scout.source_add": self.scout.add_sources,
+            "scout.source_update": self.scout.update_source,
+            "scout.source_remove": self.scout.remove_source,
+            "scout.events": self.scout.event_list,
+            "ai.status": lambda p: {"configured": self.ai_keys.configured()},
+            "ai.set_key": self._set_ai_key,
             "scout.account_target": self.scout.set_target,
             "capture.start_internal": lambda p: self.browser_capture.start(p, self.settings()),
             "capture.commit_internal": lambda p: self.browser_capture.capture(
@@ -202,7 +217,12 @@ class ApplicationService:
             profile_id = self.browser_capture.state(int(params["id"]))["profile_id"]
             self.scout.pacer_for(profile_id).rate_limited(self.scout.pacing())
         self.browser_capture.stop_with_error(int(params["id"]), params["reason"])
+        self.scout.on_error(int(params["id"]), params["reason"])
         return {"ok": True}
+
+    def _set_ai_key(self, params: dict) -> dict:
+        self.ai_keys.save(str(params.get("key", "")))
+        return {"configured": self.ai_keys.configured()}
 
     def _capture_latest(self, params: dict) -> dict | None:
         """Latest manual link queue; scout runs are shown per account."""
@@ -247,6 +267,7 @@ class ApplicationService:
         )
         ScoringWeights.model_validate(settings["weights"])
         PacingSettings.model_validate(settings)
+        ScoutSettings.model_validate(settings)
         enabled = settings["enabled_providers"]
         if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
             raise ValueError("Источник недоступен.")
@@ -278,6 +299,7 @@ class ApplicationService:
             browser_job = session.get(BrowserQueue, int(params["id"])) is not None
         if browser_job:
             self.browser_capture.control(int(params["id"]), params["action"])
+            self.scout.on_control(int(params["id"]), params["action"])
             return {"ok": True}
         self.manager.control(int(params["id"]), params["action"])
         return {"ok": True}

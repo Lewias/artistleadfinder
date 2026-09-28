@@ -6,10 +6,20 @@ from artist_lead_finder.chromium_runtime import BrowserLaunchError, ChromiumRunt
 
 
 def test_proxy_launch_error_never_exposes_playwright_credentials(monkeypatch):
-    runtime = ChromiumRuntime(SimpleNamespace(read=lambda _identifier: {
-        "cookies": [], "proxy": {"scheme": "socks5", "host": "proxy.example.com", "port": 1080,
-                                "username": "user", "password": "secret-do-not-show"},
-    }))
+    runtime = ChromiumRuntime(
+        SimpleNamespace(
+            read=lambda _identifier: {
+                "cookies": [],
+                "proxy": {
+                    "scheme": "socks5",
+                    "host": "proxy.example.com",
+                    "port": 1080,
+                    "username": "user",
+                    "password": "secret-do-not-show",
+                },
+            }
+        )
+    )
 
     def fail(**_options):
         raise RuntimeError("Proxy failure: secret-do-not-show")

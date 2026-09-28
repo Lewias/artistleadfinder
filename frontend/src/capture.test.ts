@@ -20,12 +20,19 @@ function extract(blocked = false, username = 'artist', loginDialog = false, text
             innerText: '1200 followers',
             querySelectorAll: () => [
               { href: 'https://l.instagram.com/?u=https%3A%2F%2Fopen.spotify.com%2Fartist%2Fexample' },
+              { href: 'https://www.instagram.com/artist/tagged/' },
+              { href: 'https://linktr.ee/artist' },
             ],
           };
+        if (selector === 'meta[property="instapp:owner_user_id"]') return { content: '4242' };
         if (selector.includes('description'))
           return { content: '1200 Followers - Artist on Instagram: "Independent rapper"' };
         return null;
       },
+      querySelectorAll: (selector: string) =>
+        selector.includes('img[alt]')
+          ? [{ getAttribute: () => 'Photo by Artist. New single out now' }, { getAttribute: () => '' }]
+          : [],
     },
   });
 }
@@ -58,4 +65,10 @@ test('rate limit on a profile is flagged for a break', () => {
   expect(limited.blocked).toBe(true);
   expect(limited.rate_limited).toBe(true);
   expect(extract(true).rate_limited).toBe(false);
+});
+test('collects every external link, grid captions and the Instagram id for Lead Scout', () => {
+  const result = extract();
+  expect(result.links).toEqual(['https://open.spotify.com/artist/example', 'https://linktr.ee/artist']);
+  expect(result.captions).toEqual(['Photo by Artist. New single out now']);
+  expect(result.user_id).toBe('4242');
 });

@@ -12,6 +12,7 @@ function extract(
     'https://evil.test/p/no/',
   ],
   text = 'Unrelated comment @commenter new single',
+  headerLinks: string[] = [],
 ) {
   return runInNewContext(script, {
     URL,
@@ -27,7 +28,11 @@ function extract(
         return null;
       },
       querySelectorAll: (selector: string) =>
-        selector === 'main a[href]' ? links.map(href => ({ href })) : [],
+        selector === 'main a[href]'
+          ? links.map(href => ({ href }))
+          : selector === 'article header a[href]'
+            ? headerLinks.map(href => ({ href }))
+            : [],
     },
   });
 }
@@ -96,4 +101,34 @@ test('source grid collects up to 120 publications', async () => {
   const result = await extract('/music_news/', '', false, links);
   expect(result.posts).toHaveLength(120);
   expect(result.ready).toBe(true);
+});
+test('tagged grid of the source is read like the source grid, including /tv/ and /reels/', async () => {
+  const result = await extract('/music_news/tagged/', '', false, [
+    'https://www.instagram.com/p/one/',
+    'https://www.instagram.com/tv/two/',
+    'https://www.instagram.com/reels/three/',
+  ]);
+  expect(result.ready).toBe(true);
+  expect(result.posts).toEqual([
+    'https://www.instagram.com/p/one/',
+    'https://www.instagram.com/tv/two/',
+    'https://www.instagram.com/reels/three/',
+  ]);
+});
+test('publication reports its collaborators from the post header', async () => {
+  const result = await extract(
+    '/p/one/',
+    '10 likes - music_news September 25, 2026: "Collab drop"',
+    false,
+    [],
+    '',
+    [
+      'https://www.instagram.com/music_news/',
+      'https://www.instagram.com/New_Artist/',
+      'https://www.instagram.com/explore/tags/rap/',
+      'https://www.instagram.com/new_artist/',
+    ],
+  );
+  expect(result.author).toBe('music_news');
+  expect(result.collaborators).toEqual(['music_news', 'new_artist']);
 });

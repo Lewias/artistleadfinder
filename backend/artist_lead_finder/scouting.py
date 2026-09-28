@@ -1,16 +1,38 @@
-"""Bounded scout workflow and conservative, evidence-based service recommendations."""
+"""Lead Scout runs: SMM sources -> candidates -> profiles -> classification -> leads.
 
+Stages live in the lead_scout package; this service drives them page by page for the
+browser queue and keeps evidence-based service recommendations (assess).
+"""
+
+import logging
 import re
-from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from .browser_capture import parse_snapshot, profile_url
+from .browser_capture import profile_url
 from .chromium_runtime import GUEST_ID
+from .lead_scout import events, memory
+from .lead_scout.ai import AIUnavailable
+from .lead_scout.candidates import profile_link
+from .lead_scout.classifier import classify
+from .lead_scout.discovery import Context, initial_tasks, post_url, provider_for, source_name
+from .lead_scout.filters import (
+    ALREADY_PROCESSED,
+    PROFILE_UNAVAILABLE,
+    RATE_LIMITED,
+    WRONG_PROFILE_TYPE,
+    audience_filter,
+    contact_filter,
+    type_filter,
+)
+from .lead_scout.memory import aware
+from .lead_scout.resolver import resolve_instagram_profile
+from .lead_scout.settings import ScoutSettings
 from .models import (
     BrowserQueue,
     Lead,
+    LeadScoutProfile,
     LeadSource,
     ScoutAccount,
     ScoutAssessment,
@@ -23,6 +45,10 @@ from .models import (
 from .pacing import Pacer, PacingSettings
 from .providers import Candidate
 
+log = logging.getLogger(__name__)
+
+__all__ = ["ScoutService", "assess", "post_url", "take_batch"]
+
 ARTIST = (
     r"\b(?:rapper|singer|musician|songwriter|recording artist"
     r"|independent artist|hip.hop artist|band)\b"
@@ -33,25 +59,6 @@ BUSINESS = (
     r"|паблик|журнал|лейбл|фан.?аккаунт|фотограф|магазин|музыкальн\w* сми"
 )
 MENTION = r"(?<![\w.])@([a-zA-Z0-9_.]{1,30})"
-
-
-def post_url(value):
-    parsed = urlsplit(value)
-    match = re.fullmatch(
-        r"/(?:([a-zA-Z0-9_.]{1,30})/)?(p|reel)/([a-zA-Z0-9_-]{1,80})/?",
-        parsed.path,
-    )
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in {"instagram.com", "www.instagram.com"}
-        or parsed.username
-        or parsed.password
-        or parsed.port not in (None, 443)
-        or not match
-    ):
-        raise ValueError("Invalid publication URL")
-    author_prefix = f"{match[1]}/" if match[1] else ""
-    return f"https://www.instagram.com/{author_prefix}{match[2]}/{match[3]}/"
 
 
 def assess(candidate, observations, now=None):
@@ -156,29 +163,8 @@ def assess(candidate, observations, now=None):
 
 
 MAX_NEW_CANDIDATES_PER_POST = 30
-# Duplicates do not use the per-post quota, so more comments are read than candidates kept.
-MAX_COMMENTS_PER_POST = 200
-
-
-# Guest runs keep the first grid screen; account runs scroll deeper to reach their goal.
-GUEST_POSTS_PER_SOURCE = 12
-MAX_POSTS_PER_SOURCE = 120
 POST_BATCH = 12
-
-
-def checked_profiles(session, job_id) -> set[str]:
-    """Candidates visited by earlier runs or already queued by runs still in progress."""
-    checked = set()
-    for run, queue, job in session.execute(
-        select(ScoutRun, BrowserQueue, SearchJob)
-        .join(BrowserQueue, BrowserQueue.job_id == ScoutRun.job_id)
-        .join(SearchJob, SearchJob.id == ScoutRun.job_id)
-        .where(ScoutRun.job_id != job_id)
-    ):
-        active = job.status in {"running", "paused"} and job.stage != "interrupted"
-        tasks = run.tasks if active else run.tasks[: queue.cursor]
-        checked.update(t["url"] for t in tasks if t["kind"] == "profile")
-    return checked
+PAGE_KINDS_WITH_QUOTA = {"post", "tagged_post"}
 
 
 def take_batch(backlog: list[dict], size: int) -> tuple[list[dict], list[dict]]:
@@ -224,41 +210,78 @@ def add_evidence(session, candidate_url, observation, job_id) -> None:
         "profile_checked_at", row.details["evaluated_at"]
     )
     row.details, row.priority = updated, updated["priority"]
-    row.eligible = row.eligible and updated["eligible"]
+    add_lead_source(session, lead.id, job_id, "comment", observation["url"])
+
+
+def add_lead_source(
+    session, lead_id: int, job_id: int, source_type: str, value: str | None
+) -> None:
+    if not value:
+        return
     exists = session.scalar(
         select(LeadSource.id).where(
-            LeadSource.lead_id == lead.id,
+            LeadSource.lead_id == lead_id,
             LeadSource.search_job_id == job_id,
             LeadSource.source_provider == "instagram_scout",
-            LeadSource.source_type == "comment",
-            LeadSource.source_value == observation["url"],
+            LeadSource.source_type == source_type,
+            LeadSource.source_value == value[:240],
         )
     )
     if exists is None:
         session.add(
             LeadSource(
-                lead_id=lead.id,
+                lead_id=lead_id,
                 search_job_id=job_id,
                 source_provider="instagram_scout",
-                source_type="comment",
-                source_value=observation["url"],
+                source_type=source_type,
+                source_value=value[:240],
             )
         )
 
 
+def same_page(actual: str, expected: str) -> bool:
+    strip = lambda url: url.split("?")[0].split("#")[0].rstrip("/").lower()  # noqa: E731
+    return strip(actual) == strip(expected)
+
+
+def empty_stats(sources: list[str]) -> dict:
+    return {
+        "discovered": 0,
+        "analyzed": 0,
+        "leads": 0,
+        "skipped": 0,
+        "errors": 0,
+        "current_source": None,
+        "current_profile": None,
+        "sources": sources,
+        "sources_done": [],
+    }
+
+
 class ScoutService:
-    def __init__(self, sessions, capture, settings=lambda: {}, pacer_factory=Pacer):
+    """Drives Lead Scout runs page by page; each stage lives in the lead_scout package."""
+
+    def __init__(self, sessions, capture, settings=lambda: {}, pacer_factory=Pacer, ai=None):
         self.sessions, self.capture = sessions, capture
         self.settings = settings
         # Pace is per browser profile: each account has its own delays and limits.
         self.pacer_factory = pacer_factory
         self.pacers: dict[str, Pacer] = {}
+        self.ai = ai
         self.refreshed_date = None
 
     def pacer_for(self, profile_id: str) -> Pacer:
         if profile_id not in self.pacers:
             self.pacers[profile_id] = self.pacer_factory()
         return self.pacers[profile_id]
+
+    def pacing(self) -> PacingSettings:
+        return PacingSettings.model_validate(self.settings())
+
+    def scout_settings(self) -> ScoutSettings:
+        return ScoutSettings.model_validate(self.settings())
+
+    # ---------- Accounts ----------
 
     def accounts(self, profile_ids: list[str]) -> dict[str, dict]:
         """Goal, progress and latest run of each browser profile."""
@@ -295,45 +318,153 @@ class ScoutService:
             session.add(account)
             return {"target": account.target, "found": account.found}
 
-    def pacing(self) -> PacingSettings:
-        return PacingSettings.model_validate(self.settings())
+    # ---------- Sources ----------
 
     def sources(self, values=None):
+        """Legacy list API: replace the enabled set with `values`, return enabled URLs."""
         if values is not None:
-            if not isinstance(values, list) or not 1 <= len(values) <= 20:
-                raise ValueError("Добавьте от 1 до 20 Instagram-источников.")
+            if not isinstance(values, list) or not 1 <= len(values) <= 500:
+                raise ValueError("Добавьте от 1 до 500 Instagram-источников.")
             urls = list(dict.fromkeys(profile_url(value) for value in values))
             with self.sessions.begin() as session:
                 for source in session.scalars(select(ScoutSource)):
                     source.enabled = source.url in urls
-                for url in urls:
+                now = utcnow()
+                for index, url in enumerate(urls):
                     row = session.get(ScoutSource, url)
                     if row is None:
-                        session.add(ScoutSource(url=url))
+                        session.add(
+                            ScoutSource(url=url, added_at=now + timedelta(microseconds=index))
+                        )
                     else:
                         row.enabled = True
         with self.sessions() as session:
-            return list(session.scalars(select(ScoutSource.url).where(ScoutSource.enabled)))
+            return list(
+                session.scalars(
+                    select(ScoutSource.url)
+                    .where(ScoutSource.enabled)
+                    .order_by(ScoutSource.added_at, ScoutSource.url)
+                )
+            )
+
+    def source_rows(self, params=None) -> list[dict]:
+        with self.sessions() as session:
+            return [
+                {
+                    "url": row.url,
+                    "username": row.url.rstrip("/").split("/")[-1],
+                    "enabled": row.enabled,
+                    "last_scanned_at": aware(row.last_scanned_at).isoformat()
+                    if row.last_scanned_at
+                    else None,
+                    "status": row.status,
+                    "leads_found": row.leads_found,
+                }
+                for row in session.scalars(
+                    select(ScoutSource).order_by(ScoutSource.added_at, ScoutSource.url)
+                )
+            ]
+
+    def add_sources(self, params) -> list[dict]:
+        values = params.get("values")
+        if not isinstance(values, list) or not 1 <= len(values) <= 500:
+            raise ValueError("Добавьте от 1 до 500 Instagram-источников.")
+        urls = list(dict.fromkeys(profile_url(value) for value in values))
+        with self.sessions.begin() as session:
+            if session.scalar(select(func.count()).select_from(ScoutSource)) + len(urls) > 500:
+                raise ValueError("Не больше 500 источников.")
+            now = utcnow()
+            for index, url in enumerate(urls):
+                row = session.get(ScoutSource, url)
+                if row is None:
+                    # Keep the typed order for source rotation.
+                    session.add(ScoutSource(url=url, added_at=now + timedelta(microseconds=index)))
+                else:
+                    row.enabled = True
+        return self.source_rows()
+
+    def update_source(self, params) -> list[dict]:
+        with self.sessions.begin() as session:
+            row = session.get(ScoutSource, profile_url(params["url"]))
+            if row is None:
+                raise ValueError("Источник не найден.")
+            row.enabled = bool(params["enabled"])
+        return self.source_rows()
+
+    def remove_source(self, params) -> list[dict]:
+        with self.sessions.begin() as session:
+            row = session.get(ScoutSource, profile_url(params["url"]))
+            if row is not None:
+                session.delete(row)
+        return self.source_rows()
+
+    # ---------- Run lifecycle ----------
 
     def start(self, params, settings):
-        urls = self.sources(params["sources"])
-        if params["profile_id"] != GUEST_ID:
+        profile = params["profile_id"]
+        scout = self.scout_settings()
+        explicit = params.get("sources")
+        cooling: list[str] = []
+        if explicit:
+            # Explicit list (legacy callers, smoke tests): no rotation or cooldown, given order.
+            self.sources(explicit)
+            picked = list(dict.fromkeys(profile_url(value) for value in explicit))
+        else:
             with self.sessions.begin() as session:
-                account = session.get(ScoutAccount, params["profile_id"])
+                picked, cooling = memory.pick_sources(
+                    session,
+                    scout.scout_sources_per_run,
+                    scout.scout_source_cooldown_hours,
+                    scout.scout_skip_recent_sources,
+                )
+            if not picked:
+                raise ValueError(
+                    "Нет источников для запуска: добавьте и включите источники"
+                    + (" или дождитесь конца кулдауна." if cooling else ".")
+                )
+        tasks, notices = [], []
+        for url in picked:
+            added, messages = initial_tasks(url, scout)
+            tasks += added
+            notices += [message for message in messages if message not in notices]
+        if not tasks:
+            raise ValueError("Включите хотя бы один доступный метод поиска в настройках Scout.")
+        if cooling:
+            notices.append(f"Пропущены по кулдауну: {len(cooling)} источник(ов).")
+        if profile != GUEST_ID:
+            with self.sessions.begin() as session:
+                account = session.get(ScoutAccount, profile)
                 if account is None:
-                    session.add(ScoutAccount(profile_id=params["profile_id"]))
+                    session.add(ScoutAccount(profile_id=profile))
                 elif account.found >= account.target:
                     raise ValueError("Цель достигнута. Увеличьте цель или сбросьте счётчик.")
         created = self.capture.start(
-            {"urls": urls, "profile_id": params["profile_id"], "name": "Лиды из скаут-источников"},
+            {"urls": picked, "profile_id": profile, "name": "Lead Scout"},
             settings,
         )
         with self.sessions.begin() as session:
+            queue = session.get(BrowserQueue, created["id"])
+            queue.urls = [task["url"] for task in tasks]
             session.add(
                 ScoutRun(
                     job_id=created["id"],
-                    tasks=[{"kind": "source", "url": url, "source": url} for url in urls],
+                    tasks=tasks,
+                    notices=notices[-30:],
+                    stats=empty_stats(picked),
                 )
+            )
+            for url in picked:
+                source = session.get(ScoutSource, url)
+                if source is not None:
+                    source.status = "queued"
+            events.prune(session)
+            events.emit(
+                session,
+                created["id"],
+                "scout:start",
+                profile_id=profile,
+                sources=[source_name(url) for url in picked],
+                methods=scout.scout_methods,
             )
         return created
 
@@ -343,17 +474,20 @@ class ScoutService:
             run = session.get(ScoutRun, job_id)
             if run:
                 cursor = result["cursor"]
-                kind = run.tasks[cursor]["kind"] if cursor < len(run.tasks) else "done"
+                task = run.tasks[cursor] if cursor < len(run.tasks) else {"kind": "done"}
+                stats = {**empty_stats([]), **(run.stats or {})}
                 result.update(
                     scout=True,
-                    kind=kind,
+                    kind=task["kind"],
+                    args=task.get("args"),
                     notices=run.notices,
-                    candidates=len(run.observations),
+                    candidates=stats["discovered"],
                     found=run.found,
                     backlog=len(run.backlog),
+                    stats=stats,
                 )
                 wait, reason = (
-                    self.pacer_for(result["profile_id"]).wait(self.pacing(), kind)
+                    self.pacer_for(result["profile_id"]).wait(self.pacing(), task["kind"])
                     if result["status"] == "running"
                     else (0.0, None)
                 )
@@ -367,160 +501,298 @@ class ScoutService:
         if snapshot.get("blocked") or not snapshot.get("ready"):
             raise ValueError("Page unavailable")
         with self.sessions() as session:
-            run = session.get(ScoutRun, job_id)
-            task = run.tasks[state["cursor"]]
-            observations = run.observations
+            task = session.get(ScoutRun, job_id).tasks[state["cursor"]]
         if task["kind"] == "profile":
-            candidate, _ = parse_snapshot(snapshot, task["url"])
-            # Skip unrelated accounts before they enter the lead database.
-            details = assess(candidate, observations.get(task["url"], []))
-            if snapshot.get("private"):
-                details["eligible"] = False
-            if details["eligible"]:
-                result = self.capture.capture(job_id, snapshot, advance=False)
-                with self.sessions.begin() as session:
-                    previous = session.get(ScoutAssessment, result["lead_id"])
-                    if previous:
-                        merged = {
-                            (e["url"], e.get("author"), e["caption"]): e
-                            for e in previous.details.get("evidence", [])
-                            if e.get("kind") == "comment"
-                        }
-                        merged.update(
-                            {
-                                (e["url"], e.get("author"), e["caption"]): e
-                                for e in details["evidence"]
-                            }
-                        )
-                        details = assess(candidate, list(merged.values())[-30:])
-                    row = previous or ScoutAssessment(lead_id=result["lead_id"])
-                    row.eligible, row.priority, row.details = True, details["priority"], details
-                    session.add(row)
-                    for url in dict.fromkeys(e["url"] for e in observations[task["url"]]):
-                        session.add(
-                            LeadSource(
-                                lead_id=result["lead_id"],
-                                search_job_id=job_id,
-                                source_provider="instagram_scout",
-                                source_type="comment",
-                                source_value=url,
-                            )
-                        )
-                self.advance(job_id, found=True)
-                return result
-            self.advance(
-                job_id, notice=f"@{candidate.username}: недостаточно признаков исполнителя."
-            )
-            with self.sessions.begin() as session:
-                lead = session.scalar(
-                    select(Lead).where(
-                        Lead.platform == "instagram", Lead.username == candidate.username
-                    )
-                )
-                previous = session.get(ScoutAssessment, lead.id) if lead else None
-                if previous:
-                    previous.eligible = False
-            return {"saved": False}
-        canonical = (
-            post_url(snapshot.get("url", ""))
-            if task["kind"] == "post"
-            else profile_url(snapshot.get("url", ""))
-        )
-        if canonical != task["url"]:
+            return self._analyze(job_id, task, snapshot, state)
+        actual = snapshot.get("url", "")
+        if task["kind"] in {"post", "tagged_post"}:
+            matches = post_url(actual) == task["url"]
+        elif task["kind"] == "source":
+            matches = profile_url(actual) == task["url"]
+        else:
+            matches = same_page(actual, task["url"])
+        if not matches:
             raise ValueError("Navigation mismatch")
-        additions, notice = [], None
+        scout = self.scout_settings()
+        provider = provider_for(task["kind"])
+        additions, notices = [], []
         with self.sessions.begin() as session:
             run = session.get(ScoutRun, job_id)
-            known = {t["url"] for t in run.tasks}
-            if task["kind"] == "source":
-                queue = session.get(BrowserQueue, job_id)
-                limit = (
-                    GUEST_POSTS_PER_SOURCE if queue.profile_id == GUEST_ID else MAX_POSTS_PER_SOURCE
+            queue = session.get(BrowserQueue, job_id)
+            ctx = Context(
+                settings=scout,
+                guest=queue.profile_id == GUEST_ID,
+                is_post_processed=lambda pid: memory.processed_post(session, pid),
+            )
+            result = provider.handle(task, snapshot, ctx)
+            notices += result.notices
+            known = {t["url"] for t in run.tasks} | {item["url"] for item in run.backlog}
+            run.backlog = [
+                *run.backlog,
+                *[item for item in result.backlog if item["url"] not in known],
+            ]
+            stats = {**empty_stats([]), **(run.stats or {})}
+            quota = MAX_NEW_CANDIDATES_PER_POST if task["kind"] in PAGE_KINDS_WITH_QUOTA else None
+            observations = dict(run.observations)
+            additions, summary = self._accept(
+                session, job_id, run, observations, known, stats, result.candidates, quota, scout
+            )
+            if summary:
+                notices.append(summary)
+            for pid, kind in result.processed_posts:
+                memory.mark_post(session, pid, source_name(task["source"]), kind)
+            if task["kind"] == "post":
+                stored = session.get(ScoutPost, task["url"]) or ScoutPost(
+                    url=task["url"], source=task["source"]
                 )
-                known.update(item["url"] for item in run.backlog)
-                backlog = list(run.backlog)
-                for raw in snapshot.get("posts", [])[:limit]:
-                    try:
-                        url = post_url(raw)
-                    except ValueError:
-                        continue
-                    if url not in known:
-                        # Comments change between runs; never reuse caption nominations.
-                        backlog.append({"kind": "post", "url": url, "source": task["source"]})
-                        known.add(url)
-                # Publications wait in the backlog and are queued in batches as needed.
-                run.backlog = backlog
-                if not snapshot.get("posts"):
-                    notice = "У источника нет доступных ссылок на публикации: " + task["source"]
-            else:
-                caption = str(snapshot.get("caption", ""))[:12000]
-                author = snapshot.get("author", "").lower().lstrip("@")
-                expected = task["source"].split("/")[-2]
-                if author != expected:
-                    notice = "Автор публикации не подтверждён; пропущено: " + task["url"]
-                else:
-                    comments = snapshot.get("comments", [])
-                    if not isinstance(comments, list):
-                        raise ValueError("Invalid comments snapshot")
-                    if not comments:
-                        notice = "Нет доступных комментариев: " + task["url"]
-                    if snapshot.get("comments_limited"):
-                        notice = "Прочитана доступная часть комментариев: " + task["url"]
-                    candidates = []
-                    checked = checked_profiles(session, job_id)
-                    fresh, duplicates, limited = 0, set(), False
-                    for comment in comments[:MAX_COMMENTS_PER_POST]:
-                        if not isinstance(comment, dict):
-                            continue
-                        try:
-                            candidate = profile_url(comment.get("profile_url", ""))
-                        except (ValueError, AttributeError, TypeError):
-                            continue
-                        if candidate == task["source"]:
-                            continue
-                        # Candidates already queued in this run or checked in an earlier one
-                        # are duplicates: they gain evidence but are not visited again.
-                        duplicate = candidate in known or candidate in checked
-                        if not duplicate and fresh >= MAX_NEW_CANDIDATES_PER_POST:
-                            limited = True
-                            continue
-                        candidates.append(candidate)
-                        obs = {
-                            "source": task["source"],
-                            "url": canonical,
-                            "caption": str(comment.get("text", ""))[:1500],
-                            "published_at": str(comment.get("published_at") or "")[:80] or None,
-                            "kind": "comment",
-                            "author": candidate.split("/")[-2],
-                        }
-                        evidence = observations.get(candidate, [])
-                        if obs not in evidence:
-                            observations[candidate] = [*evidence, obs][-30:]
-                        if duplicate:
-                            duplicates.add(candidate)
-                            if candidate in checked and candidate not in known:
-                                add_evidence(session, candidate, obs, job_id)
-                        else:
-                            fresh += 1
-                            additions.append({"kind": "profile", "url": candidate})
-                            known.add(candidate)
-                    summary = f"{canonical}: новых кандидатов {fresh}, повторов {len(duplicates)}"
-                    if limited:
-                        summary += f"; достигнут лимит {MAX_NEW_CANDIDATES_PER_POST} новых"
-                    if duplicates or limited:
-                        notice = f"{notice}; {summary}" if notice else summary
-                    stored = session.get(ScoutPost, canonical)
-                    if stored is None:
-                        stored = ScoutPost(url=canonical, source=task["source"])
-                        session.add(stored)
-                    stored.caption = caption
-                    stored.published_at = str(snapshot.get("published_at") or "")[:80] or None
-                    stored.mentions = list(dict.fromkeys(candidates))
-            run.observations = dict(observations)
-        self.advance(job_id, additions, notice)
+                stored.caption = str(snapshot.get("caption", ""))[:12000]
+                stored.published_at = str(snapshot.get("published_at") or "")[:80] or None
+                stored.mentions = [item["url"] for item in additions]
+                session.add(stored)
+            run.observations = observations
+            run.stats = stats
+        self.advance(job_id, additions, notices)
         return {"saved": True}
 
+    def _accept(self, session, job_id, run, observations, known, stats, candidates, quota, scout):
+        """Duplicate check and per-page quota; returns profile tasks to queue and a summary."""
+        elsewhere = memory.queued_elsewhere(session, job_id)
+        fresh, duplicates, limited, additions = 0, set(), False, []
+        for candidate, observation in candidates:
+            url = profile_link(candidate.username)
+            if observation:
+                evidence = observations.get(url, [])
+                if observation not in evidence:
+                    observations[url] = [*evidence, observation][-30:]
+            processed = memory.processed_profile(session, candidate.username)
+            earlier = bool(processed) and scout.scout_skip_processed
+            if url in known or url in elsewhere or earlier:
+                if url not in duplicates:
+                    duplicates.add(url)
+                    if earlier and url not in known:
+                        stats["skipped"] += 1
+                        events.emit(
+                            session,
+                            job_id,
+                            "profile:skipped",
+                            username=candidate.username,
+                            source=candidate.source_username,
+                            method=candidate.method,
+                            reason=ALREADY_PROCESSED,
+                        )
+                if processed and observation and url not in known:
+                    add_evidence(session, url, observation, job_id)
+                continue
+            if quota is not None and fresh >= quota:
+                limited = True
+                continue
+            fresh += 1
+            known.add(url)
+            additions.append(candidate.task())
+            stats["discovered"] += 1
+            events.emit(
+                session,
+                job_id,
+                "candidate:found",
+                username=candidate.username,
+                source=candidate.source_username,
+                method=candidate.method,
+                origin_url=candidate.origin_url,
+            )
+        summary = None
+        if duplicates or limited:
+            page = candidates[0][0].origin_url if candidates else ""
+            summary = f"{page}: новых кандидатов {fresh}, повторов {len(duplicates)}"
+            if limited:
+                summary += f"; достигнут лимит {MAX_NEW_CANDIDATES_PER_POST} новых"
+        return additions, summary
+
+    def _analyze(self, job_id, task, snapshot, state):
+        """Profile page: resolve, classify, filter, optional AI, then save or skip."""
+        scout = self.scout_settings()
+        username = task["url"].rstrip("/").split("/")[-1]
+        source = source_name(task.get("source") or "")
+        method = task.get("method") or "comment"
+        with self.sessions.begin() as session:
+            run = session.get(ScoutRun, job_id)
+            run.stats = {**empty_stats([]), **(run.stats or {}), "current_profile": username}
+            events.emit(session, job_id, "profile:analyzing", username=username, source=source)
+            observations = list(run.observations.get(task["url"], []))
+        try:
+            profile, candidate, evidence = resolve_instagram_profile(snapshot, task["url"])
+        except ValueError:
+            return self._skip(
+                job_id, task, username, source, method, None, None, None, PROFILE_UNAVAILABLE
+            )
+        if profile.is_private:
+            return self._skip(
+                job_id, task, username, source, method, profile, None, None, PROFILE_UNAVAILABLE
+            )
+        local = classify(profile.text())
+        # Cheap filters first, so AI is not spent on profiles that fail them anyway.
+        reason = audience_filter(profile.followers_count, scout) or contact_filter(
+            profile.emails, profile.phones, scout
+        )
+        category, ai_info = local.category, None
+        if not reason:
+            ai_info = self._ai(profile, local, scout)
+            if ai_info and "category" in ai_info:
+                category = ai_info["category"]
+            reason = type_filter(category, scout)
+        if reason:
+            return self._skip(
+                job_id, task, username, source, method, profile, local, ai_info, reason
+            )
+        result = self.capture.capture(job_id, snapshot, advance=False, parsed=(candidate, evidence))
+        origin = task.get("origin_url")
+        if not observations:
+            observations = [
+                {
+                    "source": task.get("source"),
+                    "url": origin or task["url"],
+                    "caption": "",
+                    "published_at": None,
+                    "kind": method,
+                    "author": username,
+                }
+            ]
+        log = events.profile_log(
+            username,
+            source,
+            method,
+            profile.followers_count,
+            local.as_dict(),
+            ai_info,
+            "LEAD SAVED",
+        )
+        now = utcnow()
+        with self.sessions.begin() as session:
+            lead_id = result["lead_id"]
+            details = assess(candidate, observations)
+            previous = session.get(ScoutAssessment, lead_id)
+            if previous:
+                merged = {
+                    (e["url"], e.get("author"), e["caption"]): e
+                    for e in previous.details.get("evidence", [])
+                }
+                merged.update(
+                    {(e["url"], e.get("author"), e["caption"]): e for e in details["evidence"]}
+                )
+                details = assess(candidate, list(merged.values())[-30:])
+            details["contacts"] = list(dict.fromkeys([*profile.emails, *details["contacts"]]))[:5]
+            details["explanation"] = "; ".join(local.reasons[:4]) or details["explanation"]
+            row = previous or ScoutAssessment(lead_id=lead_id)
+            row.eligible, row.priority, row.details = True, details["priority"], details
+            session.add(row)
+            for url in dict.fromkeys(e["url"] for e in observations if e.get("url")):
+                add_lead_source(session, lead_id, job_id, method, url)
+            ai_ok = ai_info if ai_info and "category" in ai_info else None
+            scout_row = session.get(LeadScoutProfile, lead_id) or LeadScoutProfile(
+                lead_id=lead_id, first_seen_at=now
+            )
+            scout_row.instagram_id = profile.id
+            scout_row.posts_count = profile.posts_count
+            scout_row.emails, scout_row.phones = profile.emails, profile.phones
+            scout_row.profile_type = category
+            scout_row.profile_score = local.score
+            scout_row.profile_confidence = ai_ok["confidence"] if ai_ok else local.confidence
+            scout_row.profile_reasons = local.reasons[:20]
+            scout_row.source_username = source
+            scout_row.discovery_method = method
+            scout_row.origin_url = origin
+            scout_row.ai_model = ai_ok["model"] if ai_ok else None
+            scout_row.ai_confidence = ai_ok["confidence"] if ai_ok else None
+            scout_row.last_seen_at = now
+            session.add(scout_row)
+            source_row = session.get(ScoutSource, task.get("source") or "")
+            if source_row is not None:
+                source_row.leads_found += 1
+            memory.mark_profile(session, username, source, method, "lead")
+            run = session.get(ScoutRun, job_id)
+            stats = {**empty_stats([]), **(run.stats or {})}
+            stats["analyzed"] += 1
+            stats["leads"] += 1
+            run.stats = stats
+            events.emit(
+                session,
+                job_id,
+                "lead:found",
+                username=username,
+                source=source,
+                method=method,
+                category=category,
+                confidence=scout_row.profile_confidence,
+                lead_id=lead_id,
+                log=log,
+            )
+        self.advance(job_id, found=True)
+        return result
+
+    def _ai(self, profile, local, scout) -> dict | None:
+        mode = scout.scout_ai_mode
+        if mode == "off" or (mode == "uncertain" and not local.uncertain):
+            return None
+        model = scout.scout_ai_model
+        with self.sessions() as session:
+            cached = memory.ai_cached(session, profile.username, model)
+            if cached:
+                return {
+                    "category": cached.category,
+                    "confidence": cached.confidence,
+                    "model": model,
+                    "cached": True,
+                }
+        if self.ai is None:
+            return {"error": "AI не настроен"}
+        try:
+            category, confidence = self.ai.classify(profile.text(), model)
+        except AIUnavailable as error:
+            log.warning("scout_ai_unavailable", extra={"error_type": type(error).__name__})
+            return {"error": str(error)}
+        with self.sessions.begin() as session:
+            memory.ai_store(session, profile.username, category, confidence, model)
+        return {"category": category, "confidence": confidence, "model": model}
+
+    def _skip(self, job_id, task, username, source, method, profile, local, ai_info, reason):
+        followers = profile.followers_count if profile else None
+        log = events.profile_log(
+            username,
+            source,
+            method,
+            followers,
+            local.as_dict() if local else None,
+            ai_info,
+            f"SKIPPED - {reason}",
+        )
+        with self.sessions.begin() as session:
+            memory.mark_profile(session, username, source, method, "skipped", reason)
+            lead = session.scalar(
+                select(Lead).where(Lead.platform == "instagram", Lead.username == username)
+            )
+            previous = session.get(ScoutAssessment, lead.id) if lead else None
+            if previous and reason == WRONG_PROFILE_TYPE:
+                previous.eligible = False
+            run = session.get(ScoutRun, job_id)
+            stats = {**empty_stats([]), **(run.stats or {})}
+            stats["skipped"] += 1
+            if profile:
+                stats["analyzed"] += 1
+            run.stats = stats
+            events.emit(
+                session,
+                job_id,
+                "profile:skipped",
+                username=username,
+                source=source,
+                method=method,
+                reason=reason,
+                log=log,
+            )
+        self.advance(job_id, notice=f"@{username}: пропущен ({reason}).")
+        return {"saved": False, "reason": reason}
+
     def advance(self, job_id, additions=None, notice=None, found=False):
+        notices_in = notice if isinstance(notice, list) else ([notice] if notice else [])
         with self.sessions.begin() as session:
             queue, job, run = (
                 session.get(BrowserQueue, job_id),
@@ -538,7 +810,7 @@ class ScoutService:
             # Process source pages and publications before candidates, so all evidence is available.
             remaining = run.tasks[queue.cursor + 1 :] + (additions or [])
             remaining.sort(key=lambda task: task["kind"] == "profile")
-            notices = [notice] if notice else []
+            notices = list(notices_in)
             limit = pacing.profiles_per_run
             checked = sum(t["kind"] == "profile" for t in run.tasks[: queue.cursor + 1])
             run_limited = bool(limit and checked >= limit)
@@ -564,10 +836,97 @@ class ScoutService:
             queue.last_error = None
             if notices:
                 run.notices = [*run.notices, *notices][-30:]
+            stats = {**empty_stats([]), **(run.stats or {})}
+            self._track_sources(session, job_id, run, stats, remaining)
+            run.stats = stats
             if queue.cursor >= len(queue.urls):
                 job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
+                events.emit(
+                    session,
+                    job_id,
+                    "scout:done",
+                    **{
+                        k: stats[k]
+                        for k in ("discovered", "analyzed", "leads", "skipped", "errors")
+                    },
+                )
             else:
                 job.stage = "scout_reading"
+
+    @staticmethod
+    def _track_sources(session, job_id, run, stats, remaining) -> None:
+        """source:start when work moves to a new source, source:done when nothing of it is left."""
+        upcoming = remaining[0].get("source") if remaining else None
+        if upcoming and upcoming != stats["current_source"]:
+            stats["current_source"] = upcoming
+            row = session.get(ScoutSource, upcoming)
+            if row is not None:
+                row.status = "scanning"
+            events.emit(session, job_id, "source:start", source=source_name(upcoming))
+        pending = {t.get("source") for t in remaining} | {
+            item.get("source") for item in run.backlog
+        }
+        for url in stats["sources"]:
+            if url in stats["sources_done"] or url in pending:
+                continue
+            stats["sources_done"] = [*stats["sources_done"], url]
+            row = session.get(ScoutSource, url)
+            leads = 0
+            if row is not None:
+                row.status, row.last_scanned_at = "done", utcnow()
+                leads = row.leads_found
+            events.emit(session, job_id, "source:done", source=source_name(url), leads_found=leads)
+
+    def on_control(self, job_id: int, action: str) -> None:
+        """Events and source statuses for pause/resume/cancel of a scout run."""
+        with self.sessions.begin() as session:
+            run = session.get(ScoutRun, job_id)
+            if run is None:
+                return
+            if action == "pause":
+                events.emit(session, job_id, "scout:pause")
+            elif action == "cancel":
+                stats = {**empty_stats([]), **(run.stats or {})}
+                for url in stats["sources"]:
+                    row = session.get(ScoutSource, url)
+                    if row is not None and url not in stats["sources_done"]:
+                        row.status = "stopped"
+                events.emit(
+                    session,
+                    job_id,
+                    "scout:stop",
+                    **{k: stats[k] for k in ("discovered", "analyzed", "leads", "skipped")},
+                )
+
+    def on_error(self, job_id: int, reason: str) -> None:
+        with self.sessions.begin() as session:
+            run = session.get(ScoutRun, job_id)
+            if run is None:
+                return
+            stats = {**empty_stats([]), **(run.stats or {})}
+            stats["errors"] += 1
+            run.stats = stats
+            source = session.get(ScoutSource, stats["current_source"] or "")
+            if source is not None and reason == "rate_limited":
+                # Stop and back off; the pacer enforces the break before the next page.
+                source.status = "rate_limited"
+            events.emit(
+                session,
+                job_id,
+                "scout:error",
+                reason=RATE_LIMITED if reason == "rate_limited" else reason,
+                profile=stats["current_profile"],
+                source=source_name(stats["current_source"] or ""),
+            )
+
+    def event_list(self, params) -> list[dict]:
+        with self.sessions() as session:
+            return events.listing(
+                session,
+                params.get("job_id"),
+                int(params.get("after", 0)),
+                int(params.get("limit", 200)),
+            )
 
     def results(self):
         today = utcnow().date()
@@ -589,11 +948,7 @@ class ScoutService:
                         "profile_checked_at", row.details["evaluated_at"]
                     )
                     row.details, row.priority = updated, updated["priority"]
-                    row.eligible = (
-                        row.eligible
-                        and updated["eligible"]
-                        and any(e.get("kind") == "comment" for e in row.details["evidence"])
-                    )
+                    # Eligibility is decided by Lead Scout filters when the lead is saved.
             self.refreshed_date = today
         with self.sessions() as session:
             rows = session.execute(

@@ -265,11 +265,12 @@ class BrowserCaptureService:
                 {"provider": "instagram_browser", "message": queue.last_error},
             ]
 
-    def capture(self, job_id: int, snapshot: dict, advance: bool = True) -> dict:
+    def capture(self, job_id: int, snapshot: dict, advance: bool = True, parsed=None) -> dict:
         state = self.state(job_id)
         if state["status"] != "running":
             return {"saved": False}
-        candidate, evidence = parse_snapshot(snapshot, state["url"])
+        # Lead Scout passes the profile it already resolved (with the Instagram id).
+        candidate, evidence = parsed or parse_snapshot(snapshot, state["url"])
         with self.sessions() as session:
             queue = session.get(BrowserQueue, job_id)
             job = session.get(SearchJob, job_id)

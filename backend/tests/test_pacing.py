@@ -56,7 +56,10 @@ def test_run_limit_state_wait_and_rate_limit_via_service(tmp_path):
     service = ApplicationService(sessions, tmp_path)
     clock = Clock()
     service.scout.pacer_factory = lambda: Pacer(now=clock, jitter=lambda low, high: low)
-    saved = service.call("settings.save", {"profiles_per_run": 2, "profiles_per_hour": 0})
+    saved = service.call(
+        "settings.save",
+        {"profiles_per_run": 2, "profiles_per_hour": 0, "scout_methods": ["posts", "comments"]},
+    )
     assert saved["page_delay_min"] == 8 and saved["profiles_per_run"] == 2
     with pytest.raises(ValueError):
         service.call("settings.save", {"page_delay_min": 30, "page_delay_max": 10})

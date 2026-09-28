@@ -32,21 +32,33 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 4 for version in versions):
+        if any(version > 5 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
-    # Schema 4 adds columns to an existing table, which create_all does not do.
-    columns = {column["name"] for column in inspect(engine).get_columns("scout_runs")}
+    # Schemas 4 and 5 add columns to existing tables, which create_all does not do.
+    added = {
+        "scout_runs": {
+            "backlog": "JSON NOT NULL DEFAULT '[]'",
+            "found": "INTEGER NOT NULL DEFAULT 0",
+            "stats": "JSON NOT NULL DEFAULT '{}'",
+        },
+        "scout_sources": {
+            "last_scanned_at": "DATETIME",
+            "status": "VARCHAR(40) NOT NULL DEFAULT 'new'",
+            "leads_found": "INTEGER NOT NULL DEFAULT 0",
+            "added_at": "DATETIME",
+        },
+    }
+    inspector = inspect(engine)
     with engine.begin() as connection:
-        if "backlog" not in columns:
-            connection.execute(
-                text("ALTER TABLE scout_runs ADD COLUMN backlog JSON NOT NULL DEFAULT '[]'")
-            )
-        if "found" not in columns:
-            connection.execute(
-                text("ALTER TABLE scout_runs ADD COLUMN found INTEGER NOT NULL DEFAULT 0")
-            )
+        for table, definitions in added.items():
+            columns = {column["name"] for column in inspector.get_columns(table)}
+            for column, definition in definitions.items():
+                if column not in columns:
+                    connection.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                    )
     with factory.begin() as session:
         if session.get(SchemaMigration, 1) is None:
             session.add(SchemaMigration(version=1))
@@ -56,4 +68,6 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             session.add(SchemaMigration(version=3))
         if session.get(SchemaMigration, 4) is None:
             session.add(SchemaMigration(version=4))
+        if session.get(SchemaMigration, 5) is None:
+            session.add(SchemaMigration(version=5))
     return engine, factory

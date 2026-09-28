@@ -262,7 +262,13 @@ async fn browser_action(
         if !is_open {
             return Err("Сначала откройте браузер".into());
         }
-        let snapshot = read_script(core.clone(), id.to_owned(), include_str!("capture.js")).await?;
+        let snapshot = read_script(
+            core.clone(),
+            id.to_owned(),
+            include_str!("capture.js"),
+            Value::Null,
+        )
+        .await?;
         if snapshot["blocked"].as_bool().unwrap_or(true)
             || !snapshot["ready"].as_bool().unwrap_or(false)
         {
@@ -361,6 +367,15 @@ async fn browser_action(
 }
 type BrowserClosing = Arc<std::sync::atomic::AtomicBool>;
 
+/// Page reader for the current queue step; follow lists take their paging args.
+fn page_script(state: &Value) -> &'static str {
+    match (state["scout"] == true, state["kind"].as_str().unwrap_or("")) {
+        (true, "followers" | "following") => include_str!("follow.js"),
+        (true, "profile") | (false, _) => include_str!("capture.js"),
+        (true, _) => include_str!("scout.js"),
+    }
+}
+
 /// Polls an open profile window so the core notices a manual close promptly: it then
 /// saves the session cookies and shuts the browser, and the proxy relay is stopped.
 fn watch_window(core: Core, id: String, relays: ProxyRelays, closing: BrowserClosing) {
@@ -385,11 +400,16 @@ fn watch_window(core: Core, id: String, relays: ProxyRelays, closing: BrowserClo
     }
 }
 
-async fn read_script(core: Core, id: String, script: &'static str) -> Result<Value, String> {
+async fn read_script(
+    core: Core,
+    id: String,
+    script: &'static str,
+    args: Value,
+) -> Result<Value, String> {
     let result = backend_request(
         core,
         "browser.runtime.eval".into(),
-        json!({"id":id,"script":script}),
+        json!({"id":id,"script":script,"args":args}),
     )
     .await?;
     // Up to 200 comments of 1500 characters; Cyrillic takes two bytes per character.
@@ -459,19 +479,12 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
         if navigated.elapsed() < Duration::from_secs(3) {
             continue;
         }
-        let observation = if state["scout"] == true && state["kind"] != "profile" {
-            tauri::async_runtime::block_on(read_script(
-                core.clone(),
-                id.to_owned(),
-                include_str!("scout.js"),
-            ))
-        } else {
-            tauri::async_runtime::block_on(read_script(
-                core.clone(),
-                id.to_owned(),
-                include_str!("capture.js"),
-            ))
-        };
+        let observation = tauri::async_runtime::block_on(read_script(
+            core.clone(),
+            id.to_owned(),
+            page_script(&state),
+            state["args"].clone(),
+        ));
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
@@ -575,6 +588,20 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_script_follows_the_queue_step() {
+        let scout = |kind: &str| json!({"scout": true, "kind": kind});
+        assert_eq!(page_script(&scout("profile")), include_str!("capture.js"));
+        assert_eq!(page_script(&scout("followers")), include_str!("follow.js"));
+        assert_eq!(page_script(&scout("following")), include_str!("follow.js"));
+        assert_eq!(page_script(&scout("tagged_grid")), include_str!("scout.js"));
+        assert_eq!(page_script(&scout("post")), include_str!("scout.js"));
+        assert_eq!(
+            page_script(&json!({"kind": "source"})),
+            include_str!("capture.js")
+        );
+    }
 
     #[test]
     fn late_replies_are_skipped_and_foreign_ids_rejected() {

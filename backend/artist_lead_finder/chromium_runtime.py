@@ -208,13 +208,16 @@ class ChromiumRuntime:
                 raise ValueError("Browser window is closed") from None
         return {"ok": True, "rate_limited": window.rate_limited}
 
-    def evaluate(self, identifier: str, script: str) -> dict:
+    def evaluate(self, identifier: str, script: str, args=None) -> dict:
         window = self._window(identifier)
         if not window:
             raise ValueError("Browser window is closed")
         if len(script) > 50000:
             raise ValueError("Script too large")
-        result = window.page.evaluate(script)
+        # Scripts written as functions receive their arguments (follow-list paging).
+        result = (
+            window.page.evaluate(script, args) if args is not None else window.page.evaluate(script)
+        )
         if not isinstance(result, dict):
             raise ValueError("Invalid browser result")
         if window.rate_limited:

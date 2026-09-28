@@ -4,7 +4,7 @@
   const body = (document.body?.innerText || '').slice(0, 30000);
   const dialog = document.querySelector('[role="dialog"]')?.innerText || '';
   // Rate limits need a break; other gates need the user (login, challenge).
-  const rateLimited = /try again later|too many requests|подождите несколько минут|повторите попытку позже/i.test(body);
+  const rateLimited = /try again later|too many requests|wait a few minutes|подождите несколько минут|повторите попытку позже/i.test(body);
   const blocked = rateLimited
     || /\/(accounts|challenge)\//.test(url.pathname)
     || Boolean(document.querySelector('input[type="password"]'))
@@ -15,7 +15,7 @@
   if (blocked) return { url: url.href, ready: false, blocked: true, rate_limited: rateLimited };
   const meta = key => document.querySelector(`meta[property="${key}"]`)?.content || '';
   const parts = url.pathname.split('/').filter(Boolean);
-  if (parts.length === 1) {
+  if (parts.length === 1 || (parts.length === 2 && parts[1] === 'tagged')) {
     const username = (meta('og:title') || document.title).match(/@([a-zA-Z0-9_.]{1,30})/)?.[1]?.toLowerCase();
     const posts = [];
     const collect = () => {
@@ -23,7 +23,7 @@
       for (const anchor of [...document.querySelectorAll('main a[href]')].slice(0, 2000)) {
         try {
           const link = new URL(anchor.href);
-          if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/(?:[\w.]+\/)?(?:p|reel)\/[\w-]+\/?$/.test(link.pathname)) {
+          if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/[\w-]+\/?$/.test(link.pathname)) {
             const canonical = `https://www.instagram.com${link.pathname.replace(/\/$/, '')}/`;
             if (!posts.includes(canonical)) posts.push(canonical);
           }
@@ -43,10 +43,11 @@
       if (location.href !== url.href) return { ready: false };
     }
     return { url: url.href, blocked: false, posts, ready: document.readyState === 'complete'
-      && username === parts[0].toLowerCase() && (posts.length > 0 || /private|закрыт|no posts yet|нет публикаций/i.test(body)) };
+      && username === parts[0].toLowerCase() && (posts.length > 0 || /private|закрыт|no posts yet|нет публикаций|no photos|нет фото|when people tag|когда люди отмечают/i.test(body)) };
   }
-  if ((parts.length === 2 && ['p', 'reel'].includes(parts[0]))
-      || (parts.length === 3 && ['p', 'reel'].includes(parts[1]))) {
+  const media = ['p', 'reel', 'reels', 'tv'];
+  if ((parts.length === 2 && media.includes(parts[0]))
+      || (parts.length === 3 && media.includes(parts[1]))) {
     const description = (meta('og:description') || document.querySelector('meta[name="description"]')?.content || '').trim();
     // Caption metadata identifies the publication, never nominates candidates.
     const quoted = description.match(/:\s*["“]([\s\S]*)["”]\s*\.?$/)?.[1];
@@ -59,6 +60,19 @@
         const link = new URL(authorLink?.href || '');
         if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && /^\/[\w.]+\/?$/.test(link.pathname)) author = link.pathname.replaceAll('/', '');
       } catch { /* An unknown author is explicitly rejected by the backend. */ }
+    }
+    // Collaborative posts list every co-author as a profile link in the post header.
+    const collaborators = [];
+    for (const anchor of [...document.querySelectorAll('article header a[href]')].slice(0, 20)) {
+      try {
+        const link = new URL(anchor.href, url);
+        const name = link.pathname.match(/^\/([a-zA-Z0-9_.]{1,30})\/?$/)?.[1];
+        if (['instagram.com', 'www.instagram.com'].includes(link.hostname) && name
+            && !/^(explore|reels?|p|tv|stories|accounts|direct)$/i.test(name) && !collaborators.includes(name.toLowerCase())) {
+          collaborators.push(name.toLowerCase());
+        }
+      } catch { /* Ignore non-profile links. */ }
+      if (collaborators.length >= 6) break;
     }
     const published_at = meta('article:published_time') || document.querySelector('article time[datetime]')?.getAttribute('datetime') || null;
     const comments = new Map();
@@ -86,7 +100,7 @@
       for (const permalink of document.querySelectorAll('a[href*="/c/"]')) {
         let link;
         try { link = new URL(permalink.href, url); } catch { continue; }
-        const match = link.pathname.match(/^\/(?:[\w.]+\/)?(?:p|reel)\/([\w-]+)\/c\/(\d+)\/?$/);
+        const match = link.pathname.match(/^\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]+)\/c\/(\d+)\/?$/);
         if (!match || match[1] !== code || !['instagram.com', 'www.instagram.com'].includes(link.hostname)) continue;
         let row = permalink.parentElement;
         let authorLink = null;
@@ -133,13 +147,13 @@
       if (round === 13) { limited = true; break; }
       await new Promise(resolve => setTimeout(resolve, 750));
       if (location.href !== url.href) return { ready: false };
-      const limitedNow = /try again later|too many requests|подождите несколько минут|повторите попытку позже/i.test(document.body?.innerText || '');
+      const limitedNow = /try again later|too many requests|wait a few minutes|подождите несколько минут|повторите попытку позже/i.test(document.body?.innerText || '');
       if (limitedNow || document.querySelector('input[type="password"]')) {
         return { url: url.href, ready: false, blocked: true, rate_limited: limitedNow };
       }
     }
     return { url: url.href, ready: document.readyState === 'complete' && Boolean(author),
-      blocked: false, caption: caption.slice(0, 12000), author, published_at,
+      blocked: false, caption: caption.slice(0, 12000), author, collaborators, published_at,
       comments: [...comments.values()], comments_limited: limited };
 
   }

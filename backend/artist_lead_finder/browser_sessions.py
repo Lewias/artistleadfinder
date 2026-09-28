@@ -169,9 +169,12 @@ def public_profile(identifier: str, record: dict) -> dict:
         id=identifier,
         name=record["name"],
         cookie_count=len(record["cookies"]),
-        proxy=({key: proxy[key] for key in ("scheme", "host", "port")}
-               | {"username": proxy.get("username"), "has_password": bool(proxy.get("password"))})
-        if proxy else None,
+        proxy=(
+            {key: proxy[key] for key in ("scheme", "host", "port")}
+            | {"username": proxy.get("username"), "has_password": bool(proxy.get("password"))}
+        )
+        if proxy
+        else None,
     )
 
 
