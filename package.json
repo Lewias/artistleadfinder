@@ -1,7 +1,7 @@
 {
   "name": "artist-lead-finder",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -11,6 +11,7 @@
     "format": "prettier --write frontend/src",
     "format:check": "prettier --check frontend/src",
     "test": "vitest run",
+    "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --config src-tauri/tauri.production.conf.json --features custom-protocol",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1"

@@ -19,16 +19,25 @@ def main() -> None:
         input="".join(json.dumps(request) + "\n" for request in requests),
         capture_output=True,
         text=True,
-        timeout=90,
-        check=True,
+        timeout=180,
+        check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    responses = [json.loads(line) for line in result.stdout.splitlines()]
-    if len(responses) != len(requests):
-        raise RuntimeError("Unexpected response count from frozen core")
-    for request, response in zip(requests, responses, strict=True):
-        if response.get("id") != request["id"] or "error" in response:
-            raise RuntimeError("Frozen core RPC validation failed")
+    responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    failed = [
+        response
+        for request, response in zip(requests, responses)
+        if response.get("id") != request["id"] or "error" in response
+    ]
+    if result.returncode or len(responses) != len(requests) or failed:
+        # The smoke runs on a clean profile (no sessions or keys), so the core's own
+        # stderr is safe to show and is the only clue on a CI runner.
+        print(result.stderr[-4000:], file=sys.stderr)
+        for response in failed:
+            print(f"RPC {response.get('id')}: {response.get('error')}", file=sys.stderr)
+        raise RuntimeError(
+            f"Frozen core failed: exit {result.returncode}, {len(responses)} responses"
+        )
     dashboard = responses[1]["result"]
     chromium = responses[2]["result"]
     if not chromium.get("ok") or not chromium.get("version"):
