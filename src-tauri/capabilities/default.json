@@ -3,5 +3,5 @@
   "identifier": "main-window",
   "description": "Minimal desktop window permissions; no shell or filesystem access from frontend",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save", "updater:default", "process:allow-restart"]
 }

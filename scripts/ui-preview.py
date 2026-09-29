@@ -308,6 +308,7 @@ CORE.update({
          "email": "mgmt@mail.com", "phone": None, "source_username": "rapgoat.tv",
          "discovery_method": "post"} for lead in LEADS]},
 })
+CORE["outreach.workspace"] = {"usernames": [{"username": "getabag.bo", "status": "sent", "reason": None, "details": None}, {"username": "shotbyjae_", "status": "sent", "reason": None, "details": None}, {"username": "1sttake_pro", "status": "sent", "reason": None, "details": None}, {"username": "_capturedbydanny", "status": "queued", "reason": None, "details": None}, {"username": "vezolotti", "status": "queued", "reason": None, "details": None}, {"username": "kukookklan", "status": "skipped", "reason": "ALREADY_CONTACTED", "details": None}, {"username": "1knownoah", "status": "failed", "reason": "SEND_ERROR", "details": None}, {"username": "tmill_music", "status": "new", "reason": None, "details": None}, {"username": "bigupbigup_", "status": "new", "reason": None, "details": None}, {"username": "un1kemee", "status": "new", "reason": None, "details": None}, {"username": "nolani.visuals", "status": "new", "reason": None, "details": None}, {"username": "etxrnixx", "status": "new", "reason": None, "details": None}, {"username": "i_stormo", "status": "new", "reason": None, "details": None}, {"username": "foedeucee_", "status": "new", "reason": None, "details": None}, {"username": "xprime_16", "status": "new", "reason": None, "details": None}, {"username": "issawave24", "status": "new", "reason": None, "details": None}, {"username": "dimi_guss", "status": "new", "reason": None, "details": None}, {"username": "davoiceofdastreetz", "status": "new", "reason": None, "details": None}, {"username": "tymaxxtheopp", "status": "new", "reason": None, "details": None}, {"username": "reddishyellow_", "status": "new", "reason": None, "details": None}, {"username": "shooterzmuzik", "status": "new", "reason": None, "details": None}, {"username": "esco6_ar", "status": "new", "reason": None, "details": None}, {"username": "watchthislouey", "status": "new", "reason": None, "details": None}, {"username": "boxboyzceo", "status": "new", "reason": None, "details": None}, {"username": "urhiness77", "status": "new", "reason": None, "details": None}, {"username": "countrycody_", "status": "new", "reason": None, "details": None}, {"username": "mal216", "status": "new", "reason": None, "details": None}, {"username": "thedriver1800", "status": "new", "reason": None, "details": None}, {"username": "ryanvital_official", "status": "new", "reason": None, "details": None}, {"username": "csonpzz", "status": "new", "reason": None, "details": None}, {"username": "elevatedexplorer05", "status": "new", "reason": None, "details": None}, {"username": "vvsvinskii", "status": "new", "reason": None, "details": None}, {"username": "347marz", "status": "new", "reason": None, "details": None}, {"username": "makdesigns_mk", "status": "new", "reason": None, "details": None}, {"username": "hiphopfienz", "status": "new", "reason": None, "details": None}, {"username": "magik_mic", "status": "new", "reason": None, "details": None}, {"username": "tyriehames", "status": "new", "reason": None, "details": None}, {"username": "johnnydane4eg", "status": "new", "reason": None, "details": None}, {"username": "mn_standupofficial", "status": "new", "reason": None, "details": None}, {"username": "passdatea", "status": "new", "reason": None, "details": None}, {"username": "victoria_laurey", "status": "new", "reason": None, "details": None}, {"username": "lil.karma76o", "status": "new", "reason": None, "details": None}, {"username": "purp_art2.0", "status": "new", "reason": None, "details": None}, {"username": "mrjayjonesjrent", "status": "new", "reason": None, "details": None}, {"username": "justbizness4k", "status": "new", "reason": None, "details": None}, {"username": "wearecrave", "status": "new", "reason": None, "details": None}, {"username": "jilani070", "status": "new", "reason": None, "details": None}, {"username": "djdrez_", "status": "new", "reason": None, "details": None}, {"username": "toomuchmoneycd", "status": "new", "reason": None, "details": None}], "messages": ["Yo bro I was scrolling and your sound actually caught me fr I fw it heavy lets work Drop me your # and lets cook", "Yo fam fw ur sound heavy, got some beats for u. Whats ur #", "Damn bro your vibe is dope asf I really like what you doing We should cook something whats your # br", "Yo gang lets work whats ur #?", "Ay I randomly ran into your music and it hit different you got that real shit Lets collab, send me your # br", "Fw ur music bro, tryna send u some beats. Whats the best way to reach u?", "Yo your flow crazy no cap I been listening and I think we can make some fire together Hit me with your #", "Yo bro got some heat for u, whats ur #?", "Been bumpin ur shit, got beats that fit ur sound. Whats ur #?"], "sender_ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "campaign": {"id": 3, "name": "Первичная рассылка", "status": "running", "created_at": "2026-09-29T08:00:00+00:00", "started_at": "2026-09-29T08:05:00+00:00", "finished_at": None, "scheduled_at": None, "template_id": 1, "followup_sequence_id": None, "sender_strategy": "single", "sender_ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "total_recipients": 49, "queued_count": 42, "sent_count": 3, "skipped_count": 1, "failed_count": 1, "replied_count": 0}, "running": True}
 CORE["leads.detail"]["outreach"] = {
     "do_not_contact": False, "contacted": True, "last_contacted_at": "2026-09-29T09:40:00+00:00",
     "sender_name": "Рабочий Instagram", "conversation_status": "waiting_reply",
@@ -368,7 +369,7 @@ def main():
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.add_init_script(MOCK)
-            page.goto(f"http://127.0.0.1:{PORT}/", wait_until="networkidle")
+            page.goto(f"http://127.0.0.1:{PORT}/", wait_until="networkidle", timeout=90000)
             page.wait_for_timeout(800)
             labels = page.eval_on_selector_all(
                 "nav button", "els => els.map(e => e.innerText.split('\\n')[0].trim())")
@@ -416,34 +417,19 @@ def main():
                 page.screenshot(path=str(out / "state-drawer.png"))
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(300)
-                page.locator("nav button", has_text="Рассылки").click()
-                page.wait_for_timeout(500)
-                page.locator("text=Artist Outreach September").first.click()
+                page.locator("nav button", has_text="Первичная рассылка").click()
                 page.wait_for_timeout(700)
-                page.screenshot(path=str(out / "state-campaign.png"))
-                page.eval_on_selector(".main", "el => el.scrollBy(0, 700)")
-                page.wait_for_timeout(300)
-                page.screenshot(path=str(out / "state-campaign-2.png"))
-                page.eval_on_selector(".main", "el => el.scrollBy(0, 700)")
-                page.wait_for_timeout(300)
-                page.screenshot(path=str(out / "state-campaign-3.png"))
-                page.locator("text=Все кампании").first.click()
-                page.wait_for_timeout(300)
-                page.locator("button", has_text="Новая кампания").click()
-                page.wait_for_timeout(300)
-                page.locator(".wizard-field input").fill("Artist Outreach October")
-                for step in range(1, 5):
-                    page.locator("button", has_text="Далее").last.click()
-                    page.wait_for_timeout(500)
-                    if step == 1:
-                        page.locator("button", has_text="Выбрать всех по фильтру").click()
-                    if step == 2:
-                        page.locator(".sender-option input").first.check()
-                    if step == 3:
-                        page.locator(".wizard-field select").first.select_option("1")
-                    page.wait_for_timeout(300)
-                    page.eval_on_selector(".main", "el => el.scrollTo(0, 0)")
-                    page.screenshot(path=str(out / f"state-wizard-{step}.png"))
+                page.eval_on_selector(".main", "el => el.scrollTo(0, 0)")
+                page.screenshot(path=str(out / "state-outreach.png"))
+                page.eval_on_selector(".main", "el => el.scrollTo(0, 10000)")
+                page.screenshot(path=str(out / "state-outreach-2.png"))
+                page.locator(".outreach-board button", has_text="Настройки").click()
+                page.wait_for_timeout(500)
+                page.screenshot(path=str(out / "state-outreach-settings.png"))
+                page.keyboard.press("Escape")
+                page.set_viewport_size({"width": 1100, "height": 900})
+                page.wait_for_timeout(400)
+                page.screenshot(path=str(out / "state-outreach-narrow.png"), full_page=True)
             print("errors:", errors or "none")
             browser.close()
     finally:

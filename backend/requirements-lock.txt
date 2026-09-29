@@ -1,22 +1,26 @@
 altgraph==0.17.5
 annotated-types==0.8.0
-colorama==0.4.6
+cffi==2.1.1
+colorama==0.4.6; sys_platform == "win32"
+cryptography==46.0.7
 greenlet==3.5.6
 iniconfig==2.3.0
+macholib==1.16.3; sys_platform == "darwin"
 packaging==26.3
-playwright==1.57.0
-pefile==2024.8.26
+pefile==2024.8.26; sys_platform == "win32"
 phonenumbers==9.0.40
 platformdirs==4.11.10
+playwright==1.57.0
 pluggy==1.6.0
+pycparser==3.0
 pydantic==2.13.5
 pydantic_core==2.46.5
-Pygments==2.21.0
 pyee==13.0.1
-pyinstaller==6.22.3
+Pygments==2.21.0
 pyinstaller-hooks-contrib==2026.7
+pyinstaller==6.22.3
 pytest==9.1.1
-pywin32-ctypes==0.2.3
+pywin32-ctypes==0.2.3; sys_platform == "win32"
 ruff==0.16.8
 setuptools==84.0.0
 SQLAlchemy==2.0.54

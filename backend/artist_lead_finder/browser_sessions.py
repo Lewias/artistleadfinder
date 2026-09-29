@@ -1,45 +1,12 @@
 """User-imported Instagram sessions. Secrets never enter settings or logs."""
 
-import ctypes
 import json
-import os
 import re
 import time
 import uuid
 from pathlib import Path
 
-
-def protect(data: bytes, decrypt: bool = False) -> bytes:
-    if os.name != "nt":
-        raise ValueError("Windows DPAPI required")
-
-    class Blob(ctypes.Structure):
-        _fields_ = [("size", ctypes.c_ulong), ("data", ctypes.POINTER(ctypes.c_ubyte))]
-
-    buffer = ctypes.create_string_buffer(data)
-    source = Blob(len(data), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)))
-    output = Blob()
-    library = ctypes.WinDLL("crypt32", use_last_error=True)
-    function = library.CryptUnprotectData if decrypt else library.CryptProtectData
-    function.argtypes = [
-        ctypes.POINTER(Blob),
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_ulong,
-        ctypes.POINTER(Blob),
-    ]
-    function.restype = ctypes.c_int
-    if not function(ctypes.byref(source), None, None, None, None, 1, ctypes.byref(output)):
-        raise ValueError("Session encryption failed")
-    try:
-        return ctypes.string_at(output.data, output.size)
-    finally:
-        free = ctypes.WinDLL("kernel32").LocalFree
-        free.argtypes = [ctypes.c_void_p]
-        free.restype = ctypes.c_void_p
-        free(output.data)
+from .secret_box import protect
 
 
 def parse_cookies(text: str) -> list[dict]:

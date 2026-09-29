@@ -123,3 +123,25 @@ def test_create_edit_proxy_and_replace_cookies(tmp_path, monkeypatch):
 def test_invalid_proxy_rejected(proxy):
     with pytest.raises(ValueError):
         validate_proxy(proxy)
+
+
+def test_keychain_box_roundtrip_and_tamper():
+    from artist_lead_finder.secret_box import MAC_PREFIX, keychain_box
+
+    key = bytes(range(32))
+    created = []
+
+    def source(create):
+        created.append(create)
+        return key
+
+    sealed = keychain_box(b'{"cookies": "fixture-secret"}', False, source)
+    assert sealed.startswith(MAC_PREFIX) and b"fixture-secret" not in sealed
+    assert keychain_box(sealed, True, source) == b'{"cookies": "fixture-secret"}'
+    assert created == [True, False]
+    with pytest.raises(ValueError):
+        keychain_box(sealed[:-1] + bytes([sealed[-1] ^ 1]), True, source)
+    with pytest.raises(ValueError):
+        keychain_box(b"legacy-dpapi-bytes", True, source)
+    with pytest.raises(ValueError):
+        keychain_box(sealed, True, lambda create: bytes(32))

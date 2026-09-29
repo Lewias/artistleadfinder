@@ -477,6 +477,7 @@ export interface LeadOutreach {
   conversation_status: 'waiting_reply' | 'replied' | 'stopped' | null;
   campaign: {
     id: number;
+    recipient_id: number;
     name: string;
     status: RecipientStatus;
     reason: string | null;
@@ -484,4 +485,18 @@ export interface LeadOutreach {
   } | null;
   pending_followups: number;
   messages: { direction: 'outbound' | 'inbound'; type: string; body: string; sent_at: string }[];
+}
+export type WorkspaceStatus = 'new' | 'contacted' | 'review' | RecipientStatus;
+export interface WorkspaceUsername {
+  username: string;
+  status: WorkspaceStatus;
+  reason: string | null;
+  details: string | null;
+}
+export interface OutreachWorkspace {
+  usernames: WorkspaceUsername[];
+  messages: string[];
+  sender_ids: string[];
+  campaign: OutreachCampaign | null;
+  running: boolean;
 }

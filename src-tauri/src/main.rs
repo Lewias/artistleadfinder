@@ -51,7 +51,11 @@ impl Backend {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap();
-            let mut c = Command::new(root.join(".venv/Scripts/python.exe"));
+            #[cfg(windows)]
+            let python = root.join(".venv/Scripts/python.exe");
+            #[cfg(not(windows))]
+            let python = root.join(".venv/bin/python");
+            let mut c = Command::new(python);
             c.arg(root.join("backend/run_backend.py"));
             c
         };
@@ -61,7 +65,11 @@ impl Backend {
                 .map_err(|_| "Нет пути приложения")?
                 .parent()
                 .ok_or("Нет каталога приложения")?
-                .join("artist-core.exe"),
+                .join(if cfg!(windows) {
+                    "artist-core.exe"
+                } else {
+                    "artist-core"
+                }),
         );
         #[cfg(windows)]
         {
@@ -649,6 +657,8 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Arc::new(Mutex::new(None::<Backend>)) as Core)
         .manage(Arc::new(Mutex::new(HashMap::new())) as ProxyRelays)
         .manage(Arc::new(std::sync::atomic::AtomicBool::new(false)) as BrowserClosing)

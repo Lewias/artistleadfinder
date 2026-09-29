@@ -221,7 +221,11 @@ class CampaignService:
 
     def templates(self, params: dict) -> list[dict]:
         with self.sessions() as session:
-            rows = session.scalars(select(OutreachTemplate).order_by(OutreachTemplate.id.desc()))
+            rows = session.scalars(
+                select(OutreachTemplate)
+                .where(OutreachTemplate.hidden.is_(False))
+                .order_by(OutreachTemplate.id.desc())
+            )
             return [row_dict(row) for row in rows]
 
     def save_template(self, params: dict) -> dict:
@@ -480,6 +484,8 @@ class CampaignService:
             later = campaign.scheduled_at is not None and as_utc(campaign.scheduled_at) > now
             start_at = as_utc(campaign.scheduled_at) if later else now
             allocator = SenderAllocator(active)
+            # Variants go to queued recipients in turn; otherwise every lead gets the template.
+            bodies = campaign.message_variants or [template.body]
             queued = skipped = 0
             recipients = session.scalars(
                 select(CampaignRecipient)
@@ -502,7 +508,8 @@ class CampaignService:
                     continue
                 lead = session.get(Lead, recipient.lead_id)
                 rendered = self.renderer.render(
-                    template.body, lead_variables(lead, session.get(LeadScoutProfile, lead.id))
+                    bodies[queued % len(bodies)],
+                    lead_variables(lead, session.get(LeadScoutProfile, lead.id)),
                 )
                 if not rendered.valid:
                     skip_recipient(
@@ -830,6 +837,7 @@ class CampaignService:
             "campaign": (
                 {
                     "id": recipient[0].campaign_id,
+                    "recipient_id": recipient[0].id,
                     "name": recipient[1],
                     "status": recipient[0].status,
                     "reason": recipient[0].failure_reason or recipient[0].skip_reason,

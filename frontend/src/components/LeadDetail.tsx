@@ -285,10 +285,37 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                       <p className="helper">Запланировано follow-up: {outreach.pending_followups}</p>
                     )}
                     {outreach.campaign?.needs_review && (
-                      <p className="error-text">
-                        Отправка не подтверждена — проверьте диалог в Instagram и отметьте результат на
-                        странице кампании.
-                      </p>
+                      <>
+                        <p className="error-text">
+                          Отправка не подтверждена — проверьте диалог в Instagram и отметьте результат.
+                        </p>
+                        <div className="actions">
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() =>
+                              void outreachAction('outreach.resolve_review', {
+                                recipient_id: outreach.campaign!.recipient_id,
+                                sent: true,
+                              })
+                            }
+                          >
+                            Сообщение ушло
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() =>
+                              void outreachAction('outreach.resolve_review', {
+                                recipient_id: outreach.campaign!.recipient_id,
+                                sent: false,
+                              })
+                            }
+                          >
+                            Не ушло
+                          </Button>
+                        </div>
+                      </>
                     )}
                     {outreach.do_not_contact && (
                       <p className="error-text">Не связываться: этот лид не получит ни одного сообщения.</p>
@@ -349,8 +376,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                 </>
               )}
               <p className="helper">
-                «Написали» ставится автоматически после отправки из «Рассылок» или вручную. Сообщения уходят
-                только из запущенной кампании.
+                «Написали» ставится автоматически после отправки из «Первичной рассылки» или вручную.
               </p>
               <div className="actions">
                 <Button

@@ -1,0 +1,84 @@
+# Tag v<version> → draft GitHub release with the Windows installer, the macOS app/dmg and the
+# signed updater feed (latest.json). Publish the draft to roll the update out to users.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-14
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Python environment and bundled Chromium
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = "Windows" ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install -r backend/requirements-lock.txt
+          "$PY" -m pip install -e backend --no-deps
+          PLAYWRIGHT_BROWSERS_PATH=0 "$PY" -m playwright install chromium --no-shell
+
+      - run: npm ci
+
+      - name: Checks
+        shell: bash
+        run: |
+          "$PY" -m pytest backend/tests -q -p no:cacheprovider
+          "$PY" -m ruff check backend
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Core sidecar (PyInstaller + smoke)
+        shell: bash
+        run: '"$PY" scripts/build-core.py'
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Artist Lead Finder ${{ github.ref_name }}
+          releaseBody: |
+            Windows: ArtistLeadFinder_*_x64-setup.exe. Если SmartScreen предупреждает — «Подробнее» → «Выполнить в любом случае».
+            macOS (Apple Silicon): *.dmg → перетащите в «Программы». Сборка без подписи Apple: при первом запуске ПКМ по приложению → «Открыть», или в Терминале:
+            xattr -dr com.apple.quarantine "/Applications/Artist Lead Finder.app"
+            Установленные версии обновятся сами после публикации этого релиза.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: --config src-tauri/tauri.production.conf.json --features custom-protocol --bundles ${{ matrix.bundles }}

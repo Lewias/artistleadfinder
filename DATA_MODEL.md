@@ -138,3 +138,8 @@ sequence_id, step_index, template_id, scheduled_at, status pending | sent |
 cancelled | failed, cancel_reason). `outreach_senders` (profile_id браузерного
 профиля, status, reason, until, last_sent_at). `outreach_events` (campaign_id,
 type, payload; хранятся 90 дней). Все времена — UTC, интерфейс показывает местное.
+
+Миграция 11 (первичная рассылка): `outreach_workspace` (одна строка: usernames,
+messages — варианты сообщений, sender_ids, campaign_id последнего запуска),
+`outreach_campaigns.message_variants` (варианты по очереди вместо шаблона),
+`outreach_templates.hidden` (внутренний шаблон списка, не показывается).

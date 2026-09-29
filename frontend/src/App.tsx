@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import {
   AudioLines,
   BarChart3,
@@ -12,7 +13,8 @@ import {
 } from 'lucide-react';
 import { pages, type PageId } from './navigation';
 import { useResource } from './hooks/useResource';
-import type { SearchJob, ScoutAccountRow } from './services/types';
+import type { OutreachWorkspace, SearchJob, ScoutAccountRow } from './services/types';
+import { api } from './services/api';
 import { number } from './lib/format';
 import { Dashboard } from './pages/Dashboard';
 import { Discovery } from './pages/Discovery';
@@ -21,6 +23,8 @@ import { SearchHistory } from './pages/SearchHistory';
 import { Settings } from './pages/Settings';
 import { Outreach } from './pages/Outreach';
 import { BrowserProfiles } from './components/BrowserProfiles';
+import { UpdateNotice } from './components/UpdateNotice';
+import { useUpdater } from './hooks/useUpdater';
 
 const icons: Record<PageId, LucideIcon> = {
   discovery: ScanSearch,
@@ -37,7 +41,9 @@ function useNavCounts(): Partial<Record<PageId, number>> {
   const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 15000);
   const leads = useResource<{ total: number }>('leads.list', { page_size: 1 }, 15000);
   const jobs = useResource<SearchJob[]>('jobs.list', {}, 15000);
+  const outreach = useResource<OutreachWorkspace>('outreach.workspace', {}, 15000);
   return {
+    outreach: outreach.data?.usernames.length,
     discovery: sources.data?.length,
     profiles: accounts.data?.length,
     leads: leads.data?.total,
@@ -48,9 +54,14 @@ function useNavCounts(): Partial<Record<PageId, number>> {
 export function App() {
   const core = useResource<{ version: string }>('system.info');
   const [active, setActive] = useState<PageId>('discovery');
-  // Leads selected in the CRM for a new outreach campaign.
-  const [campaignLeads, setCampaignLeads] = useState<number[]>();
   const counts = useNavCounts();
+  const updater = useUpdater();
+  const [version, setVersion] = useState<string>();
+  useEffect(() => {
+    getVersion()
+      .then(setVersion)
+      .catch(() => undefined);
+  }, []);
   const navButton = (item: (typeof pages)[number]) => {
     const Icon = icons[item.id];
     const count = counts[item.id];
@@ -75,7 +86,7 @@ export function App() {
             <AudioLines size={17} strokeWidth={2.4} />
           </span>
           <span className="brand-name">Artist Lead Finder</span>
-          <span className="version-pill">v{core.data?.version || '0.1.0'}</span>
+          <span className="version-pill">v{version || core.data?.version || '0.1.0'}</span>
         </div>
         <div className="nav-section">INSTAGRAM</div>
         <nav aria-label="Основная навигация">
@@ -88,6 +99,7 @@ export function App() {
       <main className="main">
         <header className="topbar">
           <span className="channel-pill active">Instagram</span>
+          <UpdateNotice state={updater.state} install={updater.install} />
           <span
             className={`core-status ${core.error ? 'offline' : core.data ? 'connected' : 'pending'}`}
             title={core.error || undefined}
@@ -103,19 +115,19 @@ export function App() {
             <Discovery />
           ) : active === 'leads' ? (
             <Leads
-              onCampaign={ids => {
-                setCampaignLeads(ids);
+              onCampaign={async ids => {
+                await api.request('outreach.workspace_add_leads', { lead_ids: ids });
                 setActive('outreach');
               }}
             />
           ) : active === 'outreach' ? (
-            <Outreach preset={campaignLeads} clearPreset={() => setCampaignLeads(undefined)} />
+            <Outreach />
           ) : active === 'history' ? (
             <SearchHistory />
           ) : active === 'profiles' ? (
             <BrowserProfiles />
           ) : (
-            <Settings />
+            <Settings updater={{ ...updater, version }} />
           )}
         </div>
       </main>

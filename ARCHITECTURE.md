@@ -60,7 +60,8 @@ rate_limited / disabled, темп: пауза между сообщениями 
 (`FollowUpScheduler`: план шагов после отправки, отмена при ответе), campaigns
 (аудитория, preview, жизненный цикл, ответы, DNC, блок CRM), worker
 (`OutreachWorker`), events (`campaign:*`, `recipient:*`, `sender:unavailable` +
-аудит в журнал без текста сообщений). Отправка никогда не идёт из UI: кампания →
+аудит в журнал без текста сообщений), workspace (список «Первичной рассылки» →
+кампания с вариантами сообщений). Отправка никогда не идёт из UI: кампания →
 получатели → `outbound_message_jobs` → worker → окно аккаунта. Rust-поток
 `run_outreach_driver` раз в 3 с спрашивает у ядра `outreach.next_internal`; ядро
 в одной транзакции повторно проверяет кампанию, получателя, аккаунт (health,

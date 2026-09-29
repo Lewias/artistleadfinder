@@ -41,6 +41,7 @@ from .outreach.campaigns import CampaignService, iso
 from .outreach.senders import current_status, sent_counts, set_status
 from .outreach.settings import OutreachSettings, outreach_settings
 from .outreach.worker import OutreachWorker
+from .outreach.workspace import WorkspaceService
 from .pacing import PacingSettings
 from .pipeline import CandidatePipeline
 from .providers import ImportedDatasetProvider, MockProvider
@@ -185,6 +186,7 @@ class ApplicationService:
         # Outreach: campaigns and the send queue worked through the sender's browser.
         self.campaigns = CampaignService(sessions, self.settings, self._sender_names)
         self.outreach = OutreachWorker(sessions, self.settings, self.chromium.is_open)
+        self.workspace = WorkspaceService(sessions, self.campaigns)
         # Sends cut off by a crash are checked against the message records, never resent.
         self.outreach.recover()
         with self.sessions.begin() as session:
@@ -231,6 +233,11 @@ class ApplicationService:
             "scout.runs": self._scout_runs,
             "scout.decisions": self._scout_decisions,
             "scout.ignore": self._scout_ignore,
+            "outreach.workspace": self.workspace.state,
+            "outreach.workspace_update": self.workspace.update,
+            "outreach.workspace_add_leads": self.workspace.add_leads,
+            "outreach.workspace_start": self.workspace.start,
+            "outreach.workspace_stop": self.workspace.stop,
             "outreach.templates": self.campaigns.templates,
             "outreach.template_save": self.campaigns.save_template,
             "outreach.template_render": self.campaigns.render_template,
@@ -429,7 +436,7 @@ class ApplicationService:
 
     def _system_info(self, params: dict) -> dict:
         return {
-            "version": "0.1.0",
+            "version": "0.1.1",
             "data_dir": str(self.data_dir),
             "log_dir": str(self.data_dir / "logs"),
             "transport": "stdio",

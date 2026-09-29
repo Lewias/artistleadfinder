@@ -27,11 +27,10 @@ export const pages = [
   },
   {
     id: 'outreach',
-    label: 'Рассылки',
-    eyebrow: 'INSTAGRAM',
-    title: 'Рассылки',
-    description:
-      'Первое сообщение найденным лидам: кампания → проверка → очередь → отправка из окна аккаунта → история и CRM.',
+    label: 'Первичная рассылка',
+    eyebrow: 'АККАУНТЫ',
+    title: 'Первичная рассылка',
+    description: '',
     placement: 'main',
   },
   {

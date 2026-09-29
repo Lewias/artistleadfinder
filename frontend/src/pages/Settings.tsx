@@ -7,6 +7,10 @@ import { date } from '../lib/format';
 import { DataState } from '../components/DataState';
 import { Button } from '../components/ui/button';
 import { PageHeader } from '../components/PageHeader';
+import { UpdatesPanel } from '../components/UpdateNotice';
+import type { useUpdater } from '../hooks/useUpdater';
+
+type Updater = ReturnType<typeof useUpdater> & { version?: string };
 
 const weightNames: Record<string, string> = {
   artist: 'Вероятный артист',
@@ -17,18 +21,20 @@ const weightNames: Record<string, string> = {
   genre: 'Целевой жанр',
   strong_activity: 'Высокая активность',
 };
-export function Settings() {
+export function Settings({ updater }: { updater: Updater }) {
   const resource = useResource<SettingsData>('settings.get');
   const health = useResource<ProviderHealth[]>('providers.health', {}, 5000);
   if (!resource.data)
     return (
       <>
         <PageHeader page="settings" />
+        <UpdatesPanel {...updater} />
         <DataState {...resource} retry={resource.refresh} />
       </>
     );
   return (
     <SettingsForm
+      updater={updater}
       initial={resource.data}
       health={health.data || []}
       refresh={() => {
@@ -39,10 +45,12 @@ export function Settings() {
   );
 }
 function SettingsForm({
+  updater,
   initial,
   health,
   refresh,
 }: {
+  updater: Updater;
   initial: SettingsData;
   health: ProviderHealth[];
   refresh: () => void;
@@ -94,6 +102,7 @@ function SettingsForm({
   return (
     <>
       <PageHeader page="settings" />
+      <UpdatesPanel {...updater} />
       <form onSubmit={event => void submit(event)} className="settings-layout">
         <section className="panel">
           <h2>Поиск по умолчанию</h2>
@@ -208,7 +217,7 @@ function SettingsForm({
           </p>
         </section>
         <section className="panel">
-          <h2>Рассылки</h2>
+          <h2>Первичная рассылка</h2>
           <fieldset disabled={busy}>
             {(
               [

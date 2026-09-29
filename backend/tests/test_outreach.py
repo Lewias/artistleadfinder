@@ -714,7 +714,7 @@ def test_recipient_table_filters_by_status(app):
 # ---------- Migration ----------
 
 
-def test_schema_9_database_migrates_to_10(tmp_path):
+def test_schema_9_database_migrates_to_11(tmp_path):
     import sqlite3
 
     path = tmp_path / "old.db"
@@ -734,11 +734,12 @@ def test_schema_9_database_migrates_to_10(tmp_path):
         "outreach_followup_sequences",
         "outreach_templates",
         "outreach_senders",
+        "outreach_workspace",
     ):
         raw.execute(f"DROP TABLE {table}")
     raw.execute("ALTER TABLE leads DROP COLUMN do_not_contact")
     raw.execute("ALTER TABLE leads DROP COLUMN last_contacted_at")
-    raw.execute("DELETE FROM schema_migrations WHERE version = 10")
+    raw.execute("DELETE FROM schema_migrations WHERE version >= 10")
     raw.commit()
     raw.close()
     engine, sessions = open_database(path)
@@ -749,9 +750,97 @@ def test_schema_9_database_migrates_to_10(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 10
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (11, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 11
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (12, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):
         open_database(path)
+
+
+# ---------- Primary outreach list ----------
+
+
+def test_workspace_list_sends_variants_and_skips_done(app):
+    service, sessions, clock, senders, _ = app
+    known = add_lead(sessions, "known_artist", "Jay Carter")
+    state = service.call(
+        "outreach.workspace_update",
+        {
+            "usernames": [
+                "@Known_Artist",
+                "https://www.instagram.com/newface/",
+                "third",
+                "newface",
+            ],
+            "messages": ["Yo {{firstName}}, got beats for u", "Second variant", "  "],
+            "sender_ids": senders[:1],
+        },
+    )
+    assert [item["username"] for item in state["usernames"]] == ["known_artist", "newface", "third"]
+    assert state["messages"] == ["Yo {{firstName}}, got beats for u", "Second variant"]
+    assert {item["status"] for item in state["usernames"]} == {"new"}
+    with pytest.raises(ValueError):
+        service.call("outreach.workspace_update", {"usernames": ["bad name!"]})
+    with pytest.raises(ValueError):
+        service.call("outreach.workspace_update", {"messages": ["Hi {{unknown}}"]})
+
+    state = service.call("outreach.workspace_start", {})
+    assert state["running"] and state["campaign"]["total_recipients"] == 3
+    with pytest.raises(ValueError, match="уже идёт"):
+        service.call("outreach.workspace_start", {})
+    drive(service, clock)
+    state = service.call("outreach.workspace", {})
+    assert not state["running"]
+    assert {item["status"] for item in state["usernames"]} == {"sent"}
+    rows = recipients(sessions, state["campaign"]["id"])
+    assert rows["known_artist"].rendered_message == "Yo Jay, got beats for u"
+    assert rows["newface"].rendered_message == "Second variant"
+    assert rows["third"].rendered_message.startswith("Yo there")
+    with sessions() as session:
+        assert session.get(Lead, known).status == "contacted"
+        assert session.scalar(select(func.count()).select_from(Lead)) == 3
+    # Hidden list template is not offered as a template.
+    assert service.call("outreach.templates", {}) == []
+
+    # Everyone got a message: a second run has nobody to write to; new names go alone.
+    with pytest.raises(ValueError, match="нет аккаунтов"):
+        service.call("outreach.workspace_start", {})
+    service.call(
+        "outreach.workspace_update",
+        {"usernames": [*(i["username"] for i in state["usernames"]), "fourth"]},
+    )
+    state = service.call("outreach.workspace_start", {})
+    assert state["campaign"]["total_recipients"] == 1
+    stopped = service.call("outreach.workspace_stop", {})
+    assert not stopped["running"] and stopped["campaign"]["status"] == "cancelled"
+    assert stopped["usernames"][-1]["status"] == "cancelled"
+
+
+def test_workspace_start_without_active_sender_leaves_no_campaign(app):
+    service, sessions, _, senders, _ = app
+    service.call("outreach.sender_status", {"id": senders[0], "status": "paused"})
+    service.call(
+        "outreach.workspace_update",
+        {"usernames": ["one"], "messages": ["Hi"], "sender_ids": senders[:1]},
+    )
+    with pytest.raises(ValueError, match="активных"):
+        service.call("outreach.workspace_start", {})
+    state = service.call("outreach.workspace", {})
+    assert state["campaign"] is None and not state["running"]
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
+
+
+def test_workspace_adds_leads_from_crm(app):
+    service, sessions, _, _, _ = app
+    first, second = add_lead(sessions, "first_one"), add_lead(sessions, "second_one")
+    blocked = add_lead(sessions, "blocked_one")
+    service.call("leads.do_not_contact", {"id": blocked, "value": True})
+    with sessions.begin() as session:
+        session.get(Lead, second).status = "qualified"
+    assert service.call("outreach.workspace_add_leads", {"statuses": ["qualified"]})["added"] == 1
+    added = service.call("outreach.workspace_add_leads", {"lead_ids": [first, second, blocked]})
+    assert added["added"] == 1
+    names = [item["username"] for item in service.call("outreach.workspace", {})["usernames"]]
+    assert names == ["second_one", "first_one"]

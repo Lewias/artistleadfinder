@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Artist Lead Finder",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.artistleadfinder.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,5 +13,12 @@
     "windows": [{ "label": "main", "title": "Artist Lead Finder", "width": 1360, "height": 900, "minWidth": 1024, "minHeight": 700 }],
     "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost" }
   },
-  "bundle": { "active": true, "targets": ["nsis"], "icon": [] }
+  "bundle": { "active": true, "targets": ["nsis", "app", "dmg"], "icon": [] },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEwQzk5NzdCN0JENjVENzYKUldSMlhkWjdlNWZKRUxOcW1uUHhjQTNER2lFdFVLMDkwbHRjcVVYUnJSeG5HYnpEMGxITElodG0K",
+      "endpoints": ["https://github.com/Lewias/artistleadfinder/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  }
 }

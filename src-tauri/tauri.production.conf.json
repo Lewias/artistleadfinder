@@ -1,10 +1,29 @@
 {
   "bundle": {
-    "externalBin": ["binaries/artist-core"],
-    "icon": ["icons/icon.ico"],
+    "externalBin": [
+      "binaries/artist-core"
+    ],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
     "windows": {
-      "webviewInstallMode": { "type": "embedBootstrapper" },
-      "nsis": { "installerIcon": "icons/icon.ico", "languages": ["Russian", "English"], "displayLanguageSelector": true }
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "languages": [
+          "Russian",
+          "English"
+        ],
+        "displayLanguageSelector": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
     }
   }
 }

@@ -29,7 +29,9 @@ NSIS включает WebView2 bootstrapper для интерфейса Tauri. �
 Результат: `artifacts/ArtistLeadFinder-Setup.exe`. Это локальная неподписанная
 MVP-сборка. Для публичного выпуска нужны code signing, чистая Windows VM,
 проверка install/update/uninstall, crash/antivirus compatibility и лицензии
-зависимостей. Updater не включён; позже использовать подписанный Tauri updater.
+зависимостей. Автообновление: Tauri updater, пакеты подписываются ключом
+`TAURI_SIGNING_PRIVATE_KEY` (см. README «Релизы и автообновление»); без ключа локальная
+сборка пропускает пакеты обновления.
 Сборка установщика не означает, что эти release-проверки пройдены.
 
 Скрипт также обновляет `artifacts/ArtistLeadFinder-Portable`: основной EXE и
@@ -114,3 +116,25 @@ cookie через DPAPI и прочитаны 4 результата Brave Searc
 
 Установщик: `artifacts/ArtistLeadFinder-Setup.exe`, 238889710 байт.
 SHA256: `B845226FE057A71673C210DDC53F2E5646E03E772D1A004A865321AB096DE4FD`.
+
+## Релизы: Windows + macOS в GitHub Actions (29.09.2026)
+Сборка ядра вынесена в `scripts/build-core.py`: PyInstaller onefile с суффиксом target triple
+из `rustc -vV` (`x86_64-pc-windows-msvc`, `aarch64-apple-darwin`) и smoke замороженного ядра
+с запуском комплектного Chromium. Его вызывают `package-windows.ps1` и `release.yml`.
+
+`release.yml` на тег `v*`: `windows-latest` → NSIS, `macos-14` (arm64) → `.app` и `.dmg`.
+Перед сборкой — pytest, Ruff, tsc, ESLint, Vitest. `tauri-action` собирает бандлы с
+`createUpdaterArtifacts`, подписывает `.nsis.zip`/`.exe` и `.app.tar.gz` (`.sig`), создаёт
+черновик релиза и общий `latest.json` (`windows-x86_64`, `darwin-aarch64`). Endpoint
+обновлений: `https://github.com/Lewias/artistleadfinder/releases/latest/download/latest.json`,
+поэтому обновление видно только после публикации черновика. На Windows установка идёт в
+режиме `passive` (окно прогресса без вопросов).
+
+macOS: ядро — `Contents/MacOS/artist-core` рядом с основным exe; dev-режим использует
+`.venv/bin/python`. Секреты шифруются AES-GCM ключом из login Keychain
+(`security`, сервис `ArtistLeadFinder`); файлы с префиксом `ALF1`. Windows по-прежнему DPAPI.
+Бандл не подписан и не нотаризован (нет Apple Developer ID); при появлении добавить в
+workflow `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
+`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` — tauri-action подпишет и нотаризует сам.
+Сборка macOS в этой среде не запускалась: проверяется первым прогоном workflow и на
+настоящем Mac (установка, Gatekeeper, ядро, Chromium, импорт сессии).

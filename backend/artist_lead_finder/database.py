@@ -32,7 +32,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 10 for version in versions):
+        if any(version > 11 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
@@ -42,6 +42,8 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "do_not_contact": "BOOLEAN NOT NULL DEFAULT 0",
             "last_contacted_at": "DATETIME",
         },
+        "outreach_templates": {"hidden": "BOOLEAN NOT NULL DEFAULT 0"},
+        "outreach_campaigns": {"message_variants": "JSON NOT NULL DEFAULT '[]'"},
         "scout_runs": {
             "backlog": "JSON NOT NULL DEFAULT '[]'",
             "found": "INTEGER NOT NULL DEFAULT 0",
@@ -136,4 +138,8 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # and leads.do_not_contact / last_contacted_at.
         if session.get(SchemaMigration, 10) is None:
             session.add(SchemaMigration(version=10))
+        # Schema 11: primary-outreach list (outreach_workspace), campaign message variants,
+        # hidden templates.
+        if session.get(SchemaMigration, 11) is None:
+            session.add(SchemaMigration(version=11))
     return engine, factory

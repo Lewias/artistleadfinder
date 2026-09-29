@@ -1,6 +1,6 @@
 [package]
 name = "artist-lead-finder"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local independent artist discovery workspace"
 edition = "2021"
 
@@ -19,3 +19,5 @@ url = "2"
 cookie = "0.18"
 tauri-plugin-single-instance = "2"
 base64 = "0.22"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

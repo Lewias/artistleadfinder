@@ -11,10 +11,17 @@ import { Button } from '../components/ui/button';
 import { ExportBar } from '../components/ExportBar';
 import { categoryLabels, methodLabel } from '../components/scoutStatus';
 
-export function Leads({ jobId, onCampaign }: { jobId?: number; onCampaign?: (ids: number[]) => void }) {
+export function Leads({
+  jobId,
+  onCampaign,
+}: {
+  jobId?: number;
+  onCampaign?: (ids: number[]) => Promise<void>;
+}) {
   const [query, setQuery] = useState<LeadQuery>({ ...defaultQuery, ...(jobId ? { job_id: jobId } : {}) });
   const [selected, setSelected] = useState<number[]>([]);
   const [detail, setDetail] = useState<number>();
+  const [outreachError, setOutreachError] = useState('');
   // Polled so that leads saved by a running Scout appear without a manual refresh.
   const resource = useResource<{ items: Lead[]; total: number }>('leads.list', query, 5000);
   const update = <K extends keyof LeadQuery>(key: K, value: LeadQuery[K]) =>
@@ -38,11 +45,19 @@ export function Leads({ jobId, onCampaign }: { jobId?: number; onCampaign?: (ids
       {onCampaign && (
         <Button
           disabled={!selected.length}
-          onClick={() => onCampaign(selected)}
-          title="Выберите лидов в таблице"
+          onClick={() => {
+            setOutreachError('');
+            void onCampaign(selected).catch(err => setOutreachError(String(err)));
+          }}
+          title="Добавить выбранных в «Первичную рассылку»"
         >
-          <Send size={15} /> Создать кампанию
+          <Send size={15} /> В рассылку
         </Button>
+      )}
+      {outreachError && (
+        <span role="alert" className="error-text">
+          {outreachError}
+        </span>
       )}
     </>
   );

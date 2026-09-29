@@ -22,7 +22,7 @@ export function PageHeader({
           {meta.title}
           {count !== undefined && <span className="page-count">{count}</span>}
         </h1>
-        <p className="page-description">{meta.description}</p>
+        {meta.description && <p className="page-description">{meta.description}</p>}
         {children}
       </div>
       {actions && <div className="page-actions">{actions}</div>}

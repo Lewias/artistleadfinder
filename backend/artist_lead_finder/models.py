@@ -416,6 +416,8 @@ class OutreachTemplate(Base):
     name: Mapped[str] = mapped_column(String(120))
     body: Mapped[str] = mapped_column(String(4000))
     enabled: Mapped[bool] = mapped_column(default=True)
+    # Schema 11: the internal template of the primary-outreach list; not listed as a template.
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -455,6 +457,8 @@ class OutreachCampaign(Base):
     sender_strategy: Mapped[str] = mapped_column(String(20), default="single")
     # Browser profile ids chosen as senders.
     sender_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Schema 11: message variants given in turn to queued recipients (else the template).
+    message_variants: Mapped[list[str]] = mapped_column(JSON, default=list)
     total_recipients: Mapped[int] = mapped_column(default=0)
     queued_count: Mapped[int] = mapped_column(default=0)
     sent_count: Mapped[int] = mapped_column(default=0)
@@ -615,3 +619,18 @@ class OutreachEvent(Base):
     type: Mapped[str] = mapped_column(String(40))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class OutreachWorkspace(Base):
+    """The single primary-outreach list: usernames, message variants and senders."""
+
+    __tablename__ = "outreach_workspace"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usernames: Mapped[list[str]] = mapped_column(JSON, default=list)
+    messages: Mapped[list[str]] = mapped_column(JSON, default=list)
+    sender_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # The campaign started from the list last.
+    campaign_id: Mapped[int | None] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="SET NULL")
+    )
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
