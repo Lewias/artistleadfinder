@@ -436,7 +436,7 @@ class ApplicationService:
 
     def _system_info(self, params: dict) -> dict:
         return {
-            "version": "0.1.3",
+            "version": "0.1.4",
             "data_dir": str(self.data_dir),
             "log_dir": str(self.data_dir / "logs"),
             "transport": "stdio",

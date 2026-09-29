@@ -78,7 +78,7 @@ jobs:
           releaseName: Artist Lead Finder ${{ github.ref_name }}
           releaseBody: |
             Windows: ArtistLeadFinder_*_x64-setup.exe. Если SmartScreen предупреждает — «Подробнее» → «Выполнить в любом случае».
-            macOS (Apple Silicon): *.dmg → перетащите в «Программы». Сборка без подписи Apple: при первом запуске ПКМ по приложению → «Открыть», или в Терминале:
+            macOS (Apple Silicon): *.dmg → перетащите в «Программы». Сборка без подписи Apple: при первом запуске «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть», или в Терминале:
             xattr -dr com.apple.quarantine "/Applications/Artist Lead Finder.app"
             Установленные версии обновятся сами после публикации этого релиза.
           releaseDraft: true
