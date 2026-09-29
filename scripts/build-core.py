@@ -24,15 +24,18 @@ def target_triple() -> str:
     )
 
 
-def bundled_chromium() -> Path:
-    browsers = ROOT / ".venv"
-    matches = [
+def local_browsers() -> list[Path]:
+    return [
         path
-        for path in browsers.glob(
+        for path in (ROOT / ".venv").glob(
             "**/playwright/driver/package/.local-browsers/chromium-*"
         )
         if path.is_dir()
     ]
+
+
+def bundled_chromium() -> Path:
+    matches = local_browsers()
     if not matches:
         raise SystemExit(
             "Bundled Chromium is missing. Install it with PLAYWRIGHT_BROWSERS_PATH=0: "
@@ -42,8 +45,17 @@ def bundled_chromium() -> Path:
 
 
 def main() -> None:
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
-    print(f"Chromium: {bundled_chromium().name}")
+    if sys.platform == "darwin":
+        # PyInstaller cannot re-sign Chromium's .app bundle; the macOS core downloads
+        # Chromium on first run instead (chromium_runtime.install_chromium).
+        if local_browsers():
+            raise SystemExit(
+                "Remove Chromium from the Playwright package before a macOS build: "
+                "it must not be installed with PLAYWRIGHT_BROWSERS_PATH=0 here."
+            )
+    else:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+        print(f"Chromium: {bundled_chromium().name}")
     triple = target_triple()
     name = f"artist-core-{triple}"
     subprocess.run(

@@ -48,7 +48,10 @@ jobs:
           "$PY" -m pip install --upgrade pip
           "$PY" -m pip install -r backend/requirements-lock.txt
           "$PY" -m pip install -e backend --no-deps
-          PLAYWRIGHT_BROWSERS_PATH=0 "$PY" -m playwright install chromium --no-shell
+          # Windows freezes Chromium into the core; the macOS core downloads it on first run.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PLAYWRIGHT_BROWSERS_PATH=0 "$PY" -m playwright install chromium --no-shell
+          fi
 
       - run: npm ci
 

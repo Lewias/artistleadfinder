@@ -136,5 +136,15 @@ macOS: ядро — `Contents/MacOS/artist-core` рядом с основным 
 Бандл не подписан и не нотаризован (нет Apple Developer ID); при появлении добавить в
 workflow `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
 `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` — tauri-action подпишет и нотаризует сам.
+
+Chromium на macOS не вшивается в ядро: PyInstaller переподписывает каждый Mach-O отдельно,
+а `Google Chrome for Testing.app` подписывается только целым бандлом (`codesign` падает с
+«bundle format unrecognized»). Ядро при старте в фоне запускает установщик Playwright
+(`install chromium --no-shell`) с `PLAYWRIGHT_BROWSERS_PATH` =
+`~/Library/Application Support/ArtistLeadFinder/ms-playwright`; повторный запуск — no-op.
+Папка переживает обновления, поэтому `.app.tar.gz` остаётся маленьким. Пока загрузка идёт,
+открытие окна профиля отвечает «Chromium скачивается…». В CI Chromium ставится с
+`PLAYWRIGHT_BROWSERS_PATH=0` только на Windows; `build-core.py` на Mac отказывается
+собирать, если он лежит в пакете Playwright. Smoke на Mac проверяет и загрузку.
 Сборка macOS в этой среде не запускалась: проверяется первым прогоном workflow и на
 настоящем Mac (установка, Gatekeeper, ядро, Chromium, импорт сессии).

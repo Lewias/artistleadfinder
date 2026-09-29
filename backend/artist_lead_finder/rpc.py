@@ -65,6 +65,7 @@ def run() -> None:
     logging.info("application_startup")
     engine, sessions = open_database()
     service = ApplicationService(sessions, data_dir)
+    service.chromium.prepare()
     try:
         while True:
             line = sys.stdin.buffer.readline(2_000_001)

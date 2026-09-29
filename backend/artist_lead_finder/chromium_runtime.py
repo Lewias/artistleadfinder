@@ -2,14 +2,24 @@
 
 import logging
 import os
+import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from .browser_sessions import BrowserSessions
+from .database import application_data_dir
 
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+# Windows: Chromium is frozen into the core (Playwright's "0" location). macOS: PyInstaller
+# cannot re-sign Chromium's app bundle, so it is downloaded once into the app data folder,
+# which also survives app updates.
+DOWNLOADS_CHROMIUM = sys.platform == "darwin"
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = (
+    str(application_data_dir() / "ms-playwright") if DOWNLOADS_CHROMIUM else "0"
+)
 
 
 GUEST_ID = "0" * 32
@@ -45,11 +55,63 @@ def watch_rate_limits(window: Window) -> None:
     window.context.on("response", on_response)
 
 
+def install_chromium() -> bool:
+    """Run Playwright's own installer; a no-op when this Chromium build is already there."""
+    from playwright._impl._driver import compute_driver_executable, get_driver_env
+
+    try:
+        result = subprocess.run(
+            [*compute_driver_executable(), "install", "chromium", "--no-shell"],
+            env=get_driver_env(),
+            capture_output=True,
+            timeout=1800,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        log.warning("chromium_install_failed", extra={"error_type": type(error).__name__})
+        return False
+    if result.returncode:
+        log.warning("chromium_install_failed", extra={"exit_code": result.returncode})
+        return False
+    return True
+
+
 class ChromiumRuntime:
-    def __init__(self, sessions: BrowserSessions):
+    def __init__(self, sessions: BrowserSessions, installer=install_chromium):
         self.sessions = sessions
         self.playwright: Playwright | None = None
         self.windows: dict[str, Window] = {}
+        self.installer = installer
+        self.install: threading.Thread | None = None
+        self.installed = not DOWNLOADS_CHROMIUM
+
+    def prepare(self) -> None:
+        """Start the one-time Chromium download in the background (macOS)."""
+        if self.installed or (self.install and self.install.is_alive()):
+            return
+
+        def work() -> None:
+            log.info("chromium_install_started")
+            self.installed = self.installer()
+            if self.installed:
+                log.info("chromium_install_finished")
+
+        self.install = threading.Thread(target=work, name="chromium-install", daemon=True)
+        self.install.start()
+
+    def _ready(self, wait: float) -> None:
+        if self.installed:
+            return
+        self.prepare()
+        self.install.join(wait)
+        if self.install.is_alive():
+            raise BrowserLaunchError(
+                "Chromium скачивается при первом запуске. Попробуйте через пару минут."
+            )
+        if not self.installed:
+            raise BrowserLaunchError(
+                "Не удалось скачать Chromium. Проверьте подключение к интернету и повторите."
+            )
 
     def _engine(self):
         if self.playwright is None:
@@ -57,6 +119,7 @@ class ChromiumRuntime:
         return self.playwright.chromium
 
     def self_test(self) -> dict:
+        self._ready(wait=1800)
         browser = self._engine().launch(headless=True, channel="chromium")
         try:
             page = browser.new_page()
@@ -118,6 +181,7 @@ class ChromiumRuntime:
         if window:
             window.page.bring_to_front()
             return {"ok": True, "reused": True}
+        self._ready(wait=20)
         if identifier == GUEST_ID:
             record = {"cookies": [], "proxy": None}
         else:

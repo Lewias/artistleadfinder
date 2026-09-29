@@ -19,7 +19,8 @@ def main() -> None:
         input="".join(json.dumps(request) + "\n" for request in requests),
         capture_output=True,
         text=True,
-        timeout=180,
+        # macOS downloads Chromium on the first self-test.
+        timeout=1200,
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
