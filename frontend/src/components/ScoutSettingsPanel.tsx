@@ -121,10 +121,28 @@ export function ScoutSettingsPanel() {
             {numberField('scout_min_followers', 'Подписчиков от', 0, 1_000_000_000)}
             {numberField('scout_max_followers', 'Подписчиков до', 0, 1_000_000_000)}
           </div>
+          <div className="field-row">
+            {numberField('scout_min_confidence', 'Мин. уверенность типа, % (0 — выкл.)', 0, 100)}
+            <label>
+              Статус нового лида
+              <select
+                value={settings.scout_lead_status}
+                disabled={busy}
+                onChange={event =>
+                  update('scout_lead_status', event.target.value as SettingsData['scout_lead_status'])
+                }
+              >
+                <option value="new">Новый</option>
+                <option value="reviewed">Просмотрен</option>
+                <option value="qualified">Подходит</option>
+              </select>
+            </label>
+          </div>
           <div className="check-list">
             {(
               [
                 ['scout_only_contacts', 'Только профили с контактами'],
+                ['scout_allow_unknown_followers', 'Принимать профили, у которых не прочитаны подписчики'],
                 ['scout_skip_processed', 'Пропускать уже обработанные профили'],
                 ['scout_skip_recent_sources', 'Пропускать недавно просканированные источники'],
               ] as const
@@ -223,8 +241,37 @@ export function ScoutSettingsPanel() {
         </section>
       </div>
       <details className="scout-advanced">
-        <summary>Дополнительно: прокрутка, stories, повторы, отладка</summary>
+        <summary>Дополнительно: профили, прокрутка, stories, повторы, отладка</summary>
         <div className="scout-settings-grid">
+          <section>
+            <h3>Профили</h3>
+            <div className="check-list">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.scout_profile_api}
+                  disabled={busy}
+                  onChange={event => update('scout_profile_api', event.target.checked)}
+                />
+                Сначала Instagram web API
+                <small>
+                  Один запрос из открытой вкладки; страница профиля открывается, только если данных мало.
+                </small>
+              </label>
+            </div>
+            <div className="field-row">
+              {numberField('scout_profile_cache_hours', 'Кэш профиля, ч (0 — выкл.)', 0, 168)}
+              {numberField('scout_recent_captions', 'Подписей к постам', 0, 12)}
+            </div>
+          </section>
+          <section>
+            <h3>AI-классификация</h3>
+            <div className="field-row">
+              {numberField('scout_ai_min_confidence', 'AI, если уверенность ниже, %', 0, 100)}
+              {numberField('scout_ai_timeout_seconds', 'Таймаут AI, с', 5, 60)}
+              {numberField('scout_ai_concurrency', 'Параллельных запросов AI', 1, 5)}
+            </div>
+          </section>
           <section>
             <h3>Posts / Tagged</h3>
             <div className="field-row">

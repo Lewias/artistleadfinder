@@ -5,6 +5,7 @@ import {
   Database,
   History,
   ScanSearch,
+  Send,
   Settings as SettingsIcon,
   UserRound,
   type LucideIcon,
@@ -18,12 +19,14 @@ import { Discovery } from './pages/Discovery';
 import { Leads } from './pages/Leads';
 import { SearchHistory } from './pages/SearchHistory';
 import { Settings } from './pages/Settings';
+import { Outreach } from './pages/Outreach';
 import { BrowserProfiles } from './components/BrowserProfiles';
 
 const icons: Record<PageId, LucideIcon> = {
   discovery: ScanSearch,
   profiles: UserRound,
   leads: Database,
+  outreach: Send,
   history: History,
   dashboard: BarChart3,
   settings: SettingsIcon,
@@ -45,6 +48,8 @@ function useNavCounts(): Partial<Record<PageId, number>> {
 export function App() {
   const core = useResource<{ version: string }>('system.info');
   const [active, setActive] = useState<PageId>('discovery');
+  // Leads selected in the CRM for a new outreach campaign.
+  const [campaignLeads, setCampaignLeads] = useState<number[]>();
   const counts = useNavCounts();
   const navButton = (item: (typeof pages)[number]) => {
     const Icon = icons[item.id];
@@ -97,7 +102,14 @@ export function App() {
           ) : active === 'discovery' ? (
             <Discovery />
           ) : active === 'leads' ? (
-            <Leads />
+            <Leads
+              onCampaign={ids => {
+                setCampaignLeads(ids);
+                setActive('outreach');
+              }}
+            />
+          ) : active === 'outreach' ? (
+            <Outreach preset={campaignLeads} clearPreset={() => setCampaignLeads(undefined)} />
           ) : active === 'history' ? (
             <SearchHistory />
           ) : active === 'profiles' ? (

@@ -267,6 +267,7 @@ async fn browser_action(
             id.to_owned(),
             include_str!("capture.js"),
             Value::Null,
+            false,
         )
         .await?;
         if snapshot["blocked"].as_bool().unwrap_or(true)
@@ -373,8 +374,29 @@ fn page_script(state: &Value) -> &'static str {
         (true, "source" | "tagged_grid") => include_str!("grid.js"),
         (true, "stories") => include_str!("story.js"),
         (true, "followers" | "following") => include_str!("follow.js"),
+        // Profile resolver API step: one request from the open tab, no page load.
+        (true, "profile") if access(state) == Access::InPlace => include_str!("profile_api.js"),
         (true, "profile") | (false, _) => include_str!("capture.js"),
         (true, _) => include_str!("scout.js"),
+    }
+}
+
+/// How a queue step reaches its page.
+#[derive(Debug, PartialEq)]
+enum Access {
+    /// Open the step URL, then read it (default).
+    Navigate,
+    /// Run the script in the tab that is already open (profile API request).
+    InPlace,
+    /// Nothing to open: the core answers from its cache.
+    None,
+}
+
+fn access(state: &Value) -> Access {
+    match state["access"].as_str() {
+        Some("in_place") => Access::InPlace,
+        Some("none") => Access::None,
+        _ => Access::Navigate,
     }
 }
 
@@ -416,11 +438,12 @@ async fn read_script(
     id: String,
     script: &'static str,
     args: Value,
+    fresh: bool,
 ) -> Result<Value, String> {
     let result = backend_request(
         core,
         "browser.runtime.eval".into(),
-        json!({"id":id,"script":script,"args":args}),
+        json!({"id":id,"script":script,"args":args,"fresh":fresh}),
     )
     .await?;
     // Up to 200 comments of 1500 characters; Cyrillic takes two bytes per character.
@@ -476,14 +499,33 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             attempt = current_attempt;
             target.clear();
         }
+        let step_access = access(&state);
+        if step_access == Access::None {
+            // Served from the core's cache: no page, no pacing.
+            if request(
+                "scout.commit_internal",
+                json!({"id":job_id,"snapshot":{"url":url,"ready":true,"blocked":false}}),
+            )
+            .is_err()
+            {
+                let _ = request(
+                    "capture.error_internal",
+                    json!({"id":job_id,"reason":"save"}),
+                );
+            }
+            target.clear();
+            continue;
+        }
         if target != url {
-            // The core paces page opens (delays, hourly cap, rate-limit breaks).
+            // The core paces page opens and API requests (delays, hourly cap, 429 breaks).
             if cooldown.elapsed() < Duration::from_secs(3)
                 || state["wait_seconds"].as_f64().unwrap_or(0.0) > 0.0
             {
                 continue;
             }
-            if request("browser.runtime.navigate", json!({"id":id,"url":url})).is_err() {
+            if step_access == Access::Navigate
+                && request("browser.runtime.navigate", json!({"id":id,"url":url})).is_err()
+            {
                 let _ = request(
                     "capture.error_internal",
                     json!({"id":job_id,"reason":"loading"}),
@@ -492,9 +534,11 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             }
             target = url.to_owned();
             navigated = Instant::now();
-            continue;
+            if step_access == Access::Navigate {
+                continue;
+            }
         }
-        if navigated.elapsed() < Duration::from_secs(3) {
+        if step_access == Access::Navigate && navigated.elapsed() < Duration::from_secs(3) {
             continue;
         }
         let observation = tauri::async_runtime::block_on(read_script(
@@ -502,6 +546,7 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             id.to_owned(),
             page_script(&state),
             state["args"].clone(),
+            step_access == Access::InPlace,
         ));
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
             break;
@@ -543,16 +588,58 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
                 cooldown = Instant::now();
                 target.clear();
             }
-            _ if navigated.elapsed() > Duration::from_secs(25) => {
+            // An in-tab request is not repeated every tick: the core decides on a retry.
+            _ if step_access == Access::InPlace
+                || navigated.elapsed() > Duration::from_secs(25) =>
+            {
                 let _ = request(
                     "capture.error_internal",
                     json!({"id":job_id,"reason":"loading"}),
                 );
+                if step_access == Access::InPlace {
+                    cooldown = Instant::now();
+                    target.clear();
+                }
             }
             _ => {}
         }
     }
 }
+/// Outreach send queue. The core picks a due job whose sender window is open and idle
+/// and claims it; the send script runs once in that window and the result goes back to
+/// the core. A failed script call is reported as a browser failure (never resent by the
+/// core); a lost result leaves the claim, which the core settles for manual review.
+fn run_outreach_driver(core: Core, closing: BrowserClosing) {
+    let request = |method: &str, params: Value| {
+        tauri::async_runtime::block_on(backend_request(core.clone(), method.into(), params))
+    };
+    loop {
+        std::thread::sleep(Duration::from_secs(3));
+        if closing.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        let Ok(job) = request("outreach.next_internal", json!({})) else {
+            continue;
+        };
+        let (Some(profile_id), Some(job_id)) = (job["profile_id"].as_str(), job["job_id"].as_i64())
+        else {
+            continue;
+        };
+        let result = tauri::async_runtime::block_on(read_script(
+            core.clone(),
+            profile_id.to_owned(),
+            include_str!("send.js"),
+            job["args"].clone(),
+            true,
+        ))
+        .unwrap_or_else(|_| json!({"outcome": "error", "error": "browser"}));
+        let _ = request(
+            "outreach.commit_internal",
+            json!({"job_id": job_id, "token": job["token"], "result": result}),
+        );
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -565,6 +652,12 @@ fn main() {
         .manage(Arc::new(Mutex::new(None::<Backend>)) as Core)
         .manage(Arc::new(Mutex::new(HashMap::new())) as ProxyRelays)
         .manage(Arc::new(std::sync::atomic::AtomicBool::new(false)) as BrowserClosing)
+        .setup(|app| {
+            let core = app.state::<Core>().inner().clone();
+            let closing = app.state::<BrowserClosing>().inner().clone();
+            std::thread::spawn(move || run_outreach_driver(core, closing));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             core_request,
             open_profile,
@@ -623,6 +716,28 @@ mod tests {
         assert_eq!(block_reason(&json!({"block_reason": "weird"})), "blocked");
         assert_eq!(
             page_script(&json!({"kind": "source"})),
+            include_str!("capture.js")
+        );
+    }
+
+    #[test]
+    fn profile_steps_choose_page_access() {
+        let profile = |access: &str| json!({"scout": true, "kind": "profile", "access": access});
+        assert_eq!(access(&profile("in_place")), Access::InPlace);
+        assert_eq!(access(&profile("none")), Access::None);
+        assert_eq!(access(&profile("navigate")), Access::Navigate);
+        assert_eq!(access(&json!({"kind": "profile"})), Access::Navigate);
+        assert_eq!(
+            page_script(&profile("in_place")),
+            include_str!("profile_api.js")
+        );
+        assert_eq!(
+            page_script(&profile("navigate")),
+            include_str!("capture.js")
+        );
+        // Manual link queues never use the API script.
+        assert_eq!(
+            page_script(&json!({"kind": "profile", "access": "in_place"})),
             include_str!("capture.js")
         );
     }

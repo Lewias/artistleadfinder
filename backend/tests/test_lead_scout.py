@@ -1,18 +1,17 @@
 import json
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 
+from artist_lead_finder.chromium_runtime import GUEST_ID
 from artist_lead_finder.database import open_database
 from artist_lead_finder.lead_scout import memory
-from artist_lead_finder.lead_scout.ai import AIUnavailable, OpenRouterClassifier, parse_answer
 from artist_lead_finder.lead_scout.candidates import ScoutCandidate, clean_username
-from artist_lead_finder.lead_scout.classifier import ProfileText, classify
+from artist_lead_finder.lead_scout.classification import AIClassificationResult, AITransientError
 from artist_lead_finder.lead_scout.contacts import extract_emails, extract_phones
 from artist_lead_finder.lead_scout.discovery import post_url
-from artist_lead_finder.lead_scout.filters import apply_filters
-from artist_lead_finder.lead_scout.settings import ScoutSettings
 from artist_lead_finder.models import (
     Lead,
     LeadScoutProfile,
@@ -26,42 +25,6 @@ from artist_lead_finder.service import ApplicationService
 
 SOURCE = "https://www.instagram.com/rapdaily/"
 ACCOUNT = "a" * 32
-
-
-def test_classifier_returns_category_and_evidence():
-    artist = classify(
-        ProfileText(
-            username="lil_nova",
-            full_name="Lil Nova",
-            biography="Independent rapper from ATL. My new single out now on all platforms",
-            external_url="https://open.spotify.com/artist/x",
-        )
-    )
-    assert artist.category == "artist" and not artist.uncertain
-    assert "Bio contains rapper" in artist.reasons
-    assert "Spotify link found" in artist.reasons
-    assert any(reason.startswith("Release phrase") for reason in artist.reasons)
-    producer = classify(
-        ProfileText(
-            username="prodbymike",
-            biography="Type beat drops daily",
-            bio_links=["https://beatstars.com/m"],
-        )
-    )
-    assert producer.category == "producer"
-    # Media and creative services need music context.
-    media = classify(
-        ProfileText(username="rapdaily", biography="Hip hop music news and playlist curator")
-    )
-    assert media.category == "media"
-    plain = classify(ProfileText(username="shots", biography="Wedding photographer"))
-    assert plain.category == "other"
-    assert "Media/service words without music context" in plain.reasons
-    spam = classify(
-        ProfileText(username="x", biography="rapper | forex signals and casino giveaway")
-    )
-    assert spam.category == "other"
-    assert any(reason.startswith("Negative signal") for reason in spam.reasons)
 
 
 def test_contacts_are_normalised_and_deduplicated():
@@ -80,54 +43,6 @@ def test_candidates_reject_system_links():
         ScoutCandidate("a", "b", "dm")
     assert post_url("https://www.instagram.com/tv/Xy1/") == "https://www.instagram.com/tv/Xy1/"
     assert post_url("https://instagram.com/reels/Ab2/") == "https://www.instagram.com/reel/Ab2/"
-
-
-def test_filters_follow_the_documented_order():
-    settings = ScoutSettings(
-        scout_min_followers=100, scout_max_followers=5000, scout_only_contacts=True
-    )
-    assert apply_filters(50, "artist", ["a@b.co"], [], settings) == "FOLLOWERS_TOO_LOW"
-    assert apply_filters(9000, "media", [], [], settings) == "FOLLOWERS_TOO_HIGH"
-    assert apply_filters(500, "media", [], [], settings) == "WRONG_PROFILE_TYPE"
-    assert apply_filters(500, "artist", [], [], settings) == "NO_CONTACT"
-    assert apply_filters(500, "artist", [], ["+14045550199"], settings) is None
-    both = settings.model_copy(update={"scout_profile_type": "artists_producers"})
-    assert apply_filters(500, "producer", ["a@b.co"], [], both) is None
-    everyone = settings.model_copy(update={"scout_profile_type": "everyone"})
-    assert apply_filters(500, "other", ["a@b.co"], [], everyone) is None
-    assert apply_filters(None, "artist", ["a@b.co"], [], settings) is None
-
-
-def test_ai_answer_parsing_and_transport(tmp_path):
-    assert parse_answer('```json\n{"category": "producer", "confidence": 140}\n```') == (
-        "producer",
-        100,
-    )
-    with pytest.raises(AIUnavailable):
-        parse_answer('{"category": "chef", "confidence": 90}')
-
-    class Keys:
-        def configured(self):
-            return True
-
-        def load(self):
-            return "sk-test"
-
-    sent = {}
-
-    def transport(url, headers, body):
-        sent.update(url=url, auth=headers["Authorization"], body=body)
-        content = json.dumps({"category": "artist", "confidence": 77})
-        return json.dumps({"choices": [{"message": {"content": content}}]})
-
-    ai = OpenRouterClassifier(Keys(), transport)
-    assert ai.classify(
-        ProfileText(username="x", biography="singer"), "anthropic/claude-haiku-4.5"
-    ) == ("artist", 77)
-    assert (
-        sent["auth"] == "Bearer sk-test"
-        and b"Classify this public Instagram profile" in sent["body"]
-    )
 
 
 def test_source_rotation_and_cooldown(tmp_path):
@@ -187,7 +102,8 @@ def scout(tmp_path):
 
 
 def run_pages(service, settings, pages, sources=(SOURCE,)):
-    service.call("settings.save", {"profiles_per_hour": 0, **settings})
+    # Profile pages are committed as page snapshots unless a test turns the API step on.
+    service.call("settings.save", {"profiles_per_hour": 0, "scout_profile_api": False, **settings})
     service.call("scout.source_add", {"values": list(sources)})
     job = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
     visited = []
@@ -335,30 +251,34 @@ def test_full_flow_posts_tagged_followers_to_leads(scout):
     events = service.call("scout.events", {"job_id": job})
     types = [event["type"] for event in events]
     for expected in (
-        "scout:start",
-        "source:start",
-        "candidate:found",
-        "profile:analyzing",
-        "profile:skipped",
-        "lead:found",
-        "source:done",
-        "scout:done",
+        "scout:run-started",
+        "scout:source-started",
+        "scout:candidate-found",
+        "scout:profile-resolving",
+        "scout:profile-resolved",
+        "scout:classification-started",
+        "scout:classification-completed",
+        "scout:profile-skipped",
+        "scout:lead-created",
+        "scout:source-completed",
+        "scout:completed",
     ):
         assert expected in types
     log = next(
         e["payload"]["log"]
         for e in events
-        if e["type"] == "lead:found" and e["payload"]["username"] == "artist_one"
+        if e["type"] == "scout:lead-created" and e["payload"]["username"] == "artist_one"
     )
-    assert (
-        "[@artist_one]" in log and "RESULT:\nLEAD SAVED" in log and "+ Bio contains rapper" in log
-    )
+    assert "[Scout][@rapdaily][@artist_one]" in log and "RESULT:\nLEAD CREATED" in log
+    assert "Filters:\n" in log and "profile type: pass (artist)" in log
+    assert "[Classifier][@artist_one]" in log
+    assert "+5 Bio contains strong artist term: rapper" in log
     skip_log = next(
         e["payload"]["log"]
         for e in events
         if e["payload"].get("username") == "too_big" and "log" in e["payload"]
     )
-    assert "SKIPPED - FOLLOWERS_TOO_HIGH" in skip_log
+    assert "RESULT:\nSKIPPED\n\nReason:\nFOLLOWERS_TOO_HIGH\n2000000 > max 1000000" in skip_log
 
     # Next run: the source is in cooldown, so nothing to start.
     with pytest.raises(ValueError, match="кулдауна"):
@@ -370,9 +290,9 @@ def test_ai_uncertain_mode_and_contacts_filter(scout):
     calls = []
 
     class FakeAI:
-        def classify(self, profile, model):
+        def classify(self, profile, local=None, *, model, timeout):
             calls.append(profile.username)
-            return "artist", 81
+            return AIClassificationResult("artist", 81, model)
 
     service.scout.ai = FakeAI()
     post = "https://www.instagram.com/p/A1/"
@@ -425,6 +345,64 @@ def test_ai_uncertain_mode_and_contacts_filter(scout):
         assert session.get(ScoutProcessedProfile, "no_contact").reason == "NO_CONTACT"
 
 
+def test_transient_ai_failure_is_retried_and_the_profile_comes_back(scout):
+    service, sessions = scout
+    clock = [utcnow()]
+    service.scout.classification.pending.now = lambda: clock[0]
+
+    class FlakyAI:
+        calls = []
+
+        def classify(self, profile, local=None, *, model, timeout):
+            self.calls.append(profile.username)
+            if len(self.calls) == 1:
+                raise AITransientError("OpenRouter недоступен.")
+            return AIClassificationResult("artist", 88, model)
+
+    service.scout.ai = FlakyAI()
+    post = "https://www.instagram.com/p/A2/"
+    profiles = {
+        "maybe_artist": profile_page("maybe_artist", "new music soon"),
+        "clear_artist": profile_page(
+            "clear_artist", "Rapper. My new single out now", links=["https://open.spotify.com/c"]
+        ),
+    }
+
+    def pages(state):
+        if state["kind"] == "source":
+            return dict(url=state["url"], ready=True, posts=[post])
+        if state["kind"] == "post":
+            comments = [
+                dict(profile_url=f"https://www.instagram.com/{n}/", text="hi") for n in profiles
+            ]
+            return dict(url=post, ready=True, author="rapdaily", comments=comments)
+        name = state["url"].rstrip("/").split("/")[-1]
+        if FlakyAI.calls:
+            clock[0] += timedelta(minutes=10)  # the pending retry is due at the next step
+        return profiles[name]
+
+    job, state, visited = run_pages(
+        service, {"scout_methods": ["posts", "comments"], "scout_ai_mode": "uncertain"}, pages
+    )
+    # AI down: local result stands (skipped), the retry answers, the profile is re-checked
+    # from the AI cache without another AI call.
+    assert FlakyAI.calls == ["maybe_artist", "maybe_artist"]
+    assert [url for kind, url in visited if kind == "profile"].count(
+        "https://www.instagram.com/maybe_artist/"
+    ) == 2
+    assert any("AI ответил после повтора" in notice for notice in state["notices"])
+    with sessions() as session:
+        lead = session.scalar(select(Lead).where(Lead.username == "maybe_artist"))
+        row = session.get(LeadScoutProfile, lead.id)
+        assert (row.profile_type, row.profile_decided_by, row.ai_confidence) == (
+            "artist",
+            "local+ai",
+            88,
+        )
+    detail = service.call("leads.detail", {"id": lead.id})
+    assert detail["classification"]["decided_by"] == "local+ai"
+
+
 def test_already_processed_profiles_are_skipped_and_sources_cycle(scout):
     service, sessions = scout
     other = "https://www.instagram.com/beatsdaily/"
@@ -463,7 +441,7 @@ def test_already_processed_profiles_are_skipped_and_sources_cycle(scout):
         service.call("scout.commit_internal", {"id": first, "snapshot": pages(state)})
     events = service.call("scout.events", {"job_id": first})
     assert any(
-        e["type"] == "profile:skipped" and e["payload"]["reason"] == "ALREADY_PROCESSED"
+        e["type"] == "scout:profile-skipped" and e["payload"]["reason"] == "ALREADY_PROCESSED"
         for e in events
     )
     second = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
@@ -488,9 +466,161 @@ def test_pause_stop_and_rate_limit_events(scout):
     service.call("capture.error_internal", {"id": job, "reason": "rate_limited"})
     service.call("jobs.control", {"id": job, "action": "cancel"})
     types = [event["type"] for event in service.call("scout.events", {"job_id": job})]
-    assert types == ["scout:start", "scout:pause", "scout:error", "scout:stop"]
-    error = service.call("scout.events", {"job_id": job})[2]["payload"]
-    assert error["reason"] == "RATE_LIMITED"
+    assert types == [
+        "scout:run-started",
+        "scout:paused",
+        "scout:resumed",
+        "scout:error",
+        "scout:cancelled",
+    ]
+    error = service.call("scout.events", {"job_id": job})[3]["payload"]
+    assert (error["reason"], error["kind"], error["run_id"]) == ("RATE_LIMITED", "rate_limit", job)
     assert {row["username"]: row for row in service.call("scout.source_list", {})}["rapdaily"][
         "status"
     ] == "stopped"
+
+
+API_FIXTURES = Path(__file__).parent / "fixtures" / "instagram" / "api"
+POST = "https://www.instagram.com/p/P1/"
+
+
+def api_answer(state, fixture=None, status=200):
+    body = json.loads((API_FIXTURES / f"{fixture}.json").read_text("utf-8")) if fixture else None
+    return dict(
+        url=state["url"],
+        ready=True,
+        blocked=False,
+        api={"status": status, "body": body, "redirect": None},
+    )
+
+
+def start_api_run(service, author="artist123", profile_id=ACCOUNT):
+    service.call(
+        "settings.save",
+        {"profiles_per_hour": 0, "scout_methods": ["posts"], "scout_profile_type": "everyone"},
+    )
+    service.call("scout.source_add", {"values": [SOURCE]})
+    job = service.call("scout.start_internal", {"profile_id": profile_id})["id"]
+    service.call(
+        "scout.commit_internal", {"id": job, "snapshot": dict(url=SOURCE, ready=True, posts=[POST])}
+    )
+    service.call(
+        "scout.commit_internal",
+        {"id": job, "snapshot": dict(url=POST, ready=True, author=author, collaborators=[])},
+    )
+    return job
+
+
+def test_profile_resolver_uses_the_api_without_opening_the_profile(scout):
+    service, sessions = scout
+    job = start_api_run(service)
+    state = service.call("capture.state", {"id": job})
+    assert state["kind"] == "profile" and state["access"] == "in_place"
+    assert state["args"]["path"] == "/api/v1/users/web_profile_info/?username=artist123"
+    service.call(
+        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, "profile-normal")}
+    )
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "completed" and state["stats"]["resolver"]["api"] == 1
+    with sessions() as session:
+        lead = session.scalar(select(Lead).where(Lead.username == "artist123"))
+        details = session.get(LeadScoutProfile, lead.id)
+        assert (lead.followers, lead.external_url) == (2431, "https://linktr.ee/artist123")
+        assert details.emails == ["mgmt@artist123.com"] and details.instagram_id == "4242"
+        assert details.posts_count == 57
+    log = next(
+        e["payload"]["log"]
+        for e in service.call("scout.events", {"job_id": job})
+        if e["type"] == "scout:lead-created"
+    )
+    assert "[ProfileResolver][@artist123]" in log and "Browser fallback:\nnot required" in log
+
+
+def test_partial_api_answer_opens_the_page_and_merges(scout):
+    service, sessions = scout
+    job = start_api_run(service)
+    state = service.call("capture.state", {"id": job})
+    result = service.call(
+        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, "profile-partial")}
+    )
+    assert result == {"saved": False, "pending": True}
+    state = service.call("capture.state", {"id": job})
+    assert state["kind"] == "profile" and state["access"] == "navigate" and state["args"] is None
+    page = profile_page("artist123", "Rapper. new single out now", followers=2600)
+    service.call("scout.commit_internal", {"id": job, "snapshot": page})
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "completed" and state["stats"]["resolver"]["merged"] == 1
+    events = service.call("scout.events", {"job_id": job})
+    assert [e["type"] for e in events].count("scout:profile-resolving") == 1
+    with sessions() as session:
+        lead = session.scalar(select(Lead).where(Lead.username == "artist123"))
+        assert lead.followers == 2600 and lead.bio == "Rapper. new single out now"
+
+
+def test_api_rate_limit_reads_the_page_and_turns_the_api_off(scout):
+    service, _ = scout
+    job = start_api_run(service)
+    state = service.call("capture.state", {"id": job})
+    result = service.call(
+        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, status=429)}
+    )
+    assert result == {"saved": False, "pending": True}
+    # The run keeps going: the same profile is opened as a page, the API stays off.
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "running" and state["access"] == "navigate"
+    assert state["stats"]["resolver"]["api_disabled"] is True
+    assert any("web API (429)" in notice for notice in state["notices"])
+    page = profile_page("artist123", "Rapper. new single out now", followers=2600)
+    service.call("scout.commit_internal", {"id": job, "snapshot": page})
+    assert service.call("capture.state", {"id": job})["status"] == "completed"
+    events = service.call("scout.events", {"job_id": job})
+    assert not [e for e in events if e["type"] == "scout:error"]
+
+
+def test_not_found_is_skipped_with_its_reason(scout):
+    service, sessions = scout
+    job = start_api_run(service, author="gone_user")
+    state = service.call("capture.state", {"id": job})
+    service.call("scout.commit_internal", {"id": job, "snapshot": api_answer(state, status=404)})
+    assert service.call("capture.state", {"id": job})["status"] == "completed"
+    with sessions() as session:
+        assert session.get(ScoutProcessedProfile, "gone_user").reason == "PROFILE_NOT_FOUND"
+
+
+def test_cached_profile_needs_no_page_and_guest_reads_the_page(scout):
+    service, sessions = scout
+    job = start_api_run(service)
+    state = service.call("capture.state", {"id": job})
+    service.call(
+        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, "profile-normal")}
+    )
+    with sessions.begin() as session:
+        session.delete(session.get(ScoutProcessedProfile, "artist123"))
+        session.get(ScoutSource, SOURCE).last_scanned_at = None
+    with sessions.begin() as session:
+        for row in session.scalars(select(ScoutProcessedPost)):
+            session.delete(row)
+    job = start_api_run(service)
+    state = service.call("capture.state", {"id": job})
+    assert state["access"] == "none" and state["wait_seconds"] == 0
+    service.call(
+        "scout.commit_internal", {"id": job, "snapshot": dict(url=state["url"], ready=True)}
+    )
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "completed" and state["stats"]["resolver"]["cache"] == 1
+    # A guest session has no API access: the profile page is read directly.
+    service.call("settings.save", {"scout_profile_cache_hours": 0, "scout_methods": ["posts"]})
+    with sessions.begin() as session:
+        for row in session.scalars(select(ScoutProcessedPost)):
+            session.delete(row)
+        session.get(ScoutSource, SOURCE).last_scanned_at = None
+    job = service.call("scout.start_internal", {"profile_id": GUEST_ID, "sources": [SOURCE]})["id"]
+    service.call(
+        "scout.commit_internal", {"id": job, "snapshot": dict(url=SOURCE, ready=True, posts=[POST])}
+    )
+    service.call(
+        "scout.commit_internal",
+        {"id": job, "snapshot": dict(url=POST, ready=True, author="new_face", collaborators=[])},
+    )
+    state = service.call("capture.state", {"id": job})
+    assert state["kind"] == "profile" and state["access"] == "navigate"

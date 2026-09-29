@@ -232,3 +232,53 @@ parse_instagram_post_url, CandidateGate, типизированные ошибк
 метрики по провайдерам, режим отладки, схема 6. Проверки: 111 pytest (включая 9
 тестов на HTML-фикстурах в Chromium), 30 Vitest, cargo test, clippy, tsc, ESLint,
 Ruff, scout smoke. На живом Instagram разметка stories и соавторов не проверялась.
+
+## Обновление 28.09.2026 — Instagram Profile Resolver
+Пакет `lead_scout/profiles`: кэш (SQLite, схема 7) → web API `web_profile_info` из
+открытой вкладки (profile_api.js, cookies добавляет браузер) → проверка полноты →
+страница профиля (capture.js, отдельные функции извлечения со стратегиями) → merge →
+единый слой алиасов → ContactExtractor (phonenumbers, E.164 при известной стране).
+Типизированные ошибки, повторы только сетевых сбоев, отмена между шагами, режимы
+доступа очереди navigate / in_place / none. Проверки: 180 pytest (включая тесты
+capture.js и profile_api.js в Chromium), 30 Vitest, cargo test, clippy, tsc, ESLint,
+Prettier, Ruff, scout smoke. На живом Instagram эндпоинт и разметка не проверялись.
+
+## Обновление 28.09.2026 — классификатор профилей
+Пакет `lead_scout/classification`: `build_profile_classification_text` (NFKC,
+нижний регистр, разделители), `RuleRegistry` с отдельными правилами, веса и пороги
+в `config.py`, `calculate_confidence`, `LocalMusicClassifier`,
+`ClassificationService` (режимы off / uncertain / always, сильный локальный результат
+без AI, кэш AI по sha256 профиля и `CLASSIFIER_VERSION`, отложенные AI-задачи с
+экспоненциальной задержкой, не больше `scout_ai_concurrency` запросов AI
+одновременно). OpenRouter-клиент проверяет ответ по схеме (pydantic), делает один
+repair-запрос, соблюдает таймаут. В журнале профиля — блок `[Classifier]`; в
+карточке лида — тип, уверенность, кем решено и причины. Схема 8. Проверки:
+210 pytest, 30 Vitest, tsc, ESLint, Prettier, Ruff, vite build, scout smoke.
+Реальный AI в тестах не вызывается.
+
+## Обновление 28.09.2026 — решение по профилю, CRM и история запусков
+`lead_scout/decision.py`: `LeadFilterDecision`, `LeadSkipReason`, фильтры по порядку
+с пояснениями; фильтр запускается, когда готовы его данные (кандидат, профиль,
+классификация). `lead_scout/leads.py`: идентичность лида (Instagram id → username),
+`scout_lead_sources`, данные лида Scout, метрики запуска и источника, журнал
+решений. Сохранение лида, история источников, обработанный профиль, метрики,
+событие и шаг очереди — одна транзакция; конфликт уникальности повторяется как
+обновление. События `scout:*` с run_id; старые имена в журнале отображаются как
+новые. Восстановление после сбоя: запуск помечается прерванным, курсор
+источников возвращается к первому незаконченному. UI: прогресс по п.24,
+«Недавнее», причины пропуска, статистика источников, тип и контакты в «Базе
+артистов», «Найден через» и «Игнорировать в Scout» в карточке. Схема 9. Проверки:
+237 pytest, 31 Vitest, tsc, ESLint, Prettier, Ruff, vite build, scout smoke.
+
+## Обновление 29.09.2026 — первичная рассылка по найденным лидам
+Пакет `outreach/`: шаблоны и `MessageTemplateRenderer`, `can_send_initial_outreach`,
+health аккаунтов и `SenderAllocator`, кампании (аудитория, preview, draft → start →
+pause / resume / cancel, расписание), очередь `outbound_message_jobs` и
+`OutreachWorker` (выдача с условным claim, идемпотентный ключ, восстановление
+после сбоя без повторной отправки), история `messages` и `conversations`, CRM
+(DNC, «Написали», последний контакт, блок «Рассылка» в карточке), ответы и
+`FollowUpScheduler` (план и отмена; отправка follow-up — следующий модуль).
+`send.js` и `run_outreach_driver` в Rust. Страница «Рассылки», «Создать кампанию»
+из «Базы артистов», раздел настроек. Схема 10. Проверки: 266 pytest, 39 Vitest,
+cargo test, tsc, ESLint, Prettier, Ruff, vite build. Реальный
+Instagram в тестах не используется (mock отправителя, mock fetch для send.js).

@@ -271,51 +271,14 @@ class BrowserCaptureService:
                 {"provider": "instagram_browser", "message": queue.last_error},
             ]
 
-    def capture(self, job_id: int, snapshot: dict, advance: bool = True, parsed=None) -> dict:
+    def capture(self, job_id: int, snapshot: dict, advance: bool = True) -> dict:
         state = self.state(job_id)
         if state["status"] != "running":
             return {"saved": False}
-        # Lead Scout passes the profile it already resolved (with the Instagram id).
-        candidate, evidence = parsed or parse_snapshot(snapshot, state["url"])
-        with self.sessions() as session:
-            queue = session.get(BrowserQueue, job_id)
-            job = session.get(SearchJob, job_id)
-            config = SearchConfiguration(
-                **{key: getattr(job, key) for key in SearchConfiguration.model_fields}
-            )
-            weights = ScoringWeights.model_validate(queue.weights)
-            existing = session.scalar(
-                select(Lead).where(
-                    Lead.platform == "instagram", Lead.username == candidate.username
-                )
-            )
-            if existing:
-                # Missing page fields must not erase previously observed values.
-                for key in evidence["unknown_fields"]:
-                    setattr(candidate, key, getattr(existing, key))
-                if not candidate.external_url:
-                    candidate.external_url = existing.external_url
-        result = CandidatePipeline(self.sessions, LeadScorer(weights))(
-            job_id,
-            DiscoveryRecord(candidate, "instagram_browser", "profile", candidate.profile_url),
-            config,
-        )
+        candidate, evidence = parse_snapshot(snapshot, state["url"])
         with self.sessions.begin() as session:
-            lead = session.scalar(
-                select(Lead).where(
-                    Lead.platform == "instagram", Lead.username == candidate.username
-                )
-            )
-            analysis = session.get(LeadAnalysis, lead.id)
-            analysis.extracted_signals = {**analysis.extracted_signals, "browser_capture": evidence}
-            analysis.analyzed_at = utcnow()
+            result = self.store(session, job_id, candidate, evidence)
             job, queue = session.get(SearchJob, job_id), session.get(BrowserQueue, job_id)
-            if result.analyzed:
-                job.candidates_found += 1
-                job.profiles_analyzed += 1
-                job.artists_detected += int(result.artist)
-                job.qualified_leads += int(result.qualified)
-            # Scout runs advance their own queue (pace, goal, publication batches).
             if advance:
                 queue.cursor += 1
                 queue.last_error = None
@@ -323,9 +286,50 @@ class BrowserCaptureService:
                     job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
                 else:
                     job.stage = "browser_loading"
-            return {
-                "saved": True,
-                "lead_id": lead.id,
-                "score": lead.lead_score,
-                "unknown_fields": evidence["unknown_fields"],
-            }
+            return result
+
+    def store(self, session, job_id: int, candidate, evidence: dict, existing=None) -> dict:
+        """Create or update the CRM lead of a captured profile in the caller's transaction.
+
+        `existing` is the lead already matched by identity (Lead Scout matches the
+        Instagram id first); otherwise the username is used.
+        """
+        queue = session.get(BrowserQueue, job_id)
+        job = session.get(SearchJob, job_id)
+        config = SearchConfiguration(
+            **{key: getattr(job, key) for key in SearchConfiguration.model_fields}
+        )
+        weights = ScoringWeights.model_validate(queue.weights)
+        existing = existing or session.scalar(
+            select(Lead).where(Lead.platform == "instagram", Lead.username == candidate.username)
+        )
+        if existing:
+            # Missing page fields must not erase previously observed values.
+            for key in evidence["unknown_fields"]:
+                if hasattr(existing, key):
+                    setattr(candidate, key, getattr(existing, key))
+            if not candidate.external_url:
+                candidate.external_url = existing.external_url
+        result = CandidatePipeline(self.sessions, LeadScorer(weights)).process(
+            session,
+            job_id,
+            DiscoveryRecord(candidate, "instagram_browser", "profile", candidate.profile_url),
+            config,
+        )
+        lead = session.scalar(
+            select(Lead).where(Lead.platform == "instagram", Lead.username == candidate.username)
+        )
+        analysis = session.get(LeadAnalysis, lead.id)
+        analysis.extracted_signals = {**analysis.extracted_signals, "browser_capture": evidence}
+        analysis.analyzed_at = utcnow()
+        if result.analyzed:
+            job.candidates_found += 1
+            job.profiles_analyzed += 1
+            job.artists_detected += int(result.artist)
+            job.qualified_leads += int(result.qualified)
+        return {
+            "saved": True,
+            "lead_id": lead.id,
+            "score": lead.lead_score,
+            "unknown_fields": evidence["unknown_fields"],
+        }

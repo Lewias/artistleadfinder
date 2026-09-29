@@ -1,0 +1,106 @@
+[
+  {
+    "name": "rapper with Spotify and release",
+    "profile": {
+      "username": "youngjaymusic",
+      "biography": "Rapper | new single OUT NOW",
+      "external_url": "https://open.spotify.com/artist/1abc"
+    },
+    "expected": "artist",
+    "min_confidence": 90,
+    "uncertain": false
+  },
+  {
+    "name": "producer with BeatStars",
+    "profile": {
+      "username": "prodbyalex",
+      "biography": "Music producer | beats available",
+      "external_url": "https://www.beatstars.com/prodbyalex"
+    },
+    "expected": "producer",
+    "min_confidence": 90,
+    "uncertain": false
+  },
+  {
+    "name": "music blog",
+    "profile": {
+      "username": "undergroundheat",
+      "biography": "Music blog | daily underground hip-hop news"
+    },
+    "expected": "media",
+    "min_confidence": 70,
+    "uncertain": false
+  },
+  {
+    "name": "wedding photographer",
+    "profile": {
+      "username": "shotsbyanna",
+      "biography": "Photographer | weddings | portraits"
+    },
+    "expected": "other",
+    "min_confidence": 70,
+    "uncertain": false
+  },
+  {
+    "name": "music video director",
+    "profile": {
+      "username": "visualsbyk",
+      "biography": "Music video director working with independent artists"
+    },
+    "expected": "media",
+    "min_confidence": 55,
+    "uncertain": false
+  },
+  {
+    "name": "digital creator hinting at music",
+    "profile": {
+      "username": "mia.creates",
+      "biography": "Digital creator | new music soon"
+    },
+    "expected": "other",
+    "max_confidence": 70,
+    "uncertain": true
+  },
+  {
+    "name": "fancy Unicode bio with a smart link",
+    "profile": {
+      "username": "lil.nova",
+      "biography": "𝐑𝐚𝐩𝐩𝐞𝐫 • my new single out now",
+      "bio_links": ["https://ffm.to/novasingle"]
+    },
+    "expected": "artist",
+    "min_confidence": 95,
+    "uncertain": false
+  },
+  {
+    "name": "Instagram category Musician/band",
+    "profile": {
+      "username": "the_cold_hours",
+      "biography": "Four friends from Leeds",
+      "category_name": "Musician/band"
+    },
+    "expected": "artist",
+    "min_confidence": 70,
+    "uncertain": false
+  },
+  {
+    "name": "mixing and mastering service",
+    "profile": {
+      "username": "cleanmix.studio",
+      "biography": "Mixing & mastering for independent artists · DM for rates"
+    },
+    "expected": "media",
+    "min_confidence": 55,
+    "uncertain": false
+  },
+  {
+    "name": "makeup artist",
+    "profile": {
+      "username": "glam.by.lea",
+      "biography": "Makeup artist ✨ bookings via DM"
+    },
+    "expected": "other",
+    "min_confidence": 70,
+    "uncertain": false
+  }
+]

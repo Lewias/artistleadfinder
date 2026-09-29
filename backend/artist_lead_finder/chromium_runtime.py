@@ -216,21 +216,27 @@ class ChromiumRuntime:
                 raise ValueError("Browser window is closed") from None
         return {"ok": True, "rate_limited": window.rate_limited}
 
-    def evaluate(self, identifier: str, script: str, args=None) -> dict:
+    def evaluate(self, identifier: str, script: str, args=None, fresh: bool = False) -> dict:
+        """Run a page script. `fresh` starts a new request window without navigating (the
+        in-tab profile API step), so a 429 seen before it is not reported twice."""
         window = self._window(identifier)
         if not window:
             raise ValueError("Browser window is closed")
         if len(script) > 50000:
             raise ValueError("Script too large")
+        if fresh:
+            window.rate_limited = False
         # Scripts written as functions receive their arguments (follow-list paging).
         result = (
             window.page.evaluate(script, args) if args is not None else window.page.evaluate(script)
         )
         if not isinstance(result, dict):
             raise ValueError("Invalid browser result")
-        if window.rate_limited:
-            # Chromium shows its own error page for HTTP 429, which page scripts cannot
-            # recognise; report it so the queue pauses and waits out the break.
+        # Chromium shows its own error page for HTTP 429, which page scripts cannot
+        # recognise; report it so the queue pauses and waits out the break. An in-tab API
+        # step (`fresh`) reports its own HTTP status instead: that 429 concerns the web
+        # API, not the page, and the profile resolver handles it.
+        if window.rate_limited and not fresh:
             return {**result, "ready": False, "blocked": True, "rate_limited": True}
         return result
 

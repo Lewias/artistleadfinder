@@ -6,7 +6,7 @@ export const pages = [
     eyebrow: 'INSTAGRAM',
     title: 'Lead Scout',
     description:
-      'SMM-источники → связанные профили → проверка артиста → фильтры → лид. Сообщения не отправляются.',
+      'SMM-источники → связанные профили → проверка артиста → фильтры → лид. Scout никому не пишет.',
     placement: 'main',
   },
   {
@@ -23,6 +23,15 @@ export const pages = [
     eyebrow: 'КОНТАКТЫ',
     title: 'База артистов',
     description: 'Все собранные профили, сигналы и статусы в одном месте.',
+    placement: 'main',
+  },
+  {
+    id: 'outreach',
+    label: 'Рассылки',
+    eyebrow: 'INSTAGRAM',
+    title: 'Рассылки',
+    description:
+      'Первое сообщение найденным лидам: кампания → проверка → очередь → отправка из окна аккаунта → история и CRM.',
     placement: 'main',
   },
   {

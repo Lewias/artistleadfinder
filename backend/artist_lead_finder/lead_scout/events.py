@@ -4,29 +4,56 @@ from datetime import timedelta
 
 from sqlalchemy import delete, select
 
-from ..models import ScoutEvent, utcnow
+from ..models import ScoutDecision, ScoutEvent, utcnow
 
-EVENT_TYPES = {
-    "scout:start",
-    "source:start",
-    "candidate:found",
-    "profile:analyzing",
-    "profile:skipped",
-    "lead:found",
-    "source:done",
-    "scout:pause",
-    "scout:stop",
-    "scout:error",
-    "scout:done",
-    "discovery:page",
+# Event type -> payload fields it always carries (run_id is added to every event).
+EVENT_FIELDS: dict[str, tuple[str, ...]] = {
+    "scout:run-started": ("sources", "methods"),
+    "scout:source-started": ("source",),
+    "scout:source-completed": ("source", "leads_found"),
+    "scout:candidate-found": ("username", "source", "method"),
+    "scout:profile-resolving": ("username", "source"),
+    "scout:profile-resolved": ("username", "source", "via", "followers"),
+    "scout:classification-started": ("username", "source"),
+    "scout:classification-completed": ("username", "source", "category", "confidence"),
+    "scout:profile-skipped": ("username", "source", "reason"),
+    "scout:lead-created": ("lead_id", "username", "source", "category", "confidence"),
+    "scout:lead-updated": ("lead_id", "username", "source"),
+    # kind: profile | source | fatal; RATE_LIMITED goes to the scheduler, not a skip.
+    "scout:error": ("reason", "kind"),
+    "scout:paused": (),
+    "scout:resumed": (),
+    "scout:cancelled": ("discovered", "analyzed", "leads", "skipped"),
+    "scout:completed": ("discovered", "analyzed", "leads", "skipped", "errors"),
+    # Discovery log of one source page (posts grid, story, followers list).
+    "scout:discovery-page": ("source", "method", "url"),
+}
+EVENT_TYPES = set(EVENT_FIELDS)
+# Names stored before schema 9; listing() returns them under the current names.
+LEGACY_TYPES = {
+    "scout:start": "scout:run-started",
+    "source:start": "scout:source-started",
+    "source:done": "scout:source-completed",
+    "candidate:found": "scout:candidate-found",
+    "profile:analyzing": "scout:profile-resolving",
+    "profile:skipped": "scout:profile-skipped",
+    "lead:found": "scout:lead-created",
+    "scout:pause": "scout:paused",
+    "scout:stop": "scout:cancelled",
+    "scout:done": "scout:completed",
+    "discovery:page": "scout:discovery-page",
 }
 RETENTION_DAYS = 30
 
 
 def emit(session, job_id: int, event_type: str, **payload) -> None:
-    if event_type not in EVENT_TYPES:
+    """Store a typed event in the caller's transaction, so it commits with the change."""
+    if event_type not in EVENT_FIELDS:
         raise ValueError(f"Unknown scout event: {event_type}")
-    session.add(ScoutEvent(job_id=job_id, type=event_type, payload=payload))
+    missing = [key for key in EVENT_FIELDS[event_type] if key not in payload]
+    if missing:
+        raise ValueError(f"{event_type}: missing {', '.join(missing)}")
+    session.add(ScoutEvent(job_id=job_id, type=event_type, payload={"run_id": job_id, **payload}))
 
 
 def listing(session, job_id: int | None, after: int = 0, limit: int = 200) -> list[dict]:
@@ -38,7 +65,7 @@ def listing(session, job_id: int | None, after: int = 0, limit: int = 200) -> li
         {
             "id": row.id,
             "job_id": row.job_id,
-            "type": row.type,
+            "type": LEGACY_TYPES.get(row.type, row.type),
             "payload": row.payload,
             "created_at": row.created_at.isoformat(),
         }
@@ -47,46 +74,53 @@ def listing(session, job_id: int | None, after: int = 0, limit: int = 200) -> li
 
 
 def prune(session) -> None:
-    session.execute(
-        delete(ScoutEvent).where(ScoutEvent.created_at < utcnow() - timedelta(days=RETENTION_DAYS))
-    )
+    """Events and the decision log are debugging aids: kept for RETENTION_DAYS."""
+    since = utcnow() - timedelta(days=RETENTION_DAYS)
+    session.execute(delete(ScoutEvent).where(ScoutEvent.created_at < since))
+    session.execute(delete(ScoutDecision).where(ScoutDecision.created_at < since))
 
 
 def profile_log(
     username: str,
     source: str,
     method: str,
-    followers: int | None,
-    classification: dict | None,
-    ai: dict | None,
     result: str,
+    *,
+    profile=None,
+    classification=None,
+    filters: list[str] | None = None,
+    reason: str | None = None,
+    details: str | None = None,
+    resolve_log: list[str] | None = None,
+    classification_log: list[str] | None = None,
 ) -> str:
-    """Readable block for the Scout log viewer."""
-    lines = [
-        f"[@{username}]",
-        "",
-        f"source: @{source}",
-        f"method: {method}",
-        f"followers: {followers if followers is not None else 'unknown'}",
-    ]
-    if classification:
+    """Readable block for the Scout log viewer: resolver and classifier sections, then
+
+    [Scout][@source][@username] with the resolved data, classification, filter checks
+    and the result (LEAD CREATED / LEAD UPDATED / SKIPPED with reason and details).
+    """
+    separator = ["", "—" * 12, ""]
+    lines = [*resolve_log, *separator] if resolve_log else []
+    lines += [*classification_log, *separator] if classification_log else []
+    lines += [f"[Scout][@{source}][@{username}]", "", f"method: {method}", ""]
+    if profile is not None:
+        followers = profile.followers_count
         lines += [
+            "Resolved:",
+            f"followers {followers if followers is not None else 'unknown'}",
+            f"email {'yes' if profile.emails else 'no'}",
+            f"phone {'yes' if profile.phones else 'no'}",
             "",
-            "local classification:",
-            classification["category"],
-            f"confidence: {classification['confidence']}",
-            f"score: {classification['score']}"
-            + (" (uncertain)" if classification["uncertain"] else ""),
         ]
-        if classification["reasons"]:
-            lines += ["", "signals:", *[f"+ {reason}" for reason in classification["reasons"][:12]]]
-    if ai:
+    if classification is not None:
         lines += [
+            "Classification:",
+            f"{classification.category} {classification.confidence}% ({classification.decided_by})",
             "",
-            f"AI: {ai.get('category', '—')} · confidence {ai.get('confidence', '—')}"
-            f" · {ai.get('model', '')}",
         ]
-        if ai.get("error"):
-            lines.append(f"AI skipped: {ai['error']}")
-    lines += ["", "RESULT:", result]
+    if filters:
+        lines += ["Filters:", *filters, ""]
+    lines += ["RESULT:", result]
+    if reason:
+        lines += ["", "Reason:", reason, *([details] if details else [])]
     return "\n".join(lines)

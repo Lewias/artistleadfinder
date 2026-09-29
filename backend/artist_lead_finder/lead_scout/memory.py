@@ -1,4 +1,4 @@
-"""Scout memory in the application database: processed items, cooldowns, cursor, AI cache."""
+"""Scout memory in the application database: processed items, cooldowns, cursor."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -6,7 +6,6 @@ from sqlalchemy import select
 
 from ..models import (
     BrowserQueue,
-    ScoutAICache,
     ScoutProcessedPost,
     ScoutProcessedProfile,
     ScoutProcessedStory,
@@ -29,10 +28,22 @@ def processed_profile(session, username: str) -> ScoutProcessedProfile | None:
 
 
 def mark_profile(
-    session, username: str, source: str, method: str, result: str, reason=None
+    session,
+    username: str,
+    source: str,
+    method: str,
+    result: str,
+    reason=None,
+    *,
+    instagram_user_id: str | None = None,
+    category: str | None = None,
+    confidence: int | None = None,
 ) -> None:
+    """Processed profile record, written for leads (result "lead") and skips alike."""
     row = session.get(ScoutProcessedProfile, username) or ScoutProcessedProfile(username=username)
     row.source_username, row.method, row.result, row.reason = source, method, result, reason
+    row.instagram_user_id = instagram_user_id or row.instagram_user_id
+    row.category, row.confidence = category, confidence
     row.processed_at = utcnow()
     session.add(row)
 
@@ -146,6 +157,29 @@ def state_set(session, key: str, value) -> None:
     session.add(row)
 
 
+def enabled_sources(session) -> list[ScoutSource]:
+    return list(
+        session.scalars(
+            select(ScoutSource)
+            .where(ScoutSource.enabled)
+            .order_by(ScoutSource.added_at, ScoutSource.url)
+        )
+    )
+
+
+def rewind_cursor(session, picked: list[str], done: list[str]) -> None:
+    """A run that stopped early continues from its first unfinished source next time.
+
+    pick_sources moves the cursor past the whole batch when a run starts; after a stop,
+    cancel or crash the cursor goes back to the first picked source not scanned to the
+    end, so A B C | D E stopped after C starts the next run at D.
+    """
+    unfinished = [url for url in picked if url not in done]
+    urls = [source.url for source in enabled_sources(session)]
+    if unfinished and unfinished[0] in urls:
+        state_set(session, "source_cursor", urls.index(unfinished[0]))
+
+
 def pick_sources(
     session, batch: int, cooldown_hours: int, skip_recent: bool
 ) -> tuple[list[str], list[str]]:
@@ -154,13 +188,7 @@ def pick_sources(
     Returns (picked urls, skipped-in-cooldown urls). The cursor advances past the
     last picked source, so consecutive runs cycle A B, C D, E F, A B...
     """
-    sources = list(
-        session.scalars(
-            select(ScoutSource)
-            .where(ScoutSource.enabled)
-            .order_by(ScoutSource.added_at, ScoutSource.url)
-        )
-    )
+    sources = enabled_sources(session)
     if not sources:
         return [], []
     cursor = int(state_get(session, "source_cursor", 0) or 0) % len(sources)
@@ -178,14 +206,3 @@ def pick_sources(
     if last_index is not None:
         state_set(session, "source_cursor", (last_index + 1) % len(sources))
     return picked, cooling
-
-
-def ai_cached(session, username: str, model: str) -> ScoutAICache | None:
-    row = session.get(ScoutAICache, username)
-    return row if row and row.model == model else None
-
-
-def ai_store(session, username: str, category: str, confidence: int, model: str) -> None:
-    row = session.get(ScoutAICache, username) or ScoutAICache(username=username)
-    row.category, row.confidence, row.model, row.created_at = category, confidence, model, utcnow()
-    session.add(row)

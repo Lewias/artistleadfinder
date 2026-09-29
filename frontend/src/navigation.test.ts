@@ -6,11 +6,12 @@ describe('desktop navigation contract', () => {
       'discovery',
       'profiles',
       'leads',
+      'outreach',
       'history',
       'dashboard',
       'settings',
     ]);
     expect(pages.filter(page => page.placement === 'footer').map(page => page.id)).toEqual(['settings']);
-    expect(new Set(pages.map(page => page.id)).size).toBe(6);
+    expect(new Set(pages.map(page => page.id)).size).toBe(7);
   });
 });

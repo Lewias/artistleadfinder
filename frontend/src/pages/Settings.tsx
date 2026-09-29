@@ -208,6 +208,44 @@ function SettingsForm({
           </p>
         </section>
         <section className="panel">
+          <h2>Рассылки</h2>
+          <fieldset disabled={busy}>
+            {(
+              [
+                ['outreach_send_interval_seconds', 'Пауза между сообщениями одного аккаунта, с', 30, 3600],
+                ['outreach_daily_limit_per_sender', 'Сообщений с аккаунта за 24 часа', 1, 200],
+                ['outreach_max_attempts', 'Попыток при сетевой ошибке', 1, 5],
+                ['outreach_rate_limit_pause_minutes', 'Перерыв после ограничения Instagram, мин', 60, 10080],
+              ] as const
+            ).map(([key, label, min, max]) => (
+              <label key={key}>
+                {label}
+                <input
+                  required
+                  type="number"
+                  min={min}
+                  max={max}
+                  value={settings[key]}
+                  onChange={event => update(key, Number(event.target.value))}
+                />
+              </label>
+            ))}
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                checked={settings.outreach_skip_previously_contacted}
+                onChange={event => update('outreach_skip_previously_contacted', event.target.checked)}
+              />
+              Пропускать лидов, которым уже писали
+            </label>
+          </fieldset>
+          <p className="helper">
+            Очередь отправляет по одному сообщению и соблюдает эти лимиты. Повторяются только сетевые ошибки
+            до отправки. Вход, checkpoint и ограничения Instagram останавливают аккаунт — они не обходятся и
+            не переносятся на другие аккаунты.
+          </p>
+        </section>
+        <section className="panel">
           <h2>Источники поиска</h2>
           <div className="genre-options">
             {[

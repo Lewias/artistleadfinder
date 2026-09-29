@@ -32,16 +32,26 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 6 for version in versions):
+        if any(version > 10 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
     # Schemas 4 and 5 add columns to existing tables, which create_all does not do.
     added = {
+        "leads": {
+            "do_not_contact": "BOOLEAN NOT NULL DEFAULT 0",
+            "last_contacted_at": "DATETIME",
+        },
         "scout_runs": {
             "backlog": "JSON NOT NULL DEFAULT '[]'",
             "found": "INTEGER NOT NULL DEFAULT 0",
             "stats": "JSON NOT NULL DEFAULT '{}'",
+            "started_at": "DATETIME",
+        },
+        "scout_processed_profiles": {
+            "instagram_user_id": "VARCHAR(40)",
+            "category": "VARCHAR(20)",
+            "confidence": "INTEGER",
         },
         "scout_processed_posts": {
             "status": "VARCHAR(20) NOT NULL DEFAULT 'processed'",
@@ -53,11 +63,25 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "attempts": "INTEGER NOT NULL DEFAULT 1",
             "last_error": "VARCHAR(200)",
         },
+        "lead_scout_profiles": {
+            "profile_decided_by": "VARCHAR(10) NOT NULL DEFAULT 'local'",
+            "category_name": "VARCHAR(120)",
+            "is_business": "BOOLEAN",
+            "bio_links": "JSON NOT NULL DEFAULT '[]'",
+            "local_category": "VARCHAR(20)",
+            "local_confidence": "INTEGER",
+            "ai_category": "VARCHAR(20)",
+            "origin_id": "VARCHAR(120)",
+        },
         "scout_sources": {
             "last_scanned_at": "DATETIME",
             "status": "VARCHAR(40) NOT NULL DEFAULT 'new'",
             "leads_found": "INTEGER NOT NULL DEFAULT 0",
             "added_at": "DATETIME",
+            "candidates_found": "INTEGER NOT NULL DEFAULT 0",
+            "profiles_resolved": "INTEGER NOT NULL DEFAULT 0",
+            "profiles_skipped": "INTEGER NOT NULL DEFAULT 0",
+            "errors_count": "INTEGER NOT NULL DEFAULT 0",
         },
     }
     inspector = inspect(engine)
@@ -69,6 +93,20 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
                     connection.execute(
                         text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
                     )
+        # Schema 8 replaces the username-keyed AI cache (no classifier version) with
+        # scout_ai_classifications; the old rows are only a cache.
+        connection.execute(text("DROP TABLE IF EXISTS scout_ai_cache"))
+        # Schema 9: run history order for runs created before the column existed.
+        connection.execute(
+            text(
+                "UPDATE scout_runs SET started_at = (SELECT COALESCE(started_at, created_at)"
+                " FROM search_jobs WHERE search_jobs.id = scout_runs.job_id)"
+                " WHERE started_at IS NULL"
+            )
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_scout_runs_started_at ON scout_runs (started_at)")
+        )
     with factory.begin() as session:
         if session.get(SchemaMigration, 1) is None:
             session.add(SchemaMigration(version=1))
@@ -82,4 +120,20 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             session.add(SchemaMigration(version=5))
         if session.get(SchemaMigration, 6) is None:
             session.add(SchemaMigration(version=6))
+        # Schema 7: scout_profile_cache (new table, created by create_all).
+        if session.get(SchemaMigration, 7) is None:
+            session.add(SchemaMigration(version=7))
+        # Schema 8: scout_ai_classifications, scout_pending_ai_jobs,
+        # lead_scout_profiles.profile_decided_by; scout_ai_cache removed.
+        if session.get(SchemaMigration, 8) is None:
+            session.add(SchemaMigration(version=8))
+        # Schema 9: scout_lead_sources, scout_decisions, scout_runs.started_at, lead and
+        # processed-profile details, per-source totals.
+        if session.get(SchemaMigration, 9) is None:
+            session.add(SchemaMigration(version=9))
+        # Schema 10: outreach (templates, campaigns, recipients, outbound jobs,
+        # conversations, messages, follow-up sequences and jobs, sender health, events)
+        # and leads.do_not_contact / last_contacted_at.
+        if session.get(SchemaMigration, 10) is None:
+            session.add(SchemaMigration(version=10))
     return engine, factory

@@ -4,16 +4,45 @@ import { X, ExternalLink } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import type { LeadDetail as Detail } from '../services/types';
-import { number, activity, statusLabels } from '../lib/format';
+import { number, activity, relativeTime, statusLabels } from '../lib/format';
 import { DataState } from './DataState';
 import { Button } from './ui/button';
+import { categoryLabels, methodLabel } from './scoutStatus';
+import { conversationLabels, dateTime, reasonLabel, recipientStatusLabels } from './outreach/outreachText';
+
+const decidedByLabels = { local: 'локально', ai: 'AI', 'local+ai': 'локально + AI' };
 
 export function LeadDetail({ id, close, refresh }: { id: number; close: () => void; refresh: () => void }) {
   const resource = useResource<Detail>('leads.detail', { id });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [ignored, setIgnored] = useState(false);
   const lead = resource.data;
+  const ignore = async () => {
+    if (!lead) return;
+    setError('');
+    try {
+      await api.request('scout.ignore', { username: lead.username });
+      setIgnored(true);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
   const capture = lead?.analysis?.extracted_signals?.browser_capture;
+  const outreachAction = async (method: string, params: object) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.request(method, params);
+      resource.refresh();
+      refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const outreach = lead?.outreach;
   const action = async (status: string) => {
     setBusy(true);
     setError('');
@@ -94,6 +123,31 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                   </details>
                 </>
               )}
+              {lead.classification && (
+                <>
+                  <h3>Тип профиля</h3>
+                  <p>
+                    <strong>{categoryLabels[lead.classification.category]}</strong> ·{' '}
+                    {lead.classification.confidence}% · {decidedByLabels[lead.classification.decided_by]}
+                    {lead.classification.ai_model && <small> ({lead.classification.ai_model})</small>}
+                  </p>
+                  {lead.classification.ai_category && lead.classification.local_category && (
+                    <p className="helper">
+                      Локально: {categoryLabels[lead.classification.local_category]}{' '}
+                      {lead.classification.local_confidence}%
+                      {lead.classification.ai_category &&
+                        ` · AI: ${categoryLabels[lead.classification.ai_category]} ${lead.classification.ai_confidence}%`}
+                    </p>
+                  )}
+                  {lead.classification.reasons.length > 0 && (
+                    <ul className="helper">
+                      {lead.classification.reasons.map(reason => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
               {lead.scout && (
                 <>
                   <h3>Что предложить</h3>
@@ -147,6 +201,26 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                   </button>
                 </>
               )}
+              {!!lead.found_via?.length && (
+                <>
+                  <h3>Найден через</h3>
+                  {lead.found_via.map(item => (
+                    <div
+                      className="source-line"
+                      key={`${item.source_username}-${item.discovery_method}`}
+                      title={item.origin_url || undefined}
+                    >
+                      <span>
+                        @{item.source_username} — {methodLabel(item.discovery_method)}
+                      </span>
+                      <strong>
+                        {item.times_seen > 1 ? `${item.times_seen} раза · ` : ''}
+                        {relativeTime(item.last_seen_at, '')}
+                      </strong>
+                    </div>
+                  ))}
+                </>
+              )}
               <h3>Обнаружен из</h3>
               {lead.sources.map(source => (
                 <div className="source-line" key={source.id}>
@@ -172,7 +246,112 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                   ))}
                 </select>
               </label>
-              <p className="helper">«Контакт отмечен» — ручная отметка. Приложение никому не пишет.</p>
+              {outreach && (
+                <>
+                  <h3>Рассылка</h3>
+                  <div className="outreach-card">
+                    <div className="source-line">
+                      <span>Статус</span>
+                      <strong>{outreach.contacted ? 'Написали' : 'Ещё не писали'}</strong>
+                    </div>
+                    {outreach.last_contacted_at && (
+                      <div className="source-line">
+                        <span>Последнее сообщение</span>
+                        <strong>{dateTime(outreach.last_contacted_at)}</strong>
+                      </div>
+                    )}
+                    {outreach.sender_name && (
+                      <div className="source-line">
+                        <span>Отправитель</span>
+                        <strong>{outreach.sender_name}</strong>
+                      </div>
+                    )}
+                    {outreach.campaign && (
+                      <div className="source-line">
+                        <span>Кампания</span>
+                        <strong>
+                          {outreach.campaign.name} · {recipientStatusLabels[outreach.campaign.status]}
+                          {outreach.campaign.reason ? ` · ${reasonLabel(outreach.campaign.reason)}` : ''}
+                        </strong>
+                      </div>
+                    )}
+                    {outreach.conversation_status && (
+                      <div className="source-line">
+                        <span>Диалог</span>
+                        <strong>{conversationLabels[outreach.conversation_status]}</strong>
+                      </div>
+                    )}
+                    {outreach.pending_followups > 0 && (
+                      <p className="helper">Запланировано follow-up: {outreach.pending_followups}</p>
+                    )}
+                    {outreach.campaign?.needs_review && (
+                      <p className="error-text">
+                        Отправка не подтверждена — проверьте диалог в Instagram и отметьте результат на
+                        странице кампании.
+                      </p>
+                    )}
+                    {outreach.do_not_contact && (
+                      <p className="error-text">Не связываться: этот лид не получит ни одного сообщения.</p>
+                    )}
+                    {outreach.messages.length > 0 && (
+                      <details>
+                        <summary>История сообщений ({outreach.messages.length})</summary>
+                        <ul className="message-history">
+                          {outreach.messages.map((message, index) => (
+                            <li key={index} className={`message-${message.direction}`}>
+                              <small>
+                                {message.direction === 'outbound' ? 'Мы' : 'Лид'} ·{' '}
+                                {dateTime(message.sent_at)}
+                              </small>
+                              <p>{message.body || '—'}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    <div className="actions">
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          void outreachAction('leads.do_not_contact', {
+                            id: lead.id,
+                            value: !outreach.do_not_contact,
+                          })
+                        }
+                      >
+                        {outreach.do_not_contact ? 'Снять «Не связываться»' : 'Не связываться'}
+                      </Button>
+                      {outreach.conversation_status === 'waiting_reply' && (
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          title="Лид ответил в Instagram: follow-up отменятся"
+                          onClick={() => void outreachAction('outreach.mark_replied', { lead_id: lead.id })}
+                        >
+                          Получен ответ
+                        </Button>
+                      )}
+                      {outreach.conversation_status && outreach.conversation_status !== 'stopped' && (
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          title="Больше не писать этому лиду"
+                          onClick={() =>
+                            void outreachAction('outreach.stop_conversation', { lead_id: lead.id })
+                          }
+                        >
+                          Остановить общение
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+              <p className="helper">
+                «Написали» ставится автоматически после отправки из «Рассылок» или вручную. Сообщения уходят
+                только из запущенной кампании.
+              </p>
               <div className="actions">
                 <Button
                   variant="outline"
@@ -186,6 +365,14 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                 </Button>
                 <Button variant="outline" disabled={busy} onClick={() => void action('rejected')}>
                   Отклонить
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={ignored}
+                  title="Scout больше не будет анализировать этот профиль"
+                  onClick={() => void ignore()}
+                >
+                  {ignored ? 'В игноре Scout' : 'Игнорировать в Scout'}
                 </Button>
               </div>
             </>

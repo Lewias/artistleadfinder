@@ -8,6 +8,8 @@ export interface LeadSource {
 export interface Lead {
   unknown_fields?: string[];
   id: number;
+  do_not_contact?: boolean;
+  last_contacted_at?: string | null;
   username: string;
   platform: string;
   display_name: string;
@@ -27,12 +29,45 @@ export interface Lead {
   last_activity_at: string | null;
   created_at: string;
   sources: LeadSource[];
+  /** Lead Scout columns; null for leads from other sources. */
+  scout_profile?: LeadScoutSummary | null;
+}
+export type ProfileCategory = 'artist' | 'producer' | 'media' | 'other';
+export interface LeadScoutSummary {
+  profile_type: ProfileCategory;
+  confidence: number;
+  emails: string[];
+  phones: string[];
+  source_username: string;
+  discovery_method: string;
+  last_seen_at: string | null;
+}
+export interface LeadFoundVia {
+  source_username: string;
+  discovery_method: string;
+  origin_url: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  times_seen: number;
 }
 export interface LeadDetail extends Lead {
+  outreach?: LeadOutreach;
   scout?: {
     explanation: string;
     services: Record<string, { score: number; reasons: { text: string }[] }>;
   } | null;
+  classification?: {
+    category: ProfileCategory;
+    confidence: number;
+    decided_by: 'local' | 'ai' | 'local+ai';
+    reasons: string[];
+    ai_model: string | null;
+    local_category?: ProfileCategory | null;
+    local_confidence?: number | null;
+    ai_category?: ProfileCategory | null;
+    ai_confidence?: number | null;
+  } | null;
+  found_via?: LeadFoundVia[];
   analysis: {
     signals: string[];
     confidence: number;
@@ -116,6 +151,9 @@ export interface SettingsData {
   scout_min_followers: number;
   scout_max_followers: number;
   scout_only_contacts: boolean;
+  scout_allow_unknown_followers: boolean;
+  scout_min_confidence: number;
+  scout_lead_status: 'new' | 'reviewed' | 'qualified';
   scout_skip_processed: boolean;
   scout_skip_recent_sources: boolean;
   scout_source_cooldown_hours: number;
@@ -125,6 +163,9 @@ export interface SettingsData {
   scout_follow_max: number;
   scout_ai_mode: 'off' | 'uncertain' | 'always';
   scout_ai_model: string;
+  scout_ai_timeout_seconds: number;
+  scout_ai_concurrency: number;
+  scout_ai_min_confidence: number;
   scout_max_posts_per_source: number;
   scout_max_scroll_rounds: number;
   scout_scroll_delay_ms: number;
@@ -136,7 +177,15 @@ export interface SettingsData {
   scout_max_retries: number;
   scout_max_item_failures: number;
   scout_debug: boolean;
+  outreach_skip_previously_contacted: boolean;
+  outreach_send_interval_seconds: number;
+  outreach_daily_limit_per_sender: number;
+  outreach_max_attempts: number;
+  outreach_rate_limit_pause_minutes: number;
   scout_ignore_usernames: string[];
+  scout_profile_api: boolean;
+  scout_profile_cache_hours: number;
+  scout_recent_captions: number;
 }
 export interface DiscoveryMetrics {
   itemsSeen: number;
@@ -149,10 +198,15 @@ export interface DiscoveryMetrics {
 export type ScoutMethod = 'posts' | 'comments' | 'tagged' | 'stories' | 'followers' | 'following';
 export interface ScoutStats {
   discovered: number;
+  resolved?: number;
+  classified?: number;
   analyzed: number;
   leads: number;
+  leads_updated?: number;
   skipped: number;
   errors: number;
+  /** Skips per LeadSkipReason in this run. */
+  skips?: Record<string, number>;
   current_source: string | null;
   current_profile: string | null;
   sources: string[];
@@ -166,18 +220,45 @@ export interface ScoutSourceRow {
   last_scanned_at: string | null;
   status: string;
   leads_found: number;
+  candidates_found?: number;
+  profiles_resolved?: number;
+  profiles_skipped?: number;
+  errors_count?: number;
 }
+export type ScoutEventType =
+  | 'scout:run-started'
+  | 'scout:source-started'
+  | 'scout:source-completed'
+  | 'scout:candidate-found'
+  | 'scout:profile-resolving'
+  | 'scout:profile-resolved'
+  | 'scout:classification-started'
+  | 'scout:classification-completed'
+  | 'scout:profile-skipped'
+  | 'scout:lead-created'
+  | 'scout:lead-updated'
+  | 'scout:error'
+  | 'scout:paused'
+  | 'scout:resumed'
+  | 'scout:cancelled'
+  | 'scout:completed'
+  | 'scout:discovery-page';
 export interface ScoutEvent {
   id: number;
   job_id: number;
-  type: string;
+  type: ScoutEventType;
   payload: {
+    run_id?: number;
+    lead_id?: number;
     username?: string;
     source?: string;
     method?: string;
     reason?: string;
-    category?: string;
-    confidence?: number;
+    details?: string | null;
+    kind?: 'profile' | 'source' | 'fatal' | 'rate_limit';
+    category?: string | null;
+    confidence?: number | null;
+    change?: string;
     log?: string;
     [key: string]: unknown;
   };
@@ -227,4 +308,180 @@ export interface ScoutAccountRow {
   target: number;
   found: number;
   run: CaptureQueue | null;
+}
+
+// ---------- Outreach ----------
+
+export type CampaignStatus =
+  'draft' | 'scheduled' | 'running' | 'paused' | 'completed' | 'cancelled' | 'failed';
+export type RecipientStatus = 'pending' | 'queued' | 'sending' | 'sent' | 'skipped' | 'failed' | 'cancelled';
+export type SenderStatus = 'active' | 'paused' | 'auth_required' | 'checkpoint' | 'rate_limited' | 'disabled';
+
+export interface OutreachTemplate {
+  id: number;
+  name: string;
+  body: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface FollowUpSequence {
+  id: number;
+  name: string;
+  steps: { delay_days: number; template_id: number }[];
+  enabled: boolean;
+}
+export interface RenderedTemplate {
+  text: string;
+  valid: boolean;
+  errors: string[];
+  fallbacks: string[];
+  length: number;
+}
+export interface AudienceLead {
+  id: number;
+  username: string;
+  display_name: string;
+  followers: number;
+  status: string;
+  do_not_contact: boolean;
+  contacted: boolean;
+  created_at: string;
+  profile_type: string | null;
+  confidence: number | null;
+  email: string | null;
+  phone: string | null;
+  source_username: string | null;
+  discovery_method: string | null;
+}
+export interface AudienceQuery {
+  search: string;
+  profile_types: string[];
+  min_followers: number;
+  max_followers: number | null;
+  has_email: boolean;
+  has_phone: boolean;
+  statuses: string[];
+  source_username: string;
+  discovery_method: string;
+  min_confidence: number;
+  created_from: string | null;
+  created_to: string | null;
+  include_dnc: boolean;
+  include_contacted: boolean;
+  page: number;
+  page_size: number;
+}
+export interface OutreachSender {
+  id: string;
+  name: string;
+  has_session: boolean;
+  open: boolean;
+  status: SenderStatus;
+  reason: string | null;
+  until: string | null;
+  last_sent_at: string | null;
+  sent_24h: number;
+  daily_limit: number;
+}
+export interface CampaignPreview {
+  total: number;
+  eligible: number;
+  skipped: Record<string, number>;
+  invalid_messages: number;
+  accounts: number;
+  active_accounts: number;
+  estimated_queued: number;
+  examples: {
+    lead_id: number;
+    username: string;
+    display_name: string;
+    sender_id: string | null;
+    sender_name: string;
+    message: string;
+    fallbacks: string[];
+  }[];
+}
+export interface OutreachCampaign {
+  id: number;
+  name: string;
+  status: CampaignStatus;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  scheduled_at: string | null;
+  template_id: number;
+  followup_sequence_id: number | null;
+  sender_strategy: 'single' | 'round_robin';
+  sender_ids: string[];
+  total_recipients: number;
+  queued_count: number;
+  sent_count: number;
+  skipped_count: number;
+  failed_count: number;
+  replied_count: number;
+}
+export interface CampaignDetail extends OutreachCampaign {
+  template: OutreachTemplate | null;
+  sequence: FollowUpSequence | null;
+  senders: Pick<OutreachSender, 'id' | 'name' | 'status' | 'reason' | 'until' | 'sent_24h' | 'daily_limit'>[];
+  reasons: Record<string, number>;
+}
+export interface CampaignRecipient {
+  id: number;
+  campaign_id: number;
+  lead_id: number;
+  username: string;
+  display_name: string;
+  followers: number;
+  profile_type: string | null;
+  sender_account_id: string | null;
+  sender_name: string | null;
+  status: RecipientStatus;
+  skip_reason: string | null;
+  failure_reason: string | null;
+  reason_details: string | null;
+  needs_review: boolean;
+  queued_at: string | null;
+  sent_at: string | null;
+  failed_at: string | null;
+  replied_at: string | null;
+  rendered_message: string | null;
+}
+export type OutreachEventType =
+  | 'campaign:created'
+  | 'campaign:started'
+  | 'campaign:paused'
+  | 'campaign:resumed'
+  | 'campaign:cancelled'
+  | 'campaign:completed'
+  | 'recipient:queued'
+  | 'recipient:sending'
+  | 'recipient:sent'
+  | 'recipient:skipped'
+  | 'recipient:failed'
+  | 'recipient:replied'
+  | 'sender:unavailable';
+export interface OutreachEvent {
+  id: number;
+  campaign_id: number | null;
+  type: OutreachEventType;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+export interface LeadOutreach {
+  do_not_contact: boolean;
+  contacted: boolean;
+  last_contacted_at: string | null;
+  sender_name: string | null;
+  conversation_status: 'waiting_reply' | 'replied' | 'stopped' | null;
+  campaign: {
+    id: number;
+    name: string;
+    status: RecipientStatus;
+    reason: string | null;
+    needs_review: boolean;
+  } | null;
+  pending_followups: number;
+  messages: { direction: 'outbound' | 'inbound'; type: string; body: string; sent_at: string }[];
 }

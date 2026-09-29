@@ -14,7 +14,7 @@ import { api } from '../services/api';
 import type { ScoutAccountRow } from '../services/types';
 import { waitLabel } from '../lib/format';
 import { Button } from './ui/button';
-import { runStatus } from './scoutStatus';
+import { runStatus, skipReasons } from './scoutStatus';
 import { DiscoveryMetricsTable } from './DiscoveryMetrics';
 
 const stepLabels: Record<string, string> = {
@@ -233,16 +233,30 @@ function AccountCard({
             <dd>{stats.current_profile ? `@${stats.current_profile}` : '—'}</dd>
           </div>
           <div>
-            <dt>Найдено профилей</dt>
+            <dt>Источники</dt>
+            <dd>
+              {stats.sources_done.length} / {stats.sources.length}
+            </dd>
+          </div>
+          <div>
+            <dt>Кандидатов</dt>
             <dd>{stats.discovered}</dd>
           </div>
           <div>
-            <dt>Проанализировано</dt>
-            <dd>{stats.analyzed}</dd>
+            <dt>Прочитано</dt>
+            <dd>{stats.resolved ?? stats.analyzed}</dd>
+          </div>
+          <div>
+            <dt title="Профилей, тип которых определил классификатор">Тип определён</dt>
+            <dd>{stats.classified ?? '—'}</dd>
           </div>
           <div>
             <dt>Лидов</dt>
             <dd className="good">{stats.leads}</dd>
+          </div>
+          <div>
+            <dt>Обновлено</dt>
+            <dd>{stats.leads_updated ?? 0}</dd>
           </div>
           <div>
             <dt>Пропущено</dt>
@@ -253,6 +267,17 @@ function AccountCard({
             <dd className={stats.errors ? 'bad' : ''}>{stats.errors}</dd>
           </div>
         </dl>
+      )}
+      {stats?.skips && Object.keys(stats.skips).length > 0 && (
+        <ul className="skip-breakdown" aria-label="Причины пропуска">
+          {Object.entries(stats.skips)
+            .sort((a, b) => b[1] - a[1])
+            .map(([reason, count]) => (
+              <li key={reason}>
+                {skipReasons[reason] || reason}: <b>{count}</b>
+              </li>
+            ))}
+        </ul>
       )}
       {stats?.providers && Object.keys(stats.providers).length > 0 && (
         <details className="discovery-metrics">

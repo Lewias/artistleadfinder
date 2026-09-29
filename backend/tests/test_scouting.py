@@ -14,6 +14,8 @@ POST = "https://www.instagram.com/p/one/"
 SECOND_POST = "https://www.instagram.com/p/two/"
 ARTIST = "https://www.instagram.com/new_rapper/"
 NOW = datetime(2026, 9, 22, tzinfo=timezone.utc)
+# These flows commit page snapshots of profiles; the API step has its own tests.
+BROWSER_ONLY = {"scout_methods": ["posts", "comments"], "scout_profile_api": False}
 
 
 def observation(caption, date="2026-09-21T00:00:00Z"):
@@ -76,7 +78,7 @@ def test_validate_publication_urls():
 def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
     engine, sessions = open_database(tmp_path / "scout.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+    service.call("settings.save", BROWSER_ONLY)
     params = {"sources": [SOURCE], "profile_id": "0" * 32}
     job = service.call("scout.start_internal", params)["id"]
 
@@ -145,7 +147,7 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
 def test_source_mismatch_pause_skip_and_cancel(tmp_path):
     engine, sessions = open_database(tmp_path / "scout.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+    service.call("settings.save", BROWSER_ONLY)
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
     service.call("jobs.control", {"id": job, "action": "pause"})
     assert not service.call("scout.commit_internal", {"id": job, "snapshot": {}})["saved"]
@@ -188,7 +190,7 @@ def test_service_scores_age_without_new_browser_visit(tmp_path, monkeypatch):
     monkeypatch.setattr(scouting, "utcnow", lambda: NOW)
     engine, sessions = open_database(tmp_path / "aging.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+    service.call("settings.save", BROWSER_ONLY)
     job = service.call(
         "scout.start_internal",
         {
@@ -221,7 +223,7 @@ def test_service_scores_age_without_new_browser_visit(tmp_path, monkeypatch):
 def test_only_comment_authors_are_checked_and_private_profiles_rejected(tmp_path):
     engine, sessions = open_database(tmp_path / "comments.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+    service.call("settings.save", BROWSER_ONLY)
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
 
     def commit(snapshot):
@@ -256,7 +258,7 @@ def test_only_comment_authors_are_checked_and_private_profiles_rejected(tmp_path
 def test_empty_comments_do_not_fall_back_to_caption(tmp_path):
     engine, sessions = open_database(tmp_path / "empty.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+    service.call("settings.save", BROWSER_ONLY)
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
     for snapshot in [
         dict(url=SOURCE, ready=True, posts=[POST]),
@@ -273,7 +275,7 @@ def test_empty_comments_do_not_fall_back_to_caption(tmp_path):
 def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
     engine, sessions = open_database(tmp_path / "quota.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+    service.call("settings.save", BROWSER_ONLY)
     params = {"sources": [SOURCE], "profile_id": "0" * 32}
     posts = [f"https://www.instagram.com/p/post{n}/" for n in range(5)]
 

@@ -12,6 +12,8 @@ const statusLabels: Record<string, string> = {
   scanning: 'Сканируется',
   done: 'Просканирован',
   stopped: 'Остановлен',
+  interrupted: 'Прерван',
+  error: 'Ошибка',
   rate_limited: 'Ограничение',
 };
 
@@ -109,7 +111,17 @@ export function ScoutSources({ rows, refresh }: { rows: ScoutSourceRow[] | undef
             <span role="columnheader">Источник</span>
             <span role="columnheader">Последнее сканирование</span>
             <span role="columnheader">Статус</span>
+            <span role="columnheader" title="Кандидатов найдено за всё время">
+              Кандид.
+            </span>
+            <span role="columnheader" title="Профилей прочитано">
+              Прочит.
+            </span>
             <span role="columnheader">Лидов</span>
+            <span role="columnheader" title="Профилей пропущено фильтрами">
+              Пропущ.
+            </span>
+            <span role="columnheader">Ошибок</span>
             <span role="columnheader" aria-label="Действия" />
           </div>
           {rows.map(row => (
@@ -139,7 +151,13 @@ export function ScoutSources({ rows, refresh }: { rows: ScoutSourceRow[] | undef
                   {statusLabels[row.status] || row.status}
                 </span>
               </span>
+              <span role="cell">{number(row.candidates_found ?? 0)}</span>
+              <span role="cell">{number(row.profiles_resolved ?? 0)}</span>
               <span role="cell">{number(row.leads_found)}</span>
+              <span role="cell">{number(row.profiles_skipped ?? 0)}</span>
+              <span role="cell" className={row.errors_count ? 'bad' : ''}>
+                {number(row.errors_count ?? 0)}
+              </span>
               <span role="cell">
                 <Button
                   icon

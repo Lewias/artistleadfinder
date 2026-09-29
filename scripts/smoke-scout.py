@@ -34,7 +34,7 @@ def page_html(title, description, body):
 def main():
     scripts = {
         name: (ROOT / "src-tauri" / "src" / f"{name}.js").read_text(encoding="utf-8")
-        for name in ("scout", "capture", "grid", "story", "follow")
+        for name in ("scout", "capture", "grid", "story", "follow", "profile_api")
     }
     if len(sys.argv) > 1:
         executable = Path(sys.argv[1]).read_bytes()
@@ -95,11 +95,19 @@ def main():
                         if state["status"] == "completed":
                             break
                         kinds.append(state["kind"])
-                        page.goto(state["url"], wait_until="load")
-                        # Same script choice as page_script() in src-tauri/src/main.rs.
+                        # Same access and script choice as run_browser_queue() and
+                        # page_script() in src-tauri/src/main.rs.
+                        if state.get("access") == "none":
+                            snapshot = {"url": state["url"], "ready": True, "blocked": False}
+                            service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
+                            continue
+                        if state.get("access") != "in_place":
+                            page.goto(state["url"], wait_until="load")
                         name = {"profile": "capture", "source": "grid", "tagged_grid": "grid",
                                 "stories": "story", "followers": "follow",
                                 "following": "follow"}.get(state["kind"], "scout")
+                        if state["kind"] == "profile" and state.get("access") == "in_place":
+                            name = "profile_api"
                         args = state.get("args")
                         snapshot = (page.evaluate(scripts[name], args) if args is not None
                                     else page.evaluate(scripts[name]))

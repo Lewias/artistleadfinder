@@ -38,6 +38,10 @@ class JsonLogFormatter(logging.Formatter):
                 "candidates": getattr(record, "candidates", None),
                 "analyzed": getattr(record, "analyzed", None),
                 "qualified": getattr(record, "qualified", None),
+                # Outreach audit: ids and structured reasons only, never message text.
+                "campaign_id": getattr(record, "campaign_id", None),
+                "recipient_id": getattr(record, "recipient_id", None),
+                "reason": getattr(record, "reason", None),
             }
         )
 

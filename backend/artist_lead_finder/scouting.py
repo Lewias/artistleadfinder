@@ -9,13 +9,35 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from .browser_capture import profile_url
+from .browser_capture import parse_snapshot, profile_url
 from .chromium_runtime import GUEST_ID
-from .lead_scout import events, memory
-from .lead_scout.ai import AIUnavailable
+from .lead_scout import events, leads, memory
 from .lead_scout.candidates import CandidateGate, profile_link
-from .lead_scout.classifier import classify
+from .lead_scout.classification import (
+    ClassificationService,
+    ClassificationSettings,
+    SqlAIClassificationCache,
+    SqlPendingAIJobs,
+)
+from .lead_scout.decision import (
+    ALLOWED_TYPES,
+    ALREADY_PROCESSED,
+    CLASSIFICATION_FAILED,
+    DUPLICATE_LEAD,
+    OTHER,
+    PROFILE_NOT_FOUND,
+    PROFILE_PARSE_FAILED,
+    PROFILE_PRIVATE,
+    PROFILE_UNAVAILABLE,
+    RATE_LIMITED,
+    WRONG_PROFILE_TYPE,
+    CandidateRef,
+    FilterInput,
+    LeadFilterDecision,
+    decide,
+)
 from .lead_scout.discovery import (
     GROUP_OF_METHOD,
     METRIC_KEYS,
@@ -26,17 +48,18 @@ from .lead_scout.discovery import (
     source_name,
 )
 from .lead_scout.errors import InstagramUnavailableError, error_for
-from .lead_scout.filters import (
-    ALREADY_PROCESSED,
-    PROFILE_UNAVAILABLE,
-    RATE_LIMITED,
-    WRONG_PROFILE_TYPE,
-    audience_filter,
-    contact_filter,
-    type_filter,
-)
 from .lead_scout.memory import aware
-from .lead_scout.resolver import resolve_instagram_profile
+from .lead_scout.profiles import (
+    AbortSignal,
+    InstagramProfileResolver,
+    NormalizedInstagramProfile,
+    ProfileResolveContext,
+    ProfileResolveFailure,
+    ResolveCancelled,
+    ResolveStep,
+    SqlProfileCache,
+)
+from .lead_scout.profiles import model as resolve_reasons
 from .lead_scout.settings import ScoutSettings
 from .models import (
     BrowserQueue,
@@ -259,6 +282,111 @@ def add_lead_source(
         )
 
 
+# How the browser queue reaches a profile step: open the page, run the API request in
+# the already open Instagram tab, or no page at all (profile served from the cache).
+# "filtered": skipped by the candidate filters before anything was opened.
+ACCESS_OF_PHASE = {
+    "api": "in_place",
+    "browser": "navigate",
+    "cache": "none",
+    "invalid": "none",
+    "filtered": "none",
+}
+# Profile phases that opened no page, so they cost no pace.
+NO_PAGE_PHASES = {"cache", "invalid", "filtered"}
+STOP_REASON = {
+    resolve_reasons.LOGIN_REQUIRED: "login",
+    resolve_reasons.CHECKPOINT: "checkpoint",
+    resolve_reasons.RATE_LIMITED: "rate_limited",
+}
+SKIP_REASON = {
+    resolve_reasons.NOT_FOUND: PROFILE_NOT_FOUND,
+    resolve_reasons.PRIVATE: PROFILE_PRIVATE,
+    resolve_reasons.PARSER_ERROR: PROFILE_PARSE_FAILED,
+}
+EVIDENCE_METHOD = {
+    "api": "instagram_web_api",
+    "browser": "browser_dom",
+    "merged": "instagram_web_api+browser_dom",
+}
+# Consecutive API answers that could not be used before the run reads pages only.
+API_FAILURE_LIMIT = 3
+
+
+# Source-level pages: when one fails, the source's error counter goes up.
+SOURCE_PAGE_KINDS = {"source", "tagged_grid", "stories", "followers", "following"}
+
+
+def is_fatal(error: Exception) -> bool:
+    """Database failures (corruption, disk, lock) stop the run; a unique-constraint
+    conflict is a lead race and is handled as an update."""
+    return isinstance(error, DBAPIError) and not isinstance(error, IntegrityError)
+
+
+def candidate_ref(task: dict) -> CandidateRef:
+    return CandidateRef(
+        username=task["url"].rstrip("/").split("/")[-1],
+        source_username=source_name(task.get("source") or ""),
+        method=task.get("method") or "comment",
+        origin_url=task.get("origin_url"),
+    )
+
+
+def pending_context(job_id: int, task: dict) -> dict:
+    """What a pending AI job needs to bring the profile back into a run."""
+    return {
+        "job_id": job_id,
+        "url": task["url"],
+        "username": task["url"].rstrip("/").split("/")[-1],
+        **{k: task[k] for k in ("source", "method", "origin_url") if task.get(k)},
+    }
+
+
+def crm_record(
+    profile: NormalizedInstagramProfile, snapshot: dict | None, url: str
+) -> tuple[Candidate, dict]:
+    """CRM candidate and capture evidence of a resolved profile (the lead store's format)."""
+    candidate = Candidate(
+        platform="instagram",
+        platform_user_id=profile.id,
+        username=profile.username,
+        profile_url=url,
+        display_name=(profile.full_name or profile.username)[:240],
+        bio=(profile.biography or "")[:10000],
+        followers=min(profile.followers_count or 0, 1_000_000_000),
+        following=min(profile.following_count or 0, 1_000_000_000),
+        is_private=bool(profile.is_private),
+        external_url=(profile.external_url or "")[:2048],
+    )
+    evidence = {}
+    if snapshot is not None:
+        try:
+            evidence = parse_snapshot(snapshot, url)[1]
+        except ValueError:
+            evidence = {}
+    unknown = [
+        key
+        for key, value in {
+            "followers": profile.followers_count,
+            "following": profile.following_count,
+            "bio": profile.biography,
+            "last_activity_at": None,
+        }.items()
+        if value is None
+    ]
+    evidence.update(
+        captured_at=profile.resolved_at.isoformat(),
+        url=url,
+        unknown_fields=unknown,
+        method=EVIDENCE_METHOD[profile.source],
+        followers_may_be_rounded=profile.source != "api",
+    )
+    evidence.setdefault("description", "Профиль получен через Instagram web API в окне браузера.")
+    evidence.setdefault("header", "")
+    evidence.setdefault("bio_method", "instagram_api")
+    return candidate, evidence
+
+
 def same_page(actual: str, expected: str) -> bool:
     strip = lambda url: url.split("?")[0].split("#")[0].rstrip("/").lower()  # noqa: E731
     return strip(actual) == strip(expected)
@@ -266,11 +394,8 @@ def same_page(actual: str, expected: str) -> bool:
 
 def empty_stats(sources: list[str]) -> dict:
     return {
-        "discovered": 0,
-        "analyzed": 0,
-        "leads": 0,
-        "skipped": 0,
-        "errors": 0,
+        **{key: 0 for key in leads.RUN_COUNTERS},
+        "skips": {},
         "current_source": None,
         "current_profile": None,
         "sources": sources,
@@ -291,8 +416,21 @@ class ScoutService:
         # Pace is per browser profile: each account has its own delays and limits.
         self.pacer_factory = pacer_factory
         self.pacers: dict[str, Pacer] = {}
-        self.ai = ai
+        self.classification = ClassificationService(
+            ai, SqlAIClassificationCache(sessions), SqlPendingAIJobs(sessions)
+        )
+        self.resolver = InstagramProfileResolver()
+        self.profile_cache = SqlProfileCache(sessions)
         self.refreshed_date = None
+
+    @property
+    def ai(self):
+        """AI profile classifier (OpenRouter); None disables AI."""
+        return self.classification.ai
+
+    @ai.setter
+    def ai(self, value) -> None:
+        self.classification.ai = value
 
     def pacer_for(self, profile_id: str) -> Pacer:
         if profile_id not in self.pacers:
@@ -383,6 +521,10 @@ class ScoutService:
                     else None,
                     "status": row.status,
                     "leads_found": row.leads_found,
+                    "candidates_found": row.candidates_found,
+                    "profiles_resolved": row.profiles_resolved,
+                    "profiles_skipped": row.profiles_skipped,
+                    "errors_count": row.errors_count,
                 }
                 for row in session.scalars(
                     select(ScoutSource).order_by(ScoutSource.added_at, ScoutSource.url)
@@ -476,7 +618,8 @@ class ScoutService:
                     job_id=created["id"],
                     tasks=tasks,
                     notices=notices[-30:],
-                    stats=empty_stats(picked),
+                    # Rotation runs rewind the source cursor when they stop early.
+                    stats={**empty_stats(picked), "rotation": not explicit},
                 )
             )
             for url in picked:
@@ -487,7 +630,7 @@ class ScoutService:
             events.emit(
                 session,
                 created["id"],
-                "scout:start",
+                "scout:run-started",
                 profile_id=profile,
                 sources=[source_name(url) for url in picked],
                 methods=scout.scout_methods,
@@ -502,10 +645,14 @@ class ScoutService:
                 cursor = result["cursor"]
                 task = run.tasks[cursor] if cursor < len(run.tasks) else {"kind": "done"}
                 stats = {**empty_stats([]), **(run.stats or {})}
+                access, args = "navigate", task.get("args")
+                if task["kind"] == "profile":
+                    access, args = self._profile_access(task)
                 result.update(
                     scout=True,
                     kind=task["kind"],
-                    args=task.get("args"),
+                    access=access,
+                    args=args,
                     # Changes when a transient failure is retried: the queue opens the page again.
                     attempt=int((stats.get("attempts") or {}).get(str(cursor), 0)),
                     notices=run.notices,
@@ -516,7 +663,7 @@ class ScoutService:
                 )
                 wait, reason = (
                     self.pacer_for(result["profile_id"]).wait(self.pacing(), task["kind"])
-                    if result["status"] == "running"
+                    if result["status"] == "running" and access != "none"
                     else (0.0, None)
                 )
                 result.update(wait_seconds=round(wait, 1), wait_reason=reason)
@@ -583,7 +730,7 @@ class ScoutService:
                 events.emit(
                     session,
                     job_id,
-                    "discovery:page",
+                    "scout:discovery-page",
                     source=source,
                     method=result.group,
                     url=task["url"],
@@ -659,18 +806,22 @@ class ScoutService:
                     )
                     self._add_metrics(stats, source, group, {key: 1})
                     if earlier and url not in known:
-                        stats["skipped"] += 1
+                        leads.count_skip(stats, session, profile_link(source), ALREADY_PROCESSED)
                         events.emit(
                             session,
                             job_id,
-                            "profile:skipped",
+                            "scout:profile-skipped",
                             username=candidate.username,
                             source=candidate.source_username,
                             method=candidate.method,
                             reason=ALREADY_PROCESSED,
+                            details="analyzed in an earlier run",
                         )
-                if processed and observation and url not in known:
-                    add_evidence(session, url, observation, job_id)
+                if processed and url not in known:
+                    if observation:
+                        add_evidence(session, url, observation, job_id)
+                    if processed.result == "lead":
+                        self._seen_again(session, job_id, stats, candidate, processed)
                 continue
             if quota is not None and fresh >= quota:
                 limited = True
@@ -678,12 +829,12 @@ class ScoutService:
             fresh += 1
             known.add(url)
             additions.append(candidate.task())
-            stats["discovered"] += 1
+            leads.count(stats, session, profile_link(source), "discovered")
             self._add_metrics(stats, source, group, {"candidatesFound": 1})
             events.emit(
                 session,
                 job_id,
-                "candidate:found",
+                "scout:candidate-found",
                 username=candidate.username,
                 source=candidate.source_username,
                 method=candidate.method,
@@ -697,262 +848,759 @@ class ScoutService:
                 summary += f"; достигнут лимит {MAX_NEW_CANDIDATES_PER_POST} новых"
         return additions, summary
 
-    def _analyze(self, job_id, task, snapshot, state):
-        """Profile page: resolve, classify, filter, optional AI, then save or skip."""
+    @staticmethod
+    def _seen_again(session, job_id, stats, candidate, processed) -> None:
+        """A known lead found again through a source: no profile visit, only the source
+        history and lastSeenAt are updated (a new source relation is a lead update)."""
+        lead = leads.existing_lead(session, processed.instagram_user_id, candidate.username)
+        if lead is None:
+            return
+        ref = CandidateRef(
+            candidate.username,
+            candidate.source_username,
+            candidate.method,
+            origin_url=candidate.origin_url,
+        )
+        now = utcnow()
+        scout_row = session.get(LeadScoutProfile, lead.id)
+        if scout_row is not None:
+            scout_row.last_seen_at = now
+        if leads.record_source(session, lead.id, ref, now):
+            leads.count(stats, session, None, "leads_updated")
+            events.emit(
+                session,
+                job_id,
+                "scout:lead-updated",
+                lead_id=lead.id,
+                username=candidate.username,
+                source=candidate.source_username,
+                method=candidate.method,
+                change="new source",
+            )
+
+    # ---------- Profile resolution ----------
+
+    def _profile_access(self, task: dict) -> tuple[str, dict | None]:
+        data = task.get("resolve") or {"phase": "browser"}
+        access = ACCESS_OF_PHASE.get(data.get("phase"), "navigate")
+        if access == "in_place":
+            return access, self.resolver.request(ResolveStep.from_dict(data))
+        return access, None
+
+    def _resolve_context(self, profile_id: str, stats: dict, job_id=None) -> ProfileResolveContext:
         scout = self.scout_settings()
+        resolver_stats = (stats or {}).get("resolver") or {}
+
+        def stopped() -> bool:
+            with self.sessions() as session:
+                job = session.get(SearchJob, job_id)
+                return job is None or job.status != "running"
+
+        return ProfileResolveContext(
+            signal=AbortSignal(stopped) if job_id else AbortSignal(),
+            # Guest sessions cannot use the web API; the page is read instead.
+            use_api=scout.scout_profile_api
+            and profile_id != GUEST_ID
+            and not resolver_stats.get("api_disabled"),
+            max_retries=scout.scout_max_retries,
+            max_recent_captions=scout.scout_recent_captions,
+            cache=self.profile_cache,
+            cache_ttl_hours=scout.scout_profile_cache_hours,
+        )
+
+    def _prepare_profile(self, session, run, queue) -> None:
+        """When a profile becomes the current step, apply the candidate filters (source
+        account, ignore list, processed memory) and otherwise pick its first phase (cache,
+        API, page). A filtered profile is never opened."""
+        if queue.cursor >= len(run.tasks):
+            return
+        task = run.tasks[queue.cursor]
+        if task["kind"] != "profile" or "resolve" in task:
+            return
+        early = self._filter(candidate_ref(task), self.scout_settings(), task, session=session)
+        if early.reason:
+            data = {"phase": "filtered", "reason": early.reason, "details": early.details}
+        else:
+            username = task["url"].rstrip("/").split("/")[-1]
+            first = self.resolver.begin(
+                username, self._resolve_context(queue.profile_id, run.stats)
+            )
+            if isinstance(first, ResolveStep):
+                data = first.as_dict()
+            else:
+                data = {"phase": "cache" if first.ok else "invalid"}
+        tasks = list(run.tasks)
+        tasks[queue.cursor] = {**task, "resolve": data}
+        run.tasks = tasks
+
+    def _resolve(self, job_id, task, snapshot, state):
+        """One resolver step for the current profile.
+
+        Returns the final result, None while another page step is needed, or "cancelled".
+        """
         username = task["url"].rstrip("/").split("/")[-1]
-        source = source_name(task.get("source") or "")
-        method = task.get("method") or "comment"
+        with self.sessions() as session:
+            stats = dict(session.get(ScoutRun, job_id).stats or {})
+        ctx = self._resolve_context(state["profile_id"], stats, job_id)
+        data = (
+            task.get("resolve") or ResolveStep("browser", username, utcnow().isoformat()).as_dict()
+        )
+        before = data.get("phase")
+        try:
+            if before in {"cache", "invalid"}:
+                result = self.resolver.begin(username, ctx)
+            else:
+                result = self.resolver.advance(ResolveStep.from_dict(data), snapshot, ctx)
+        except ResolveCancelled:
+            return "cancelled"
+        pending = isinstance(result, ResolveStep)
         with self.sessions.begin() as session:
             run = session.get(ScoutRun, job_id)
-            run.stats = {**empty_stats([]), **(run.stats or {}), "current_profile": username}
-            events.emit(session, job_id, "profile:analyzing", username=username, source=source)
-            observations = list(run.observations.get(task["url"], []))
-        try:
-            profile, candidate, evidence = resolve_instagram_profile(snapshot, task["url"])
-        except ValueError:
-            return self._skip(
-                job_id, task, username, source, method, None, None, None, PROFILE_UNAVAILABLE
+            stats = {**empty_stats([]), **(run.stats or {})}
+            health = dict(stats.get("resolver") or {})
+            if before == "api" and not (pending and result.phase == "api"):
+                # A usable API answer resets the streak; answers that fell back count.
+                failed = pending and result.api is None
+                health["api_failures"] = health.get("api_failures", 0) + 1 if failed else 0
+                if failed and health["api_failures"] >= API_FAILURE_LIMIT:
+                    if not health.get("api_disabled"):
+                        run.notices = [
+                            *run.notices,
+                            "Instagram web API не отвечает: до конца запуска профили"
+                            " читаются со страницы.",
+                        ][-30:]
+                    health["api_disabled"] = True
+            if pending and result.api_limited and not health.get("api_disabled"):
+                # A 429 of the web API does not stop the run: profiles are read from their
+                # pages (with the usual pacing) and the API is not asked again this run.
+                health["api_disabled"] = True
+                run.notices = [
+                    *run.notices,
+                    "Instagram ограничил web API (429): до конца запуска профили"
+                    " читаются со страницы.",
+                ][-30:]
+            if pending:
+                tasks = list(run.tasks)
+                tasks[state["cursor"]] = {**tasks[state["cursor"]], "resolve": result.as_dict()}
+                run.tasks = tasks
+            else:
+                key = result.profile.source if result.ok and before != "cache" else None
+                key = "cache" if result.ok and before == "cache" else key or "failed"
+                health[key] = health.get(key, 0) + 1
+            stats["resolver"] = health
+            run.stats = stats
+        return None if pending else result
+
+    def halt(self, job_id: int, reason: str) -> bool:
+        """Page error of a queue: scout retry/skip first, otherwise pause with a typed reason.
+
+        Rate limits start the pacer's break; nothing retries around login, checkpoint or 429.
+        Returns True when the queue keeps going.
+        """
+        if self.on_error(job_id, reason):
+            return True
+        if reason == "rate_limited":
+            profile_id = self.capture.state(job_id)["profile_id"]
+            self.pacer_for(profile_id).rate_limited(self.pacing())
+        self.capture.stop_with_error(job_id, reason)
+        return False
+
+    def _resolve_failed(self, job_id, task, snapshot, failure: ProfileResolveFailure):
+        """Login, checkpoint and 429 go to the scheduler (pause, break): they are not skips."""
+        if failure.stops_run:
+            self.halt(job_id, STOP_REASON[failure.reason])
+            return {"saved": False, "reason": failure.reason}
+        scout = self.scout_settings()
+        if failure.reason == resolve_reasons.PARSER_ERROR and scout.scout_debug and self.debug_sink:
+            self.debug_sink(
+                job_id,
+                task,
+                {"reason": "profile_parse_failed", "message": failure.message[:300]},
             )
-        if profile.is_private:
-            return self._skip(
-                job_id, task, username, source, method, profile, None, None, PROFILE_UNAVAILABLE
-            )
-        local = classify(profile.text())
-        # Cheap filters first, so AI is not spent on profiles that fail them anyway.
-        reason = audience_filter(profile.followers_count, scout) or contact_filter(
-            profile.emails, profile.phones, scout
+        reason = SKIP_REASON.get(failure.reason, PROFILE_UNAVAILABLE)
+        return self._skip(
+            job_id,
+            task,
+            failure.profile,
+            None,
+            reason,
+            failure.message[:200] or None,
+            resolve_log=failure.log,
         )
-        category, ai_info = local.category, None
-        if not reason:
-            ai_info = self._ai(profile, local, scout)
-            if ai_info and "category" in ai_info:
-                category = ai_info["category"]
-            reason = type_filter(category, scout)
-        if reason:
-            return self._skip(
-                job_id, task, username, source, method, profile, local, ai_info, reason
+
+    def _analyze(self, job_id, task, snapshot, state):
+        """Profile step: cheap filters, resolve, filters, classification, filters, then one
+        transaction that saves the lead or the skip and moves the queue on."""
+        scout = self.scout_settings()
+        ref = candidate_ref(task)
+        first_step = not task.get("announced")
+        early = task.get("resolve") or {}
+        if early.get("phase") == "filtered":
+            # Skipped by the candidate filters when the step was prepared; nothing opened.
+            return self._skip(job_id, task, None, None, early["reason"], early.get("details"))
+        with self.sessions.begin() as session:
+            run = session.get(ScoutRun, job_id)
+            run.stats = {**empty_stats([]), **(run.stats or {}), "current_profile": ref.username}
+            if first_step:
+                events.emit(
+                    session,
+                    job_id,
+                    "scout:profile-resolving",
+                    username=ref.username,
+                    source=ref.source_username,
+                )
+                tasks = list(run.tasks)
+                tasks[state["cursor"]] = {**tasks[state["cursor"]], "announced": True}
+                run.tasks = tasks
+            observations = list(run.observations.get(task["url"], []))
+        with self.sessions() as session:
+            task = session.get(ScoutRun, job_id).tasks[state["cursor"]]
+        phase = (task.get("resolve") or {}).get("phase", "browser")
+        outcome = self._resolve(job_id, task, snapshot, state)
+        if outcome == "cancelled":
+            return {"saved": False}
+        if outcome is None:
+            return {"saved": False, "pending": True}
+        if not outcome.ok:
+            return self._resolve_failed(job_id, task, snapshot, outcome)
+        try:
+            return self._classify_and_decide(
+                job_id,
+                task,
+                state,
+                ref,
+                outcome.profile,
+                outcome.log,
+                snapshot if phase == "browser" else None,
+                observations,
+                scout,
             )
-        result = self.capture.capture(job_id, snapshot, advance=False, parsed=(candidate, evidence))
-        origin = task.get("origin_url")
+        except Exception as error:
+            # One profile's failure never stops the run; database failures do.
+            if is_fatal(error):
+                raise
+            return self._profile_error(job_id, task, ref, error)
+
+    def _classify_and_decide(
+        self, job_id, task, state, ref, profile, resolve_log, snapshot, observations, scout
+    ):
+        self._resolved(job_id, state, ref, profile)
+        local = self.classification.local(profile)
+        checked = self._filter(ref, scout, task, profile)
+        if checked.reason == DUPLICATE_LEAD:
+            return self._save_lead(
+                job_id, task, ref, profile, None, checked, snapshot, observations, resolve_log
+            )
+        if checked.reason:
+            # Cheap filters failed: the local result goes to the log, AI is not asked.
+            classification = self.classification.local_only(profile, local, "not needed (filtered)")
+            return self._skip(
+                job_id,
+                task,
+                profile,
+                classification,
+                checked.reason,
+                checked.details,
+                resolve_log=resolve_log,
+                decision=checked,
+            )
+        if not self._running(job_id):
+            return {"saved": False}  # safe point: paused or stopped before classification
+        self._emit(
+            job_id,
+            "scout:classification-started",
+            username=ref.username,
+            source=ref.source_username,
+        )
+        settings = ClassificationSettings.from_scout(scout)
+        self._retry_pending_ai(job_id, settings)
+        try:
+            classification = self.classification.decide(
+                profile, local, settings, context=pending_context(job_id, task)
+            )
+        except Exception as error:
+            if is_fatal(error):
+                raise
+            log.warning("scout_classification_failed: %s", type(error).__name__)
+            return self._skip(
+                job_id,
+                task,
+                profile,
+                None,
+                CLASSIFICATION_FAILED,
+                type(error).__name__,
+                resolve_log=resolve_log,
+            )
+        if not self._running(job_id):
+            # The AI answer is cached: the step is repeated cheaply after resume.
+            return {"saved": False}
+        decision = self._filter(ref, scout, task, profile, classification)
+        if decision.reason and decision.reason != DUPLICATE_LEAD:
+            return self._skip(
+                job_id,
+                task,
+                profile,
+                classification,
+                decision.reason,
+                decision.details,
+                resolve_log=resolve_log,
+                decision=decision,
+                classified=True,
+            )
+        # A lead saved meanwhile by another run is updated by the same transaction.
+        return self._save_lead(
+            job_id,
+            task,
+            ref,
+            profile,
+            classification,
+            decision,
+            snapshot,
+            observations,
+            resolve_log,
+        )
+
+    def _filter(
+        self, ref, scout, task, profile=None, classification=None, session=None
+    ) -> LeadFilterDecision:
+        if session is None:
+            with self.sessions() as own:
+                return self._filter(ref, scout, task, profile, classification, own)
+        processed = memory.processed_profile(session, ref.username)
+        lead = leads.existing_lead(session, profile.id, ref.username) if profile else None
+        data = FilterInput(
+            ref,
+            profile,
+            classification,
+            # A profile brought back by an AI retry is checked again on purpose.
+            already_processed=processed is not None and not task.get("recheck"),
+            existing_lead_id=lead.id if lead else None,
+        )
+        return decide(data, scout)
+
+    def _running(self, job_id) -> bool:
+        with self.sessions() as session:
+            job = session.get(SearchJob, job_id)
+            return job is not None and job.status == "running"
+
+    def _emit(self, job_id, event_type, **payload) -> None:
+        with self.sessions.begin() as session:
+            events.emit(session, job_id, event_type, **payload)
+
+    def _atomic(self, work):
+        """Run work(session) in one transaction. A unique-constraint conflict means another
+        run saved the same lead meanwhile: the retry finds it and updates it instead."""
+        for attempt in range(2):
+            try:
+                with self.sessions.begin() as session:
+                    return work(session)
+            except IntegrityError:
+                if attempt:
+                    raise
+        return None
+
+    def _resolved(self, job_id, state, ref, profile) -> None:
+        """scout:profile-resolved and the resolved counter, once per profile step."""
+        with self.sessions.begin() as session:
+            run = session.get(ScoutRun, job_id)
+            task = run.tasks[state["cursor"]]
+            if task.get("resolved"):
+                return
+            tasks = list(run.tasks)
+            tasks[state["cursor"]] = {**task, "resolved": True}
+            run.tasks = tasks
+            stats = {**empty_stats([]), **(run.stats or {})}
+            leads.count(stats, session, task.get("source"), "resolved")
+            run.stats = stats
+            events.emit(
+                session,
+                job_id,
+                "scout:profile-resolved",
+                username=ref.username,
+                source=ref.source_username,
+                via=profile.source,
+                followers=profile.followers_count,
+                emails=len(profile.emails),
+                phones=len(profile.phones),
+            )
+
+    def _save_lead(
+        self,
+        job_id,
+        task,
+        ref,
+        profile,
+        classification,
+        decision,
+        snapshot,
+        observations,
+        resolve_log,
+    ):
+        """Create or update the CRM lead in one transaction with its source relation,
+        processed profile, run and source metrics, decision log, event and queue step.
+
+        Without a classification this is the DUPLICATE_LEAD path: the known lead gets the
+        current profile data, lastSeenAt and the source; its type stays as it was.
+        """
+        scout = self.scout_settings()
+        candidate, evidence = crm_record(profile, snapshot, task["url"])
         if not observations:
             observations = [
                 {
                     "source": task.get("source"),
-                    "url": origin or task["url"],
+                    "url": ref.origin_url or task["url"],
                     "caption": "",
                     "published_at": None,
-                    "kind": method,
-                    "author": username,
+                    "kind": ref.method,
+                    "author": ref.username,
                 }
             ]
-        log = events.profile_log(
-            username,
-            source,
-            method,
-            profile.followers_count,
-            local.as_dict(),
-            ai_info,
-            "LEAD SAVED",
-        )
-        now = utcnow()
-        with self.sessions.begin() as session:
+
+        def write(session):
+            now = utcnow()
+            existing = leads.existing_lead(session, profile.id, ref.username)
+            created = existing is None
+            previous_status = existing.status if existing else None
+            result = self.capture.store(session, job_id, candidate, evidence, existing=existing)
             lead_id = result["lead_id"]
-            details = assess(candidate, observations)
-            previous = session.get(ScoutAssessment, lead_id)
-            if previous:
-                merged = {
-                    (e["url"], e.get("author"), e["caption"]): e
-                    for e in previous.details.get("evidence", [])
-                }
-                merged.update(
-                    {(e["url"], e.get("author"), e["caption"]): e for e in details["evidence"]}
-                )
-                details = assess(candidate, list(merged.values())[-30:])
-            details["contacts"] = list(dict.fromkeys([*profile.emails, *details["contacts"]]))[:5]
-            details["explanation"] = "; ".join(local.reasons[:4]) or details["explanation"]
-            row = previous or ScoutAssessment(lead_id=lead_id)
-            row.eligible, row.priority, row.details = True, details["priority"], details
-            session.add(row)
+            # New leads get the configured CRM status; a known lead keeps its own.
+            session.get(Lead, lead_id).status = (
+                scout.scout_lead_status if created else previous_status
+            )
+            if classification is not None:
+                self._assess(session, lead_id, candidate, observations, classification, profile)
             for url in dict.fromkeys(e["url"] for e in observations if e.get("url")):
-                add_lead_source(session, lead_id, job_id, method, url)
-            ai_ok = ai_info if ai_info and "category" in ai_info else None
-            scout_row = session.get(LeadScoutProfile, lead_id) or LeadScoutProfile(
-                lead_id=lead_id, first_seen_at=now
+                add_lead_source(session, lead_id, job_id, ref.method, url)
+            scout_row = leads.fill_scout_profile(
+                session, lead_id, profile, classification, ref, now
             )
-            scout_row.instagram_id = profile.id
-            scout_row.posts_count = profile.posts_count
-            scout_row.emails, scout_row.phones = profile.emails, profile.phones
-            scout_row.profile_type = category
-            scout_row.profile_score = local.score
-            scout_row.profile_confidence = ai_ok["confidence"] if ai_ok else local.confidence
-            scout_row.profile_reasons = local.reasons[:20]
-            scout_row.source_username = source
-            scout_row.discovery_method = method
-            scout_row.origin_url = origin
-            scout_row.ai_model = ai_ok["model"] if ai_ok else None
-            scout_row.ai_confidence = ai_ok["confidence"] if ai_ok else None
-            scout_row.last_seen_at = now
-            session.add(scout_row)
-            source_row = session.get(ScoutSource, task.get("source") or "")
-            if source_row is not None:
-                source_row.leads_found += 1
-            memory.mark_profile(session, username, source, method, "lead")
-            run = session.get(ScoutRun, job_id)
-            stats = {**empty_stats([]), **(run.stats or {})}
-            stats["analyzed"] += 1
-            stats["leads"] += 1
-            run.stats = stats
-            events.emit(
+            new_source = leads.record_source(session, lead_id, ref, now)
+            memory.mark_profile(
                 session,
-                job_id,
-                "lead:found",
-                username=username,
-                source=source,
-                method=method,
-                category=category,
+                ref.username,
+                ref.source_username,
+                ref.method,
+                "lead",
+                None if created else DUPLICATE_LEAD,
+                instagram_user_id=profile.id,
+                category=scout_row.profile_type,
                 confidence=scout_row.profile_confidence,
-                lead_id=lead_id,
-                log=log,
             )
-        self.advance(job_id, found=True)
-        return result
-
-    def _ai(self, profile, local, scout) -> dict | None:
-        mode = scout.scout_ai_mode
-        if mode == "off" or (mode == "uncertain" and not local.uncertain):
-            return None
-        model = scout.scout_ai_model
-        with self.sessions() as session:
-            cached = memory.ai_cached(session, profile.username, model)
-            if cached:
-                return {
-                    "category": cached.category,
-                    "confidence": cached.confidence,
-                    "model": model,
-                    "cached": True,
-                }
-        if self.ai is None:
-            return {"error": "AI не настроен"}
-        try:
-            category, confidence = self.ai.classify(profile.text(), model)
-        except AIUnavailable as error:
-            log.warning("scout_ai_unavailable", extra={"error_type": type(error).__name__})
-            return {"error": str(error)}
-        with self.sessions.begin() as session:
-            memory.ai_store(session, profile.username, category, confidence, model)
-        return {"category": category, "confidence": confidence, "model": model}
-
-    def _skip(self, job_id, task, username, source, method, profile, local, ai_info, reason):
-        followers = profile.followers_count if profile else None
-        log = events.profile_log(
-            username,
-            source,
-            method,
-            followers,
-            local.as_dict() if local else None,
-            ai_info,
-            f"SKIPPED - {reason}",
-        )
-        with self.sessions.begin() as session:
-            memory.mark_profile(session, username, source, method, "skipped", reason)
-            lead = session.scalar(
-                select(Lead).where(Lead.platform == "instagram", Lead.username == username)
-            )
-            previous = session.get(ScoutAssessment, lead.id) if lead else None
-            if previous and reason == WRONG_PROFILE_TYPE:
-                previous.eligible = False
             run = session.get(ScoutRun, job_id)
             stats = {**empty_stats([]), **(run.stats or {})}
-            stats["skipped"] += 1
+            source_url = task.get("source")
+            leads.count(stats, session, None, "analyzed")
+            if classification is not None:
+                leads.count(stats, session, None, "classified")
+            if created:
+                leads.count(stats, session, source_url, "leads")
+            else:
+                leads.count(stats, session, None, "leads_updated")
+                skips = dict(stats.get("skips") or {})
+                skips[DUPLICATE_LEAD] = skips.get(DUPLICATE_LEAD, 0) + 1
+                stats["skips"] = skips
+            run.stats = stats
+            text = events.profile_log(
+                ref.username,
+                ref.source_username,
+                ref.method,
+                "LEAD CREATED" if created else "LEAD UPDATED",
+                profile=profile,
+                classification=classification,
+                filters=decision.log(),
+                reason=None if created else DUPLICATE_LEAD,
+                details=None if created else decision.details,
+                resolve_log=resolve_log,
+                classification_log=classification.log if classification else None,
+            )
+            if classification is not None:
+                self._classified_event(session, job_id, ref, classification)
+            payload = dict(
+                lead_id=lead_id,
+                username=ref.username,
+                source=ref.source_username,
+                method=ref.method,
+                category=scout_row.profile_type,
+                confidence=scout_row.profile_confidence,
+                decided_by=scout_row.profile_decided_by,
+                log=text,
+            )
+            if created:
+                events.emit(session, job_id, "scout:lead-created", **payload)
+            else:
+                change = "new source" if new_source else "profile data"
+                events.emit(session, job_id, "scout:lead-updated", change=change, **payload)
+            leads.log_decision(
+                session,
+                job_id,
+                ref,
+                "lead_created" if created else "lead_updated",
+                profile=profile,
+                classification=classification,
+                reason=None if created else DUPLICATE_LEAD,
+            )
+            self._advance(session, job_id, found=created)
+            return {**result, "created": created}
+
+        return self._atomic(write)
+
+    @staticmethod
+    def _assess(session, lead_id, candidate, observations, classification, profile) -> None:
+        """Service recommendations (assess) of the lead, merged with earlier evidence."""
+        details = assess(candidate, observations)
+        previous = session.get(ScoutAssessment, lead_id)
+        if previous:
+            merged = {
+                (e["url"], e.get("author"), e["caption"]): e
+                for e in previous.details.get("evidence", [])
+            }
+            merged.update(
+                {(e["url"], e.get("author"), e["caption"]): e for e in details["evidence"]}
+            )
+            details = assess(candidate, list(merged.values())[-30:])
+        details["contacts"] = list(dict.fromkeys([*profile.emails, *details["contacts"]]))[:5]
+        details["explanation"] = (
+            "; ".join(classification.local.reasons[:4]) or details["explanation"]
+        )
+        row = previous or ScoutAssessment(lead_id=lead_id)
+        row.eligible, row.priority, row.details = True, details["priority"], details
+        session.add(row)
+
+    @staticmethod
+    def _classified_event(session, job_id, ref, classification) -> None:
+        events.emit(
+            session,
+            job_id,
+            "scout:classification-completed",
+            username=ref.username,
+            source=ref.source_username,
+            category=classification.category,
+            confidence=classification.confidence,
+            decided_by=classification.decided_by,
+        )
+
+    def _retry_pending_ai(self, job_id, settings) -> None:
+        """One due pending AI job per profile step. When AI now says the profile fits
+        and it is not a lead yet, it is checked again in this run (the resolver and AI
+        caches make that cheap); the classifier itself never saves leads."""
+        scout = self.scout_settings()
+        for retried in self.classification.retry_pending(settings, limit=1):
+            context = retried.context
+            url, username = context.get("url"), context.get("username")
+            allowed = ALLOWED_TYPES[scout.scout_profile_type]
+            if not url or not username or retried.ai.category not in allowed:
+                continue
+            with self.sessions.begin() as session:
+                lead = leads.existing_lead(session, None, username)
+                queue, run = session.get(BrowserQueue, job_id), session.get(ScoutRun, job_id)
+                upcoming = run.tasks[queue.cursor + 1 :]
+                if lead or any(t["kind"] == "profile" and t["url"] == url for t in upcoming):
+                    continue
+                task = {
+                    "kind": "profile",
+                    "url": url,
+                    # Already in the processed memory as skipped: checked again on purpose.
+                    "recheck": True,
+                    **{k: context[k] for k in ("source", "method", "origin_url") if k in context},
+                }
+                run.tasks = [*run.tasks, task]
+                queue.urls = [t["url"] for t in run.tasks]
+                run.notices = [
+                    *run.notices,
+                    f"@{username}: AI ответил после повтора ({retried.ai.category}),"
+                    " профиль будет проверен ещё раз.",
+                ][-30:]
+
+    # Skips decided before the profile was analyzed stay out of the processed memory: the
+    # ignore list may change, and a processed profile keeps its first result.
+    UNRECORDED_SKIPS = {"ALREADY_PROCESSED", "IGNORED_USERNAME", "SOURCE_ACCOUNT"}
+
+    def _skip(
+        self,
+        job_id,
+        task,
+        profile,
+        classification,
+        reason,
+        details=None,
+        *,
+        resolve_log=None,
+        decision=None,
+        classified=False,
+    ):
+        """Record a skip with its reason in one transaction and move the queue on."""
+        ref = candidate_ref(task)
+        text = events.profile_log(
+            ref.username,
+            ref.source_username,
+            ref.method,
+            "SKIPPED",
+            profile=profile,
+            classification=classification,
+            filters=decision.log() if decision else None,
+            reason=reason,
+            details=details,
+            resolve_log=resolve_log,
+            classification_log=classification.log if classification else None,
+        )
+
+        def write(session):
+            if reason not in self.UNRECORDED_SKIPS:
+                memory.mark_profile(
+                    session,
+                    ref.username,
+                    ref.source_username,
+                    ref.method,
+                    "skipped",
+                    reason,
+                    instagram_user_id=profile.id if profile else None,
+                    category=classification.category if classification else None,
+                    confidence=classification.confidence if classification else None,
+                )
+            if reason == WRONG_PROFILE_TYPE:
+                lead = leads.existing_lead(session, profile.id, ref.username)
+                previous = session.get(ScoutAssessment, lead.id) if lead else None
+                if previous:
+                    previous.eligible = False
+            run = session.get(ScoutRun, job_id)
+            stats = {**empty_stats([]), **(run.stats or {})}
+            leads.count_skip(stats, session, task.get("source"), reason)
             if profile:
-                stats["analyzed"] += 1
+                leads.count(stats, session, None, "analyzed")
+            if classified:
+                leads.count(stats, session, None, "classified")
+                self._classified_event(session, job_id, ref, classification)
             run.stats = stats
             events.emit(
                 session,
                 job_id,
-                "profile:skipped",
-                username=username,
-                source=source,
-                method=method,
+                "scout:profile-skipped",
+                username=ref.username,
+                source=ref.source_username,
+                method=ref.method,
                 reason=reason,
-                log=log,
+                details=details,
+                category=classification.category if classification else None,
+                confidence=classification.confidence if classification else None,
+                log=text,
             )
-        self.advance(job_id, notice=f"@{username}: пропущен ({reason}).")
+            leads.log_decision(
+                session,
+                job_id,
+                ref,
+                "skipped",
+                profile=profile,
+                classification=classification,
+                reason=reason,
+                details=details,
+            )
+            self._advance(session, job_id, notice=f"@{ref.username}: пропущен ({reason}).")
+
+        self._atomic(write)
         return {"saved": False, "reason": reason}
 
-    def advance(self, job_id, additions=None, notice=None, found=False):
-        notices_in = notice if isinstance(notice, list) else ([notice] if notice else [])
+    def _profile_error(self, job_id, task, ref, error):
+        """Unexpected failure while deciding on one profile: logged, counted, skipped for
+        this run only (not remembered as processed), and the run goes on."""
+        log.warning("scout_profile_error @%s: %s", ref.username, type(error).__name__)
         with self.sessions.begin() as session:
-            queue, job, run = (
-                session.get(BrowserQueue, job_id),
-                session.get(SearchJob, job_id),
-                session.get(ScoutRun, job_id),
-            )
-            account = session.get(ScoutAccount, queue.profile_id)
-            pacing = self.pacing()
-            done = run.tasks[queue.cursor]
-            self.pacer_for(queue.profile_id).page_done(pacing, profile=done["kind"] == "profile")
-            if found:
-                run.found += 1
-                if account:
-                    account.found += 1
-            # Process source pages and publications before candidates, so all evidence is available.
-            remaining = run.tasks[queue.cursor + 1 :] + (additions or [])
-            remaining.sort(key=lambda task: task["kind"] == "profile")
-            notices = list(notices_in)
-            limit = pacing.profiles_per_run
-            checked = sum(t["kind"] == "profile" for t in run.tasks[: queue.cursor + 1])
-            run_limited = bool(limit and checked >= limit)
-            if run_limited and any(t["kind"] == "profile" for t in remaining):
-                skipped = sum(t["kind"] == "profile" for t in remaining)
-                remaining = [t for t in remaining if t["kind"] != "profile"]
-                notices.append(
-                    f"Достигнут лимит {limit} профилей за запуск; не проверено: {skipped}."
-                )
-            if account and account.found >= account.target:
-                remaining = []
-                notices.append(f"Цель достигнута: найдено {account.found} из {account.target}.")
-            elif not remaining and run.backlog and not run_limited:
-                remaining, run.backlog = take_batch(run.backlog, POST_BATCH)
-            elif not remaining and account:
-                notices.append(
-                    "Доступные публикации источников закончились: "
-                    f"найдено {account.found} из {account.target}."
-                )
-            run.tasks = run.tasks[: queue.cursor + 1] + remaining
-            queue.urls = [task["url"] for task in run.tasks]
-            queue.cursor += 1
-            queue.last_error = None
-            if notices:
-                run.notices = [*run.notices, *notices][-30:]
+            run = session.get(ScoutRun, job_id)
             stats = {**empty_stats([]), **(run.stats or {})}
-            self._track_sources(session, job_id, run, stats, remaining)
+            leads.count(stats, session, task.get("source"), "errors")
             run.stats = stats
-            if queue.cursor >= len(queue.urls):
-                job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
-                events.emit(
-                    session,
-                    job_id,
-                    "scout:done",
-                    **{
-                        k: stats[k]
-                        for k in ("discovered", "analyzed", "leads", "skipped", "errors")
-                    },
-                )
-            else:
-                job.stage = "scout_reading"
+            events.emit(
+                session,
+                job_id,
+                "scout:error",
+                reason=OTHER,
+                kind="profile",
+                profile=ref.username,
+                source=ref.source_username,
+                details=f"{type(error).__name__}: {str(error)[:160]}",
+            )
+            self._advance(
+                session,
+                job_id,
+                notice=f"@{ref.username}: ошибка обработки ({type(error).__name__}), пропущен.",
+            )
+        return {"saved": False, "reason": OTHER}
+
+    def advance(self, job_id, additions=None, notice=None, found=False):
+        with self.sessions.begin() as session:
+            self._advance(session, job_id, additions, notice, found)
+
+    def _advance(self, session, job_id, additions=None, notice=None, found=False):
+        """Move the queue to the next step in the caller's transaction."""
+        notices_in = notice if isinstance(notice, list) else ([notice] if notice else [])
+        queue, job, run = (
+            session.get(BrowserQueue, job_id),
+            session.get(SearchJob, job_id),
+            session.get(ScoutRun, job_id),
+        )
+        account = session.get(ScoutAccount, queue.profile_id)
+        pacing = self.pacing()
+        done = run.tasks[queue.cursor]
+        # A profile served from the cache opened nothing, so it costs no pace.
+        if (done.get("resolve") or {}).get("phase") not in NO_PAGE_PHASES:
+            self.pacer_for(queue.profile_id).page_done(pacing, profile=done["kind"] == "profile")
+        if found:
+            run.found += 1
+            if account:
+                account.found += 1
+        # Process source pages and publications before candidates, so all evidence is available.
+        remaining = run.tasks[queue.cursor + 1 :] + (additions or [])
+        remaining.sort(key=lambda task: task["kind"] == "profile")
+        notices = list(notices_in)
+        limit = pacing.profiles_per_run
+        checked = sum(t["kind"] == "profile" for t in run.tasks[: queue.cursor + 1])
+        run_limited = bool(limit and checked >= limit)
+        if run_limited and any(t["kind"] == "profile" for t in remaining):
+            skipped = sum(t["kind"] == "profile" for t in remaining)
+            remaining = [t for t in remaining if t["kind"] != "profile"]
+            notices.append(f"Достигнут лимит {limit} профилей за запуск; не проверено: {skipped}.")
+        if account and account.found >= account.target:
+            remaining = []
+            notices.append(f"Цель достигнута: найдено {account.found} из {account.target}.")
+        elif not remaining and run.backlog and not run_limited:
+            remaining, run.backlog = take_batch(run.backlog, POST_BATCH)
+        elif not remaining and account:
+            notices.append(
+                "Доступные публикации источников закончились: "
+                f"найдено {account.found} из {account.target}."
+            )
+        run.tasks = run.tasks[: queue.cursor + 1] + remaining
+        queue.urls = [task["url"] for task in run.tasks]
+        queue.cursor += 1
+        queue.last_error = None
+        self._prepare_profile(session, run, queue)
+        if notices:
+            run.notices = [*run.notices, *notices][-30:]
+        stats = {**empty_stats([]), **(run.stats or {})}
+        self._track_sources(session, job_id, run, stats, remaining)
+        run.stats = stats
+        if queue.cursor >= len(queue.urls):
+            job.status, job.stage, job.completed_at = "completed", "completed", utcnow()
+            events.emit(
+                session,
+                job_id,
+                "scout:completed",
+                **{key: stats[key] for key in leads.RUN_COUNTERS},
+                skips=stats.get("skips") or {},
+            )
+        else:
+            job.stage = "scout_reading"
 
     @staticmethod
     def _track_sources(session, job_id, run, stats, remaining) -> None:
-        """source:start when work moves to a new source, source:done when nothing of it is left."""
+        """source-started when work moves to a new source, source-completed when nothing
+        of it is left."""
         upcoming = remaining[0].get("source") if remaining else None
         if upcoming and upcoming != stats["current_source"]:
             stats["current_source"] = upcoming
             row = session.get(ScoutSource, upcoming)
             if row is not None:
                 row.status = "scanning"
-            events.emit(session, job_id, "source:start", source=source_name(upcoming))
+            events.emit(session, job_id, "scout:source-started", source=source_name(upcoming))
         pending = {t.get("source") for t in remaining} | {
             item.get("source") for item in run.backlog
         }
@@ -961,32 +1609,85 @@ class ScoutService:
                 continue
             stats["sources_done"] = [*stats["sources_done"], url]
             row = session.get(ScoutSource, url)
-            leads = 0
+            found = 0
             if row is not None:
-                row.status, row.last_scanned_at = "done", utcnow()
-                leads = row.leads_found
-            events.emit(session, job_id, "source:done", source=source_name(url), leads_found=leads)
+                # A source whose own page failed keeps its error status.
+                row.status = "error" if row.status == "error" else "done"
+                row.last_scanned_at = utcnow()
+                found = row.leads_found
+            events.emit(
+                session,
+                job_id,
+                "scout:source-completed",
+                source=source_name(url),
+                leads_found=found,
+            )
 
     def on_control(self, job_id: int, action: str) -> None:
-        """Events and source statuses for pause/resume/cancel of a scout run."""
+        """Events, source statuses and the source cursor for pause/resume/cancel.
+
+        Pause and cancel are cooperative: the queue status changes at once, a profile
+        step in progress stops at its next safe point (before classification, before
+        saving) and never leaves half a decision. Resume continues the same run from
+        its cursor. Cancel keeps every saved lead, the processed memory and the source
+        cursor (rewound to the first unfinished source).
+        """
         with self.sessions.begin() as session:
             run = session.get(ScoutRun, job_id)
             if run is None:
                 return
             if action == "pause":
-                events.emit(session, job_id, "scout:pause")
+                events.emit(session, job_id, "scout:paused")
+            elif action == "resume":
+                events.emit(session, job_id, "scout:resumed")
             elif action == "cancel":
                 stats = {**empty_stats([]), **(run.stats or {})}
-                for url in stats["sources"]:
-                    row = session.get(ScoutSource, url)
-                    if row is not None and url not in stats["sources_done"]:
-                        row.status = "stopped"
+                self._stop_sources(session, stats, "stopped")
                 events.emit(
                     session,
                     job_id,
-                    "scout:stop",
-                    **{k: stats[k] for k in ("discovered", "analyzed", "leads", "skipped")},
+                    "scout:cancelled",
+                    **{key: stats[key] for key in leads.RUN_COUNTERS},
+                    skips=stats.get("skips") or {},
                 )
+
+    @staticmethod
+    def _stop_sources(session, stats: dict, status: str) -> None:
+        for url in stats["sources"]:
+            row = session.get(ScoutSource, url)
+            if row is not None and url not in stats["sources_done"]:
+                row.status = status
+        if stats.get("rotation"):
+            memory.rewind_cursor(session, stats["sources"], stats["sources_done"])
+
+    def recover_interrupted(self) -> int:
+        """Crash recovery at start-up. The job manager has already turned runs that were
+        running into paused/"interrupted" (never completed); here their sources are marked
+        interrupted and the source cursor is rewound, so the next run continues from the
+        first unfinished source and the processed memory skips what was done."""
+        recovered = 0
+        with self.sessions.begin() as session:
+            rows = session.execute(
+                select(ScoutRun, SearchJob)
+                .join(SearchJob, SearchJob.id == ScoutRun.job_id)
+                .where(SearchJob.stage == "interrupted")
+            )
+            for run, job in rows:
+                stats = {**empty_stats([]), **(run.stats or {})}
+                if stats.get("recovered"):
+                    continue
+                self._stop_sources(session, stats, "interrupted")
+                run.stats = {**stats, "recovered": True, "current_profile": None}
+                events.emit(
+                    session,
+                    job.id,
+                    "scout:error",
+                    reason="INTERRUPTED",
+                    kind="fatal",
+                    details="Приложение закрылось во время поиска.",
+                )
+                recovered += 1
+        return recovered
 
     def on_error(self, job_id: int, reason: str) -> bool:
         """Handle a page error of a scout run; True when the run keeps going unpaused.
@@ -1028,10 +1729,21 @@ class ScoutService:
                 self._add_metrics(
                     stats, source, GROUP_OF_KIND.get(task.get("kind"), "posts"), {"failures": 1}
                 )
-                stats["errors"] += 1
+                # Source error: this page of the source is given up, the run goes on.
+                leads.count(stats, session, task.get("source"), "errors")
+                row = session.get(ScoutSource, task.get("source") or "")
+                if row is not None and task.get("kind") == "source":
+                    row.status = "error"
                 run.stats = stats
                 events.emit(
-                    session, job_id, "scout:error", reason=reason, url=task.get("url"), skipped=True
+                    session,
+                    job_id,
+                    "scout:error",
+                    reason=reason,
+                    kind="profile" if task.get("kind") == "profile" else "source",
+                    url=task.get("url"),
+                    source=source,
+                    skipped=True,
                 )
                 skip_page = True
             else:
@@ -1048,11 +1760,14 @@ class ScoutService:
             if source is not None and reason == "rate_limited":
                 # Stop and back off; the pacer enforces the break before the next page.
                 source.status = "rate_limited"
+            # A rate limit goes to the scheduler (break before the next page); login and
+            # checkpoint need the user. Both pause the whole run.
             events.emit(
                 session,
                 job_id,
                 "scout:error",
                 reason=RATE_LIMITED if reason == "rate_limited" else reason,
+                kind="rate_limit" if reason == "rate_limited" else "fatal",
                 error=error.__name__,
                 profile=stats["current_profile"],
                 source=source_name(stats["current_source"] or ""),

@@ -41,7 +41,7 @@ def test_page_delay_hourly_cap_and_rate_limit_break():
     assert pacer.wait(settings, "profile") == (0.0, None)
     pacer.rate_limited(settings)
     wait, reason = pacer.wait(settings, "post")
-    assert wait == 30 * 60 and reason.startswith("Instagram ограничил запросы")
+    assert wait == 10 * 60 and reason.startswith("Instagram ограничил запросы")
 
 
 def test_pacing_settings_are_validated():
@@ -58,7 +58,12 @@ def test_run_limit_state_wait_and_rate_limit_via_service(tmp_path):
     service.scout.pacer_factory = lambda: Pacer(now=clock, jitter=lambda low, high: low)
     saved = service.call(
         "settings.save",
-        {"profiles_per_run": 2, "profiles_per_hour": 0, "scout_methods": ["posts", "comments"]},
+        {
+            "profiles_per_run": 2,
+            "profiles_per_hour": 0,
+            "scout_methods": ["posts", "comments"],
+            "scout_profile_api": False,
+        },
     )
     assert saved["page_delay_min"] == 8 and saved["profiles_per_run"] == 2
     with pytest.raises(ValueError):
@@ -110,6 +115,6 @@ def test_run_limit_state_wait_and_rate_limit_via_service(tmp_path):
     assert state["status"] == "paused" and "ограничил запросы" in state["error"]
     service.call("jobs.control", {"id": job, "action": "resume"})
     state = service.call("capture.state", {"id": job})
-    assert state["wait_seconds"] == 30 * 60
+    assert state["wait_seconds"] == 10 * 60
     service.shutdown()
     engine.dispose()

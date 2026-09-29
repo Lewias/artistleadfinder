@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Activity, ScrollText } from 'lucide-react';
+import { Activity, ListChecks, ScrollText } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type { ScoutAccountRow, ScoutEvent } from '../services/types';
-import { eventText } from './scoutStatus';
+import { activityItem, eventText, type ActivityItem } from './scoutStatus';
 
-type Tab = 'events' | 'log';
+type Tab = 'recent' | 'events' | 'log';
 type LogFilter = 'all' | 'lead' | 'skipped' | 'discovery';
 
 export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
@@ -13,7 +13,7 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
     .map(row => ({ id: row.run!.id, name: row.profile.name, status: row.run!.status }))
     .sort((a, b) => b.id - a.id);
   const [chosen, setChosen] = useState<number | null>(null);
-  const [tab, setTab] = useState<Tab>('events');
+  const [tab, setTab] = useState<Tab>('recent');
   const [filter, setFilter] = useState<LogFilter>('all');
   const jobId = chosen ?? runs.find(run => run.status === 'running')?.id ?? runs[0]?.id ?? 0;
   const events = useResource<ScoutEvent[]>('scout.events', { job_id: jobId, limit: 300 }, jobId ? 1500 : 0);
@@ -23,14 +23,28 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
     event =>
       event.payload.log &&
       (filter === 'all' ||
-        (filter === 'lead' && event.type === 'lead:found') ||
-        (filter === 'skipped' && event.type === 'profile:skipped') ||
-        (filter === 'discovery' && event.type === 'discovery:page')),
+        (filter === 'lead' && (event.type === 'scout:lead-created' || event.type === 'scout:lead-updated')) ||
+        (filter === 'skipped' && event.type === 'scout:profile-skipped') ||
+        (filter === 'discovery' && event.type === 'scout:discovery-page')),
   );
+  const recent = items
+    .map(activityItem)
+    .filter((item): item is ActivityItem => item !== null)
+    .reverse()
+    .slice(0, 40);
   return (
     <section className="panel scout-activity">
       <div className="section-heading">
         <div className="segmented" role="tablist" aria-label="Активность Scout">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'recent'}
+            className={tab === 'recent' ? 'active' : ''}
+            onClick={() => setTab('recent')}
+          >
+            <ListChecks size={14} /> Недавнее
+          </button>
           <button
             type="button"
             role="tab"
@@ -68,7 +82,18 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
           {events.error}
         </p>
       )}
-      {tab === 'events' ? (
+      {tab === 'recent' ? (
+        <ol className="activity-list" aria-live="polite">
+          {recent.length === 0 && <li className="helper">Решений по профилям пока нет.</li>}
+          {recent.map(item => (
+            <li key={item.id} className={`activity-${item.tone}`}>
+              <strong>@{item.username}</strong>
+              <span>{item.type || '—'}</span>
+              <span>{item.outcome}</span>
+            </li>
+          ))}
+        </ol>
+      ) : tab === 'events' ? (
         <ol className="event-feed" aria-live="polite">
           {items.length === 0 && <li className="helper">Событий пока нет.</li>}
           {[...items].reverse().map(event => (
@@ -108,9 +133,9 @@ export function ScoutActivity({ accounts }: { accounts: ScoutAccountRow[] }) {
               <pre
                 key={event.id}
                 className={
-                  event.type === 'lead:found'
+                  event.type === 'scout:lead-created' || event.type === 'scout:lead-updated'
                     ? 'log-lead'
-                    : event.type === 'discovery:page'
+                    : event.type === 'scout:discovery-page'
                       ? 'log-page'
                       : 'log-skip'
                 }

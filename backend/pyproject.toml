@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "artist-lead-finder-core"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["SQLAlchemy>=2.0,<3", "pydantic>=2.10,<3", "platformdirs>=4,<5", "playwright==1.57.0"]
+dependencies = ["SQLAlchemy>=2.0,<3", "pydantic>=2.10,<3", "platformdirs>=4,<5", "playwright==1.57.0", "phonenumbers>=8.13,<10"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1", "pyinstaller>=6,<7"]

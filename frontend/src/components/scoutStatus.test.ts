@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { CaptureQueue, ScoutAccountRow, ScoutEvent } from '../services/types';
-import { eventText, runStatus } from './scoutStatus';
+import { activityItem, eventText, runStatus } from './scoutStatus';
 
 const profile = { id: 'a'.repeat(32), name: 'Main', cookie_count: 5, proxy: null };
 const run = (patch: Partial<CaptureQueue>): CaptureQueue => ({
@@ -12,6 +12,13 @@ const run = (patch: Partial<CaptureQueue>): CaptureQueue => ({
   url: null,
   error: null,
   ...patch,
+});
+const event = (type: ScoutEvent['type'], payload: ScoutEvent['payload']): ScoutEvent => ({
+  id: 1,
+  job_id: 1,
+  type,
+  payload,
+  created_at: '2026-09-28T10:00:00Z',
 });
 const row = (found: number, current: CaptureQueue | null): ScoutAccountRow => ({
   profile,
@@ -33,20 +40,45 @@ test('account status reflects goal, run state and pacing', () => {
 });
 
 test('event feed lines are readable', () => {
-  const event = (type: string, payload: ScoutEvent['payload']): ScoutEvent => ({
+  expect(
+    eventText(event('scout:lead-created', { username: 'nova', category: 'artist', confidence: 91 })),
+  ).toBe('Лид @nova · artist · 91%');
+  expect(
+    eventText(
+      event('scout:profile-skipped', {
+        username: 'big',
+        reason: 'FOLLOWERS_TOO_LOW',
+        details: '245 < min 500',
+      }),
+    ),
+  ).toBe('Пропущен @big — мало подписчиков (245 < min 500)');
+  expect(
+    eventText(event('scout:candidate-found', { username: 'a', method: 'tagged', source: 'rapdaily' })),
+  ).toBe('Кандидат @a · tagged · из @rapdaily');
+  expect(
+    eventText(event('scout:lead-updated', { username: 'a', source: 'beats', change: 'new source' })),
+  ).toBe('Лид @a обновлён · новый источник @beats');
+});
+
+test('recent activity shows one line per decision', () => {
+  expect(
+    activityItem(event('scout:lead-created', { username: 'youngjay', category: 'artist', confidence: 94 })),
+  ).toEqual({
     id: 1,
-    job_id: 1,
-    type,
-    payload,
-    created_at: '2026-09-28T10:00:00Z',
+    username: 'youngjay',
+    type: 'Артист 94%',
+    outcome: 'Лид сохранён',
+    tone: 'good',
   });
-  expect(eventText(event('lead:found', { username: 'nova', category: 'artist', confidence: 91 }))).toBe(
-    'Лид @nova · artist · 91%',
-  );
-  expect(eventText(event('profile:skipped', { username: 'big', reason: 'FOLLOWERS_TOO_HIGH' }))).toBe(
-    'Пропущен @big — слишком много подписчиков',
-  );
-  expect(eventText(event('candidate:found', { username: 'a', method: 'tagged', source: 'rapdaily' }))).toBe(
-    'Кандидат @a · tagged · из @rapdaily',
-  );
+  expect(
+    activityItem(
+      event('scout:profile-skipped', {
+        username: 'johnbeats',
+        category: 'producer',
+        confidence: 91,
+        reason: 'WRONG_PROFILE_TYPE',
+      }),
+    )?.outcome,
+  ).toBe('Пропущен: не подходит тип профиля');
+  expect(activityItem(event('scout:candidate-found', { username: 'a' }))).toBeNull();
 });

@@ -28,7 +28,7 @@ export const statusLabels: Record<string, string> = {
   reviewed: 'Просмотрен',
   qualified: 'Подходит',
   rejected: 'Отклонён',
-  contacted: 'Контакт отмечен',
+  contacted: 'Написали',
   queued: 'В очереди',
   running: 'Выполняется',
   paused: 'На паузе',

@@ -46,7 +46,14 @@ def post_snapshot(url, commenters, author="music_news"):
 def service(tmp_path):
     engine, sessions = open_database(tmp_path / "accounts.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", {"profiles_per_hour": 0, "scout_methods": ["posts", "comments"]})
+    service.call(
+        "settings.save",
+        {
+            "profiles_per_hour": 0,
+            "scout_methods": ["posts", "comments"],
+            "scout_profile_api": False,
+        },
+    )
     yield service
     service.shutdown()
     engine.dispose()

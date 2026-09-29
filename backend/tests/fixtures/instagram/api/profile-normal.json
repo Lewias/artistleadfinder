@@ -1,0 +1,38 @@
+{
+  "data": {
+    "user": {
+      "id": "4242",
+      "username": "Artist123",
+      "full_name": "Artist One",
+      "biography": "rapper | new single out now\nbooking: Mgmt@Artist123.com.",
+      "external_url": "https://linktr.ee/artist123",
+      "bio_links": [
+        {
+          "title": "Linktree",
+          "url": "https://linktr.ee/artist123",
+          "lynx_url": "https://l.instagram.com/?u=https%3A%2F%2Flinktr.ee%2Fartist123&e=AT0_sanitized"
+        },
+        { "title": "Spotify", "url": "https://open.spotify.com/artist/abc123" },
+        { "title": "", "lynx_url": "https://l.instagram.com/?u=https%3A%2F%2Fartist123.bandcamp.com%2F&e=AT1_sanitized" }
+      ],
+      "edge_followed_by": { "count": 2431 },
+      "edge_follow": { "count": 310 },
+      "edge_owner_to_timeline_media": {
+        "count": 57,
+        "edges": [
+          { "node": { "edge_media_to_caption": { "edges": [{ "node": { "text": "New single out now!" } }] } } },
+          { "node": { "edge_media_to_caption": { "edges": [] } } },
+          { "node": { "edge_media_to_caption": { "edges": [{ "node": { "text": "Studio night with @producer_two" } }] } } },
+          { "node": { "edge_media_to_caption": { "edges": [{ "node": { "text": "Tour dates soon" } }] } } },
+          { "node": { "edge_media_to_caption": { "edges": [{ "node": { "text": "Fourth caption is not needed" } }] } } }
+        ]
+      },
+      "category_name": null,
+      "is_business_account": false,
+      "is_private": false,
+      "business_email": null,
+      "business_phone_number": null
+    }
+  },
+  "status": "ok"
+}

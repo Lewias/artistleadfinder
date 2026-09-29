@@ -17,21 +17,30 @@ from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
 from .discovery import DiscoveryEngine
 from .jobs import DiscoveryManager
+from .lead_scout import leads as scout_leads
 from .lead_scout.ai import AIKeyStore, OpenRouterClassifier
+from .lead_scout.decision import normalized_username
 from .lead_scout.settings import ScoutSettings
 from .models import (
     BrowserQueue,
     Lead,
     LeadAnalysis,
     LeadScoreBreakdown,
+    LeadScoutProfile,
     LeadSource,
     ProviderHealth,
     ScoutAssessment,
+    ScoutDecision,
     ScoutRun,
     SearchJob,
     Setting,
 )
 from .normalization import normalize
+from .outreach import events as outreach_events
+from .outreach.campaigns import CampaignService, iso
+from .outreach.senders import current_status, sent_counts, set_status
+from .outreach.settings import OutreachSettings, outreach_settings
+from .outreach.worker import OutreachWorker
 from .pacing import PacingSettings
 from .pipeline import CandidatePipeline
 from .providers import ImportedDatasetProvider, MockProvider
@@ -110,6 +119,25 @@ def lead_statement(query: LeadQuery):
     return stmt.order_by(field.desc() if query.descending else field.asc(), Lead.id.desc())
 
 
+def scout_summary(row: LeadScoutProfile | None) -> dict | None:
+    """Lead Scout columns of the CRM table: type, confidence, contacts, first source."""
+    if row is None:
+        return None
+    return {
+        "profile_type": row.profile_type,
+        "confidence": row.profile_confidence,
+        "emails": row.emails,
+        "phones": row.phones,
+        "source_username": row.source_username,
+        "discovery_method": row.discovery_method,
+        "last_seen_at": serialize_time(row.last_seen_at),
+    }
+
+
+def serialize_time(value: datetime | None) -> str | None:
+    return value.replace(tzinfo=timezone.utc).isoformat() if value else None
+
+
 DEFAULTS = {
     "min_followers": 1000,
     "max_followers": 50000,
@@ -120,6 +148,7 @@ DEFAULTS = {
     "weights": ScoringWeights().model_dump(),
     **PacingSettings().model_dump(),
     **ScoutSettings().model_dump(),
+    **OutreachSettings().model_dump(),
 }
 
 
@@ -151,6 +180,15 @@ class ApplicationService:
             ai=OpenRouterClassifier(self.ai_keys),
             debug_sink=self._save_scout_debug,
         )
+        # The job manager marked runs cut off by a crash as interrupted; finish that here.
+        self.scout.recover_interrupted()
+        # Outreach: campaigns and the send queue worked through the sender's browser.
+        self.campaigns = CampaignService(sessions, self.settings, self._sender_names)
+        self.outreach = OutreachWorker(sessions, self.settings, self.chromium.is_open)
+        # Sends cut off by a crash are checked against the message records, never resent.
+        self.outreach.recover()
+        with self.sessions.begin() as session:
+            outreach_events.prune(session)
         self.handlers = self._handlers()
 
     def settings(self) -> dict:
@@ -177,7 +215,7 @@ class ApplicationService:
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
             "browser.runtime.eval": lambda p: chromium.evaluate(
-                p["id"], p["script"], p.get("args")
+                p["id"], p["script"], p.get("args"), fresh=bool(p.get("fresh"))
             ),
             "scout.sources": lambda p: self.scout.sources(p.get("sources")),
             "scout.start_internal": lambda p: self.scout.start(p, self.settings()),
@@ -190,6 +228,31 @@ class ApplicationService:
             "scout.source_update": self.scout.update_source,
             "scout.source_remove": self.scout.remove_source,
             "scout.events": self.scout.event_list,
+            "scout.runs": self._scout_runs,
+            "scout.decisions": self._scout_decisions,
+            "scout.ignore": self._scout_ignore,
+            "outreach.templates": self.campaigns.templates,
+            "outreach.template_save": self.campaigns.save_template,
+            "outreach.template_render": self.campaigns.render_template,
+            "outreach.sequences": self.campaigns.sequences,
+            "outreach.sequence_save": self.campaigns.save_sequence,
+            "outreach.audience": self.campaigns.audience,
+            "outreach.preview": self.campaigns.preview,
+            "outreach.campaigns": self.campaigns.campaigns,
+            "outreach.campaign": self.campaigns.campaign,
+            "outreach.campaign_create": self.campaigns.create,
+            "outreach.campaign_start": self.campaigns.start,
+            "outreach.campaign_control": self.campaigns.control,
+            "outreach.recipients": self.campaigns.recipients,
+            "outreach.events": self.campaigns.event_list,
+            "outreach.senders": self._outreach_senders,
+            "outreach.sender_status": self._outreach_sender_status,
+            "outreach.mark_replied": self.campaigns.mark_replied,
+            "outreach.stop_conversation": self.campaigns.stop_conversation,
+            "outreach.resolve_review": self.outreach.resolve_review,
+            "outreach.next_internal": lambda p: self.outreach.next_job(),
+            "outreach.commit_internal": self.outreach.commit,
+            "leads.do_not_contact": self.campaigns.set_do_not_contact,
             "ai.status": lambda p: {"configured": self.ai_keys.configured()},
             "ai.set_key": self._set_ai_key,
             "scout.account_target": self.scout.set_target,
@@ -216,15 +279,55 @@ class ApplicationService:
             "leads.export": self.export,
         }
 
+    def _sender_names(self) -> dict[str, str]:
+        return {
+            profile["id"]: profile["name"]
+            for profile in self.browser_sessions.call("browser.list", {})
+        }
+
+    def _outreach_senders(self, params: dict) -> list[dict]:
+        """Browser profiles as sender accounts, with health, window and 24 h volume."""
+        profiles = self.browser_sessions.call("browser.list", {})
+        settings = outreach_settings(self.settings())
+        with self.sessions.begin() as session:
+            counts = sent_counts(session, [profile["id"] for profile in profiles])
+            result = []
+            for profile in profiles:
+                row = current_status(session, profile["id"])
+                result.append(
+                    {
+                        "id": profile["id"],
+                        "name": profile["name"],
+                        "has_session": profile["cookie_count"] > 0,
+                        "open": self.chromium.is_open(profile["id"]),
+                        "status": row.status,
+                        "reason": row.reason,
+                        "until": iso(row.until),
+                        "last_sent_at": iso(row.last_sent_at),
+                        "sent_24h": counts.get(profile["id"], 0),
+                        "daily_limit": settings.outreach_daily_limit_per_sender,
+                    }
+                )
+            return result
+
+    def _outreach_sender_status(self, params: dict) -> dict:
+        """Manual sender state: resume after the user fixed a login / checkpoint, or
+        pause / disable an account for outreach."""
+        status = params.get("status")
+        if status not in {"active", "paused", "disabled"}:
+            raise ValueError("Неизвестное состояние аккаунта.")
+        if params.get("id") not in self._sender_names():
+            raise ValueError("Аккаунт не найден.")
+        with self.sessions.begin() as session:
+            set_status(session, params["id"], status, None if status == "active" else "Вручную")
+        self.outreach.notified.pop(params["id"], None)
+        return {"ok": True}
+
     def _capture_error(self, params: dict) -> dict:
         job_id, reason = int(params["id"]), params["reason"]
         # Scout decides first: retry a transient failure or skip an unavailable page.
-        if self.scout.on_error(job_id, reason):
+        if self.scout.halt(job_id, reason):
             return {"ok": True, "continued": True}
-        if reason == "rate_limited":
-            profile_id = self.browser_capture.state(job_id)["profile_id"]
-            self.scout.pacer_for(profile_id).rate_limited(self.scout.pacing())
-        self.browser_capture.stop_with_error(job_id, reason)
         return {"ok": True}
 
     def _save_scout_debug(self, job_id: int, step: dict, payload: dict) -> None:
@@ -241,6 +344,7 @@ class ApplicationService:
             "kind": step.get("kind"),
             "source": step.get("source"),
             "reason": str(payload.get("reason", ""))[:200],
+            "message": str(payload.get("message", ""))[:300],
             "html": str(payload.get("html", ""))[:20000],
         }
         (folder / f"{name}.json").write_text(
@@ -272,6 +376,57 @@ class ApplicationService:
         rows = self.scout.accounts([profile["id"] for profile in profiles])
         return [{"profile": profile, **rows[profile["id"]]} for profile in profiles]
 
+    def _scout_runs(self, params: dict) -> list[dict]:
+        """Scout run history with metrics, newest first."""
+        limit = min(int(params.get("limit", 20)), 100)
+        with self.sessions() as session:
+            rows = session.execute(
+                select(ScoutRun, SearchJob)
+                .join(SearchJob, SearchJob.id == ScoutRun.job_id)
+                .order_by(ScoutRun.started_at.desc(), ScoutRun.job_id.desc())
+                .limit(limit)
+            )
+            result = []
+            for run, job in rows:
+                stats = run.stats or {}
+                status = "interrupted" if job.stage == "interrupted" else job.status
+                result.append(
+                    {
+                        "id": run.job_id,
+                        "status": status,
+                        "started_at": serialize(job)["started_at"],
+                        "finished_at": serialize(job)["completed_at"],
+                        "sources_total": len(stats.get("sources") or []),
+                        "sources_processed": len(stats.get("sources_done") or []),
+                        **{key: int(stats.get(key) or 0) for key in scout_leads.RUN_COUNTERS},
+                        "skips": stats.get("skips") or {},
+                        "current_source": stats.get("current_source"),
+                        "current_profile": stats.get("current_profile"),
+                    }
+                )
+            return result
+
+    def _scout_decisions(self, params: dict) -> list[dict]:
+        """Scout decision log (kept 30 days) for debugging a run."""
+        limit = min(int(params.get("limit", 200)), 500)
+        with self.sessions() as session:
+            query = select(ScoutDecision).order_by(ScoutDecision.id.desc()).limit(limit)
+            if params.get("job_id"):
+                query = query.where(ScoutDecision.job_id == int(params["job_id"]))
+            return [serialize(row) for row in session.scalars(query)]
+
+    def _scout_ignore(self, params: dict) -> dict:
+        """Add a username to the Scout ignore list (settings system)."""
+        username = normalized_username(str(params.get("username", "")))
+        if not username or len(username) > 30:
+            raise ValueError("Некорректное имя профиля.")
+        ignored = list(self.settings()["scout_ignore_usernames"])
+        if username not in {normalized_username(name) for name in ignored}:
+            ignored.append(username)
+            current = {key: value for key, value in self.settings().items() if key in DEFAULTS}
+            self._save_settings({**current, "scout_ignore_usernames": ignored})
+        return {"scout_ignore_usernames": ignored}
+
     def _system_info(self, params: dict) -> dict:
         return {
             "version": "0.1.0",
@@ -300,6 +455,7 @@ class ApplicationService:
         ScoringWeights.model_validate(settings["weights"])
         PacingSettings.model_validate(settings)
         ScoutSettings.model_validate(settings)
+        OutreachSettings.model_validate(settings)
         enabled = settings["enabled_providers"]
         if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
             raise ValueError("Источник недоступен.")
@@ -364,6 +520,12 @@ class ApplicationService:
             )
             ids = [lead.id for lead in leads]
             sources = list(session.scalars(select(LeadSource).where(LeadSource.lead_id.in_(ids))))
+            scout = {
+                row.lead_id: row
+                for row in session.scalars(
+                    select(LeadScoutProfile).where(LeadScoutProfile.lead_id.in_(ids))
+                )
+            }
             availability = {
                 item.lead_id: item.extracted_signals.get("browser_capture", {}).get(
                     "unknown_fields", []
@@ -381,6 +543,7 @@ class ApplicationService:
                         "sources": [
                             serialize(source) for source in sources if source.lead_id == lead.id
                         ],
+                        "scout_profile": scout_summary(scout.get(lead.id)),
                     }
                     for lead in leads
                 ],
@@ -393,9 +556,28 @@ class ApplicationService:
                 raise ValueError("Профиль не найден.")
             analysis = session.get(LeadAnalysis, lead.id)
             scout = session.get(ScoutAssessment, lead.id)
+            profile = session.get(LeadScoutProfile, lead.id)
             return {
                 **serialize(lead),
                 "scout": self.scout.summary(scout.details) if scout else None,
+                # Profile type decided by the classifier (local rules, optionally AI).
+                "classification": {
+                    "category": profile.profile_type,
+                    "confidence": profile.profile_confidence,
+                    "decided_by": profile.profile_decided_by,
+                    "reasons": profile.profile_reasons[:6],
+                    "ai_model": profile.ai_model,
+                    "local_category": profile.local_category,
+                    "local_confidence": profile.local_confidence,
+                    "ai_category": profile.ai_category,
+                    "ai_confidence": profile.ai_confidence,
+                }
+                if profile
+                else None,
+                "scout_profile": scout_summary(profile),
+                "outreach": self.campaigns.lead_outreach(session, lead),
+                # Every SMM source and method the lead was found through.
+                "found_via": scout_leads.source_history(session, lead.id),
                 "analysis": serialize(analysis) if analysis else None,
                 "breakdown": [
                     serialize(item)

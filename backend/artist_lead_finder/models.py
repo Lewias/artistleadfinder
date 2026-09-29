@@ -83,6 +83,9 @@ class Lead(Base):
     status: Mapped[str] = mapped_column(String(20), default="new")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    # Schema 10: never message this lead; outreach contact bookkeeping.
+    do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_contacted_at: Mapped[datetime | None]
 
 
 class LeadSource(Base):
@@ -178,6 +181,11 @@ class ScoutSource(Base):
     status: Mapped[str] = mapped_column(String(40), default="new")
     leads_found: Mapped[int] = mapped_column(default=0)
     added_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Schema 9: totals over all runs, shown in the source table.
+    candidates_found: Mapped[int] = mapped_column(default=0)
+    profiles_resolved: Mapped[int] = mapped_column(default=0)
+    profiles_skipped: Mapped[int] = mapped_column(default=0)
+    errors_count: Mapped[int] = mapped_column(default=0)
 
 
 class ScoutRun(Base):
@@ -191,6 +199,8 @@ class ScoutRun(Base):
     found: Mapped[int] = mapped_column(default=0)
     # Schema 5: progress counters, current source/profile and finished sources.
     stats: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Schema 9: run history order; status and finish time live in search_jobs.
+    started_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
 
 class ScoutProcessedProfile(Base):
@@ -201,8 +211,13 @@ class ScoutProcessedProfile(Base):
     source_username: Mapped[str] = mapped_column(String(40))
     method: Mapped[str] = mapped_column(String(20))
     result: Mapped[str] = mapped_column(String(20))
+    # Skip reason; DUPLICATE_LEAD for a lead that was found again.
     reason: Mapped[str | None] = mapped_column(String(40))
     processed_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Schema 9: identity and classification at decision time.
+    instagram_user_id: Mapped[str | None] = mapped_column(String(40))
+    category: Mapped[str | None] = mapped_column(String(20))
+    confidence: Mapped[int | None]
 
 
 class ScoutProcessedPost(Base):
@@ -231,13 +246,43 @@ class ScoutProcessedStory(Base):
     last_error: Mapped[str | None] = mapped_column(String(200))
 
 
-class ScoutAICache(Base):
-    __tablename__ = "scout_ai_cache"
-    username: Mapped[str] = mapped_column(String(40), primary_key=True)
+class ScoutAIClassification(Base):
+    """Schema 8: AI answers keyed by a hash of the classified profile fields; answers of
+    another classifier version are ignored."""
+
+    __tablename__ = "scout_ai_classifications"
+    profile_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(String(40), index=True)
     category: Mapped[str] = mapped_column(String(20))
     confidence: Mapped[int]
     model: Mapped[str] = mapped_column(String(120))
+    classifier_version: Mapped[str] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutPendingAIJob(Base):
+    """Schema 8: AI classifications that failed transiently, retried with backoff."""
+
+    __tablename__ = "scout_pending_ai_jobs"
+    profile_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(String(40))
+    # Classifier input (public profile fields) and the caller's context (scout task).
+    profile: Mapped[dict] = mapped_column(JSON)
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None] = mapped_column(String(200))
+    retry_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutProfileCache(Base):
+    """Schema 7: resolved Instagram profiles, reused within the configured TTL."""
+
+    __tablename__ = "scout_profile_cache"
+    username: Mapped[str] = mapped_column(String(40), primary_key=True)
+    profile: Mapped[dict] = mapped_column(JSON)
+    source: Mapped[str] = mapped_column(String(10))
+    resolved_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class ScoutState(Base):
@@ -278,8 +323,60 @@ class LeadScoutProfile(Base):
     origin_url: Mapped[str | None] = mapped_column(String(2048))
     ai_model: Mapped[str | None] = mapped_column(String(120))
     ai_confidence: Mapped[int | None]
+    # Schema 8: "local", "ai" or "local+ai".
+    profile_decided_by: Mapped[str] = mapped_column(String(10), default="local")
+    # Schema 9: remaining NormalizedInstagramProfile fields and both classifier opinions.
+    category_name: Mapped[str | None] = mapped_column(String(120))
+    is_business: Mapped[bool | None]
+    bio_links: Mapped[list[str]] = mapped_column(JSON, default=list)
+    local_category: Mapped[str | None] = mapped_column(String(20))
+    local_confidence: Mapped[int | None]
+    ai_category: Mapped[str | None] = mapped_column(String(20))
+    origin_id: Mapped[str | None] = mapped_column(String(120))
     first_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ScoutLeadSource(Base):
+    """Schema 9: every SMM source and method a lead was found through."""
+
+    __tablename__ = "scout_lead_sources"
+    __table_args__ = (
+        UniqueConstraint("lead_id", "source_username", "discovery_method", name="uq_scout_source"),
+        Index("ix_scout_lead_sources_lead", "lead_id"),
+        Index("ix_scout_lead_sources_source", "source_username"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"))
+    source_username: Mapped[str] = mapped_column(String(40))
+    discovery_method: Mapped[str] = mapped_column(String(20))
+    origin_id: Mapped[str | None] = mapped_column(String(120))
+    origin_url: Mapped[str | None] = mapped_column(String(2048))
+    first_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
+    times_seen: Mapped[int] = mapped_column(default=1)
+
+
+class ScoutDecision(Base):
+    """Schema 9: Scout decision log for debugging; pruned with the events (30 days)."""
+
+    __tablename__ = "scout_decisions"
+    __table_args__ = (
+        Index("ix_scout_decisions_job", "job_id", "id"),
+        Index("ix_scout_decisions_created", "created_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("search_jobs.id"))
+    username: Mapped[str] = mapped_column(String(40))
+    source_username: Mapped[str] = mapped_column(String(40))
+    decision: Mapped[str] = mapped_column(String(20))  # lead_created | lead_updated | skipped
+    skip_reason: Mapped[str | None] = mapped_column(String(40))
+    details: Mapped[str | None] = mapped_column(String(300))
+    category: Mapped[str | None] = mapped_column(String(20))
+    confidence: Mapped[int | None]
+    followers: Mapped[int | None]
+    contacts_present: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class ScoutAccount(Base):
@@ -308,3 +405,213 @@ class ScoutAssessment(Base):
     priority: Mapped[int] = mapped_column(default=0)
     details: Mapped[dict] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+# ---------- Outreach (schema 10) ----------
+
+
+class OutreachTemplate(Base):
+    __tablename__ = "outreach_templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(4000))
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class FollowUpSequence(Base):
+    """Follow-up steps after an initial message: [{delay_days, template_id}]."""
+
+    __tablename__ = "outreach_followup_sequences"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    steps: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class OutreachCampaign(Base):
+    __tablename__ = "outreach_campaigns"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft','scheduled','running','paused','completed','cancelled','failed')"
+        ),
+        CheckConstraint("sender_strategy IN ('single','round_robin')"),
+        Index("ix_outreach_campaigns_status", "status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    # UTC; None starts on "Start Campaign".
+    scheduled_at: Mapped[datetime | None]
+    template_id: Mapped[int] = mapped_column(ForeignKey("outreach_templates.id"))
+    followup_sequence_id: Mapped[int | None] = mapped_column(
+        ForeignKey("outreach_followup_sequences.id")
+    )
+    sender_strategy: Mapped[str] = mapped_column(String(20), default="single")
+    # Browser profile ids chosen as senders.
+    sender_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    total_recipients: Mapped[int] = mapped_column(default=0)
+    queued_count: Mapped[int] = mapped_column(default=0)
+    sent_count: Mapped[int] = mapped_column(default=0)
+    skipped_count: Mapped[int] = mapped_column(default=0)
+    failed_count: Mapped[int] = mapped_column(default=0)
+    replied_count: Mapped[int] = mapped_column(default=0)
+
+
+class CampaignRecipient(Base):
+    __tablename__ = "campaign_recipients"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "lead_id", name="uq_campaign_recipient"),
+        CheckConstraint(
+            "status IN ('pending','queued','sending','sent','skipped','failed','cancelled')"
+        ),
+        Index("ix_campaign_recipients_status", "campaign_id", "status"),
+        Index("ix_campaign_recipients_lead", "lead_id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="CASCADE")
+    )
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"))
+    username: Mapped[str] = mapped_column(String(160))
+    sender_account_id: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    skip_reason: Mapped[str | None] = mapped_column(String(40))
+    failure_reason: Mapped[str | None] = mapped_column(String(40))
+    # Readable detail of a skip or failure (never a raw platform response).
+    reason_details: Mapped[str | None] = mapped_column(String(300))
+    queued_at: Mapped[datetime | None]
+    sent_at: Mapped[datetime | None]
+    failed_at: Mapped[datetime | None]
+    replied_at: Mapped[datetime | None]
+    # The browser may have sent the message but no result came back (crash, timeout):
+    # never resent automatically; the user checks the Instagram thread.
+    needs_review: Mapped[bool] = mapped_column(default=False)
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id"))
+    rendered_message: Mapped[str | None] = mapped_column(String(4000))
+
+
+class OutboundMessageJob(Base):
+    __tablename__ = "outbound_message_jobs"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','ready','sending','sent','failed','cancelled')"),
+        Index("ix_outbound_jobs_due", "status", "scheduled_at"),
+        Index("ix_outbound_jobs_sender", "sender_account_id", "status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="CASCADE")
+    )
+    recipient_id: Mapped[int] = mapped_column(
+        ForeignKey("campaign_recipients.id", ondelete="CASCADE")
+    )
+    # initial-outreach:<campaignId>:<leadId>; one job and at most one message per key.
+    idempotency_key: Mapped[str] = mapped_column(String(120), unique=True)
+    sender_account_id: Mapped[str] = mapped_column(String(32))
+    scheduled_at: Mapped[datetime] = mapped_column(default=utcnow)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    # Set when the worker hands the job to the browser; the result must bring it back.
+    claim_token: Mapped[str | None] = mapped_column(String(40))
+    claimed_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    sent_at: Mapped[datetime | None]
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint("lead_id", "platform", "sender_account_id", name="uq_conversation"),
+        CheckConstraint("status IN ('waiting_reply','replied','stopped')"),
+        Index("ix_conversations_lead", "lead_id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"))
+    platform: Mapped[str] = mapped_column(String(40), default="instagram")
+    sender_account_id: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(20), default="waiting_reply")
+    platform_thread_id: Mapped[str | None] = mapped_column(String(80))
+    first_outbound_at: Mapped[datetime | None]
+    last_outbound_at: Mapped[datetime | None]
+    last_inbound_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    __table_args__ = (
+        CheckConstraint("direction IN ('outbound','inbound')"),
+        CheckConstraint("type IN ('initial','followup','reply')"),
+        Index("ix_messages_conversation", "conversation_id", "id"),
+        Index("ix_messages_sender_sent", "sender_account_id", "sent_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
+    direction: Mapped[str] = mapped_column(String(10))
+    type: Mapped[str] = mapped_column(String(10))
+    body: Mapped[str] = mapped_column(String(4000), default="")
+    sender_account_id: Mapped[str | None] = mapped_column(String(32))
+    sent_at: Mapped[datetime] = mapped_column(default=utcnow)
+    platform_message_id: Mapped[str | None] = mapped_column(String(80))
+    campaign_id: Mapped[int | None] = mapped_column(ForeignKey("outreach_campaigns.id"))
+    # Same key as the job: a second record of one initial message is impossible.
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
+
+
+class FollowUpJob(Base):
+    """Planned follow-ups; sending them is the follow-up module's job."""
+
+    __tablename__ = "outreach_followup_jobs"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence_id", "step_index", name="uq_followup_step"),
+        CheckConstraint("status IN ('pending','sent','cancelled','failed')"),
+        Index("ix_followup_jobs_due", "status", "scheduled_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
+    sequence_id: Mapped[int] = mapped_column(ForeignKey("outreach_followup_sequences.id"))
+    step_index: Mapped[int]
+    template_id: Mapped[int] = mapped_column(ForeignKey("outreach_templates.id"))
+    scheduled_at: Mapped[datetime]
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    cancel_reason: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class OutreachSender(Base):
+    """Sender account health, keyed by browser profile id."""
+
+    __tablename__ = "outreach_senders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active','paused','auth_required','checkpoint','rate_limited','disabled')"
+        ),
+    )
+    profile_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    reason: Mapped[str | None] = mapped_column(String(300))
+    # rate_limited: the break ends here; other statuses wait for the user.
+    until: Mapped[datetime | None]
+    last_sent_at: Mapped[datetime | None]
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class OutreachEvent(Base):
+    __tablename__ = "outreach_events"
+    __table_args__ = (
+        Index("ix_outreach_events_campaign", "campaign_id", "id"),
+        Index("ix_outreach_events_created", "created_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int | None] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="CASCADE")
+    )
+    type: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

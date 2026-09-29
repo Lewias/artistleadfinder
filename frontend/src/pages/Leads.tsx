@@ -1,20 +1,22 @@
 import { useState } from 'react';
-import { FilterX, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { FilterX, RefreshCw, Search, Send, SlidersHorizontal } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type { DashboardData, Lead, LeadQuery } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
 import { defaultQuery } from '../services/leadQuery';
-import { number, date, activity, genres, sourceLabels, statusLabels } from '../lib/format';
+import { number, date, genres, sourceLabels, statusLabels } from '../lib/format';
 import { DataState, StatusBadge } from '../components/DataState';
 import { LeadDetail } from '../components/LeadDetail';
 import { Button } from '../components/ui/button';
 import { ExportBar } from '../components/ExportBar';
+import { categoryLabels, methodLabel } from '../components/scoutStatus';
 
-export function Leads({ jobId }: { jobId?: number }) {
+export function Leads({ jobId, onCampaign }: { jobId?: number; onCampaign?: (ids: number[]) => void }) {
   const [query, setQuery] = useState<LeadQuery>({ ...defaultQuery, ...(jobId ? { job_id: jobId } : {}) });
   const [selected, setSelected] = useState<number[]>([]);
   const [detail, setDetail] = useState<number>();
-  const resource = useResource<{ items: Lead[]; total: number }>('leads.list', query);
+  // Polled so that leads saved by a running Scout appear without a manual refresh.
+  const resource = useResource<{ items: Lead[]; total: number }>('leads.list', query, 5000);
   const update = <K extends keyof LeadQuery>(key: K, value: LeadQuery[K]) =>
     setQuery(current => ({ ...current, page: 1, [key]: value }));
   const toggle = (id: number) =>
@@ -33,6 +35,15 @@ export function Leads({ jobId }: { jobId?: number }) {
         <FilterX size={15} /> Сбросить
       </Button>
       <ExportBar query={query} selected={selected} />
+      {onCampaign && (
+        <Button
+          disabled={!selected.length}
+          onClick={() => onCampaign(selected)}
+          title="Выберите лидов в таблице"
+        >
+          <Send size={15} /> Создать кампанию
+        </Button>
+      )}
     </>
   );
   return (
@@ -179,14 +190,14 @@ export function Leads({ jobId }: { jobId?: number }) {
                       }
                     />
                   </th>
-                  <th>Артист</th>
-                  <th>Жанр</th>
+                  <th>Instagram</th>
+                  <th>Тип</th>
                   <th>Подписчики</th>
-                  <th>Оценка</th>
-                  <th>Активность</th>
+                  <th>Контакты</th>
                   <th>Источник</th>
+                  <th>Оценка</th>
                   <th>Статус</th>
-                  <th>Открыт</th>
+                  <th>Дата</th>
                 </tr>
               </thead>
               <tbody>
@@ -209,32 +220,62 @@ export function Leads({ jobId }: { jobId?: number }) {
                         </span>
                       </button>
                     </td>
-                    <td>{lead.primary_genre || '—'}</td>
+                    <td>
+                      {lead.scout_profile ? (
+                        <span title={lead.primary_genre || undefined}>
+                          {categoryLabels[lead.scout_profile.profile_type]}{' '}
+                          <small>{lead.scout_profile.confidence}%</small>
+                        </span>
+                      ) : (
+                        lead.primary_genre || '—'
+                      )}
+                    </td>
                     <td>
                       {lead.unknown_fields?.includes('followers') ? 'Нет данных' : number(lead.followers)}
+                    </td>
+                    <td className="contact-cell">
+                      {lead.scout_profile?.emails[0] || lead.scout_profile?.phones[0] ? (
+                        <>
+                          {lead.scout_profile.emails[0] && (
+                            <span title={lead.scout_profile.emails.join('\n')}>
+                              {lead.scout_profile.emails[0]}
+                            </span>
+                          )}
+                          {lead.scout_profile.phones[0] && <small>{lead.scout_profile.phones[0]}</small>}
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className="source-chip"
+                        title={[
+                          lead.scout_profile
+                            ? `Найден через: ${methodLabel(lead.scout_profile.discovery_method)}`
+                            : '',
+                          ...lead.sources.map(source => `${source.source_type}: ${source.source_value}`),
+                        ]
+                          .filter(Boolean)
+                          .join('\n')}
+                      >
+                        {lead.scout_profile
+                          ? `@${lead.scout_profile.source_username}`
+                          : [
+                              ...new Set(
+                                lead.sources.map(
+                                  source => sourceLabels[source.source_provider] || source.source_provider,
+                                ),
+                              ),
+                            ].join(', ')}
+                      </span>
                     </td>
                     <td>
                       <span className="score-pill">{lead.lead_score}</span>
                     </td>
-                    <td>{activity(lead.last_activity_at)}</td>
-                    <td>
-                      <span
-                        className="source-chip"
-                        title={lead.sources
-                          .map(source => `${source.source_type}: ${source.source_value}`)
-                          .join('\n')}
-                      >
-                        {[
-                          ...new Set(
-                            lead.sources.map(
-                              source => sourceLabels[source.source_provider] || source.source_provider,
-                            ),
-                          ),
-                        ].join(', ')}
-                      </span>
-                    </td>
                     <td>
                       <StatusBadge value={lead.status} label={statusLabels[lead.status]} />
+                      {lead.do_not_contact && <small className="cell-sub dnc-mark">Не связываться</small>}
                     </td>
                     <td>{date(lead.created_at)}</td>
                   </tr>
