@@ -48,7 +48,7 @@ foreach ($directory in $portableDirectories) {
         throw "Portable copy verification failed: $directory"
     }
 }
-$installer = Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' | Select-Object -First 1
+$installer = Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($null -eq $installer) { throw 'NSIS installer not found.' }
 New-Item -ItemType Directory -Path 'artifacts' -Force | Out-Null
 Copy-Item -LiteralPath $installer.FullName -Destination 'artifacts/ArtistLeadFinder-Setup.exe'

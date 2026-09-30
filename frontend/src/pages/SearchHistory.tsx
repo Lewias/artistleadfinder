@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Trash2 } from 'lucide-react';
+import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import type { SearchJob } from '../services/types';
 import { number, date, statusLabels } from '../lib/format';
@@ -7,6 +9,9 @@ import { JobProgress } from '../components/JobProgress';
 import { Button } from '../components/ui/button';
 import { Leads } from './Leads';
 import { PageHeader } from '../components/PageHeader';
+import { Modal } from '../components/Modal';
+
+const active = ['queued', 'running', 'paused'];
 
 function duration(job: SearchJob) {
   if (!job.started_at) return '—';
@@ -21,10 +26,36 @@ function duration(job: SearchJob) {
 export function SearchHistory() {
   const resource = useResource<SearchJob[]>('jobs.list', {}, 2000);
   const [selected, setSelected] = useState<number>();
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const job = resource.data?.find(item => item.id === selected);
+  const finished = resource.data?.filter(item => !active.includes(item.status)).length ?? 0;
+  const clear = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.request('jobs.clear_history');
+      setSelected(undefined);
+      setConfirm(false);
+    } catch (err) {
+      setError(String(err).replace(/^Error:\s*/, ''));
+    } finally {
+      setBusy(false);
+      resource.refresh();
+    }
+  };
   return (
     <>
-      <PageHeader page="history" count={resource.data?.length} />
+      <PageHeader
+        page="history"
+        count={resource.data?.length}
+        actions={
+          <Button variant="outline" disabled={!finished} onClick={() => setConfirm(true)}>
+            <Trash2 size={15} /> Очистить всё
+          </Button>
+        }
+      />
       <DataState {...resource} retry={resource.refresh} />
       {resource.data && (
         <>
@@ -106,6 +137,27 @@ export function SearchHistory() {
           </div>
           <Leads key={job.id} jobId={job.id} />
         </div>
+      )}
+      {confirm && (
+        <Modal title="Очистить историю?" onClose={() => setConfirm(false)}>
+          <p className="helper">
+            Завершённые поиски пропадут из истории. Найденные артисты останутся в базе, активные поиски не
+            затрагиваются.
+          </p>
+          {error && (
+            <p role="alert" className="error-text">
+              {error}
+            </p>
+          )}
+          <div className="actions">
+            <Button variant="danger" disabled={busy} onClick={() => void clear()}>
+              <Trash2 size={15} /> Очистить
+            </Button>
+            <Button variant="outline" onClick={() => setConfirm(false)}>
+              Отмена
+            </Button>
+          </div>
+        </Modal>
       )}
     </>
   );

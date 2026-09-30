@@ -44,7 +44,7 @@ export function Dashboard({ navigate }: { navigate: (page: PageId) => void }) {
               услуг.
             </p>
             <Button onClick={() => navigate('discovery')}>
-              Перейти к скаутингу <ArrowRight size={16} />
+              Перейти к парсеру <ArrowRight size={16} />
             </Button>
           </div>
           <Compass size={96} strokeWidth={0.8} />

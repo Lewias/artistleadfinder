@@ -12,6 +12,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 
 from .browser_sessions import BrowserSessions
 from .database import application_data_dir
+from .direct_message import send_direct
 
 # Windows: Chromium is frozen into the core (Playwright's "0" location). macOS: PyInstaller
 # cannot re-sign Chromium's app bundle, so it is downloaded once into the app data folder,
@@ -279,6 +280,14 @@ class ChromiumRuntime:
             if not self._window(identifier):
                 raise ValueError("Browser window is closed") from None
         return {"ok": True, "rate_limited": window.rate_limited}
+
+    def send_message(self, identifier: str, username: str, text: str) -> dict:
+        """One outreach message through Instagram's interface in the open profile page."""
+        window = self._window(identifier)
+        if not window:
+            raise ValueError("Browser window is closed")
+        window.rate_limited = False
+        return send_direct(window.page, username, text, rate_limited=lambda: window.rate_limited)
 
     def evaluate(self, identifier: str, script: str, args=None, fresh: bool = False) -> dict:
         """Run a page script. `fresh` starts a new request window without navigating (the

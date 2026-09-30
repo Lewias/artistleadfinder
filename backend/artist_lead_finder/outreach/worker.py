@@ -2,8 +2,9 @@
 records the result.
 
 The desktop shell polls `next_job`; the chosen job is claimed (ready → sending, with a
-token) in the same transaction that re-checks it. The shell runs the send script in the
-sender's open Instagram tab and returns the result to `commit`.
+token) in the same transaction that re-checks it. The shell opens the recipient's profile
+in the sender's browser window, sends the message through Instagram's interface there
+(`direct_message`) and returns the result to `commit`.
 
 No duplicate messages:
 - one job and at most one message per idempotency key initial-outreach:<campaign>:<lead>
@@ -53,6 +54,12 @@ RETRY_BACKOFF_MINUTES = (2, 10, 30, 60)
 #   unconfirmed  the message may have gone out: failed + needs_review, never resent
 OUTCOMES = {
     "network": ("retry", reasons.NETWORK_ERROR, "Сетевая ошибка до отправки"),
+    "dialog": ("retry", reasons.NETWORK_ERROR, "Не открылся диалог с получателем"),
+    "typing_mismatch": (
+        "retry",
+        reasons.SEND_ERROR,
+        "Текст в поле сообщения не совпал — не отправлено",
+    ),
     "no_instagram_tab": (
         "sender",
         reasons.SENDER_UNAVAILABLE,
@@ -62,6 +69,11 @@ OUTCOMES = {
     "checkpoint": ("sender", reasons.CHECKPOINT, "Instagram требует подтверждение (checkpoint)"),
     "rate_limited": ("sender", reasons.RATE_LIMITED, "Instagram ограничил действия аккаунта"),
     "not_found": ("failed", reasons.RECIPIENT_UNAVAILABLE, "Профиль получателя недоступен"),
+    "messages_closed": (
+        "failed",
+        reasons.MESSAGES_CLOSED,
+        "В профиле только «Подписаться» — этому аккаунту нельзя написать",
+    ),
     "rejected": ("failed", reasons.MESSAGE_REJECTED, "Instagram отклонил сообщение"),
     "bad_request": ("failed", reasons.SEND_ERROR, "Некорректные данные отправки"),
     "unconfirmed": (
@@ -90,7 +102,15 @@ def classify(result: object) -> tuple[str, str | None, str]:
         return UNKNOWN_OUTCOME
     if result.get("outcome") == "sent":
         return ("sent", None, "")
-    return OUTCOMES.get(str(result.get("error") or ""), UNKNOWN_OUTCOME)
+    kind, reason, details = OUTCOMES.get(str(result.get("error") or ""), UNKNOWN_OUTCOME)
+    # Instagram's HTTP status, so a refusal can be told apart later.
+    status = result.get("status")
+    if isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599:
+        details = f"{details} (HTTP {status})"
+    expected, actual = result.get("expected_length"), result.get("actual_length")
+    if isinstance(expected, int) and isinstance(actual, int):
+        details = f"{details} (набрано {actual} из {expected} символов)"
+    return kind, reason, details
 
 
 class OutreachWorker:

@@ -4,6 +4,7 @@ import {
   Copy,
   CornerDownLeft,
   Filter,
+  LayoutGrid,
   LayoutTemplate,
   Plus,
   Send,
@@ -30,6 +31,7 @@ import {
 } from '../components/outreach/outreachList';
 import { CrmModal, OutreachSettingsModal, TemplatesModal } from '../components/outreach/OutreachModals';
 import { Modal } from '../components/Modal';
+import { errorText } from '../components/accountRuns';
 
 type Dialog = 'crm' | 'templates' | 'settings' | 'clear-users' | 'clear-messages' | null;
 
@@ -61,7 +63,7 @@ export function Outreach() {
       setState(await api.request<OutreachWorkspace>(method, params));
       return true;
     } catch (err) {
-      setError(String(err).replace(/^Error:\s*/, ''));
+      setError(errorText(err));
       return false;
     } finally {
       setBusy(false);
@@ -81,6 +83,23 @@ export function Outreach() {
   };
   const addMessages = (texts: string[]) =>
     texts.length ? save({ messages: [...messages, ...texts] }) : Promise.resolve(false);
+
+  // «Массовый» edits the whole list as text; «Карточки» saves it back.
+  const toggleUserBulk = () => {
+    if (userBulk === null) return setUserBulk(names.join('\n'));
+    const { usernames: parsed, invalid } = parseUsernames(userBulk);
+    if (invalid.length) return setError(`Не похоже на username: ${invalid.slice(0, 3).join(', ')}`);
+    if (parsed.join('\n') === names.join('\n')) return setUserBulk(null);
+    if (!parsed.length) return setDialog('clear-users');
+    void save({ usernames: parsed }).then(ok => ok && setUserBulk(null));
+  };
+  const toggleMessageBulk = () => {
+    if (messageBulk === null) return setMessageBulk(messages.join('\n\n'));
+    const parsed = parseMessages(messageBulk);
+    if (parsed.join('\n\n') === messages.join('\n\n')) return setMessageBulk(null);
+    if (!parsed.length) return setDialog('clear-messages');
+    void save({ messages: parsed }).then(ok => ok && setMessageBulk(null));
+  };
 
   const onUserKey = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return;
@@ -106,6 +125,43 @@ export function Outreach() {
   const running = !!state?.running;
   const selected = (senders.data ?? []).filter(item => state?.sender_ids.includes(item.id));
   const ready = selected.some(item => item.status === 'active' && item.open);
+
+  // Like the parser: the sender windows open by themselves and the queue finds each
+  // recipient's profile there. With one account and none chosen, that one sends.
+  const openSenders = async (ids: string[]) => {
+    const closed = (senders.data ?? []).filter(item => ids.includes(item.id) && !item.open);
+    for (const item of closed) await api.browser('open', { id: item.id });
+    if (closed.length) senders.refresh();
+  };
+  const start = async () => {
+    const all = senders.data ?? [];
+    let ids = state?.sender_ids ?? [];
+    if (!ids.length && all.length === 1) {
+      ids = [all[0].id];
+      if (!(await save({ sender_ids: ids }))) return;
+    }
+    if (!ids.length) {
+      setError('Выберите аккаунт-отправитель в «Настройках».');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await openSenders(ids);
+    } catch (err) {
+      setError(`Не удалось открыть браузер: ${errorText(err)}`);
+      return;
+    } finally {
+      setBusy(false);
+    }
+    if (await call('outreach.workspace_start')) setNotice('');
+  };
+  const reopen = () => {
+    setBusy(true);
+    openSenders(state?.sender_ids ?? [])
+      .catch(err => setError(`Не удалось открыть браузер: ${errorText(err)}`))
+      .finally(() => setBusy(false));
+  };
   let status: ReactNode = 'Остановлен';
   if (running && campaign) {
     const done = campaign.sent_count + campaign.failed_count + campaign.skipped_count;
@@ -116,7 +172,13 @@ export function Outreach() {
         <>
           Идёт рассылка · отправлено {number(campaign.sent_count)} из {number(campaign.total_recipients)}
           {done < campaign.total_recipients && !ready && (
-            <span className="board-warning"> · ждёт аккаунт: откройте окно отправителя на instagram.com</span>
+            <span className="board-warning">
+              {' '}
+              · ждёт аккаунт ·{' '}
+              <button type="button" className="link-button" disabled={busy} onClick={reopen}>
+                открыть браузер
+              </button>
+            </span>
           )}
         </>
       );
@@ -125,39 +187,51 @@ export function Outreach() {
   }
 
   return (
-    <>
+    <div className="screen">
       <PageHeader
         page="outreach"
         count={`${accountsLabel(usernames.length)} · ${messagesLabel(messages.length)}`}
       />
-      <section className="panel outreach-board">
-        <div className="chip-cloud outreach-chips" aria-label="Аккаунты для рассылки">
-          {usernames.map(item => (
-            <span
-              key={item.username}
-              className={`chip outreach-chip ${chipTone[item.status] ?? ''}`}
-              title={chipTitle(item)}
-            >
-              {item.username}
-              <button
-                type="button"
-                aria-label={`Убрать ${item.username}`}
-                disabled={busy}
-                onClick={() => void save({ usernames: names.filter(name => name !== item.username) })}
-              >
-                <X size={13} />
-              </button>
-            </span>
-          ))}
-          {!usernames.length && (
-            <p className="empty-copy">
-              Список пуст. Добавьте usernames ниже, вставьте список через «Массовый» или возьмите лидов по
-              статусу из CRM.
-            </p>
-          )}
-        </div>
-
+      <section className="panel board outreach-board">
         {userBulk === null ? (
+          <div className="chip-cloud board-chips" aria-label="Аккаунты для рассылки">
+            {usernames.map(item => (
+              <span
+                key={item.username}
+                className={`chip board-chip ${chipTone[item.status] ?? ''}`}
+                title={chipTitle(item)}
+              >
+                {item.username}
+                <button
+                  type="button"
+                  aria-label={`Убрать ${item.username}`}
+                  disabled={busy}
+                  onClick={() => void save({ usernames: names.filter(name => name !== item.username) })}
+                >
+                  <X size={13} />
+                </button>
+              </span>
+            ))}
+            {!usernames.length && (
+              <p className="empty-copy">
+                Список пуст. Добавьте usernames ниже, вставьте список через «Массовый» или возьмите лидов по
+                статусу из CRM.
+              </p>
+            )}
+          </div>
+        ) : (
+          <textarea
+            className="board-bulk"
+            autoFocus
+            aria-label="Список usernames, по одному в строке"
+            placeholder={'getabag.bo\n@shotbyjae_\nhttps://www.instagram.com/vezolotti/'}
+            value={userBulk}
+            disabled={busy}
+            onChange={event => setUserBulk(event.target.value)}
+          />
+        )}
+
+        {userBulk === null && (
           <label className="chip-input">
             <AtSign size={17} aria-hidden="true" />
             <input
@@ -172,33 +246,12 @@ export function Outreach() {
               <CornerDownLeft size={13} />
             </kbd>
           </label>
-        ) : (
-          <div className="bulk-input">
-            <textarea
-              rows={5}
-              autoFocus
-              aria-label="Список usernames"
-              placeholder={'getabag.bo\n@shotbyjae_\nhttps://www.instagram.com/vezolotti/'}
-              value={userBulk}
-              onChange={event => setUserBulk(event.target.value)}
-            />
-            <div className="actions">
-              <Button
-                disabled={busy || !userBulk.trim()}
-                onClick={() => void addUsers(userBulk).then(ok => ok && setUserBulk(null))}
-              >
-                Добавить
-              </Button>
-              <Button variant="outline" onClick={() => setUserBulk(null)}>
-                Отмена
-              </Button>
-            </div>
-          </div>
         )}
 
         <div className="board-toolbar">
-          <Button variant="outline" onClick={() => setUserBulk(userBulk === null ? '' : null)}>
-            <SquarePen size={15} /> Массовый
+          <Button variant="outline" disabled={busy} onClick={toggleUserBulk}>
+            {userBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
+            {userBulk === null ? 'Массовый' : 'Карточки'}
           </Button>
           <Button variant="outline" onClick={() => setDialog('crm')}>
             <Tag size={15} /> CRM Метки
@@ -232,11 +285,11 @@ export function Outreach() {
           <h2>Сообщения</h2>
           <span className="helper">Enter — добавить, Shift+Enter — новая строка</span>
         </div>
-        {messages.length > 0 && (
+        {messageBulk === null && (
           <div className="message-grid">
             {messages.map((text, index) => (
               <div className="message-card" key={text}>
-                <p>{text}</p>
+                <p title={text}>{text}</p>
                 <button
                   type="button"
                   aria-label={`Удалить сообщение ${index + 1}`}
@@ -262,29 +315,15 @@ export function Outreach() {
             onKeyDown={onMessageKey}
           />
         ) : (
-          <div className="bulk-input">
-            <textarea
-              rows={6}
-              autoFocus
-              aria-label="Список сообщений"
-              placeholder={'Первое сообщение\n\nВторое сообщение — отделяйте пустой строкой'}
-              value={messageBulk}
-              onChange={event => setMessageBulk(event.target.value)}
-            />
-            <div className="actions">
-              <Button
-                disabled={busy || !messageBulk.trim()}
-                onClick={() =>
-                  void addMessages(parseMessages(messageBulk)).then(ok => ok && setMessageBulk(null))
-                }
-              >
-                Добавить
-              </Button>
-              <Button variant="outline" onClick={() => setMessageBulk(null)}>
-                Отмена
-              </Button>
-            </div>
-          </div>
+          <textarea
+            className="board-bulk message-bulk"
+            autoFocus
+            aria-label="Список сообщений, отделяйте пустой строкой"
+            placeholder={'Первое сообщение\n\nВторое сообщение — отделяйте пустой строкой'}
+            value={messageBulk}
+            disabled={busy}
+            onChange={event => setMessageBulk(event.target.value)}
+          />
         )}
 
         {error && (
@@ -296,19 +335,22 @@ export function Outreach() {
 
         <div className="board-footer">
           <div className="actions">
-            <Button variant="outline" onClick={() => setMessageBulk(messageBulk === null ? '' : null)}>
-              <SquarePen size={15} /> Массовый
+            <Button variant="outline" disabled={busy} onClick={toggleMessageBulk}>
+              {messageBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
+              {messageBulk === null ? 'Массовый' : 'Карточки'}
             </Button>
-            <Button variant="outline" onClick={() => setDialog('templates')}>
+            <Button variant="outline" disabled={messageBulk !== null} onClick={() => setDialog('templates')}>
               <LayoutTemplate size={15} /> Шаблоны
             </Button>
-            <Button
-              variant="outline"
-              disabled={!messageDraft.trim() || busy}
-              onClick={() => void addMessages([messageDraft.trim()]).then(ok => ok && setMessageDraft(''))}
-            >
-              <Plus size={15} /> Добавить
-            </Button>
+            {messageBulk === null && (
+              <Button
+                variant="outline"
+                disabled={!messageDraft.trim() || busy}
+                onClick={() => void addMessages([messageDraft.trim()]).then(ok => ok && setMessageDraft(''))}
+              >
+                <Plus size={15} /> Добавить
+              </Button>
+            )}
             <Button
               variant="danger"
               icon
@@ -328,10 +370,7 @@ export function Outreach() {
               <Square size={14} /> Остановить
             </Button>
           ) : (
-            <Button
-              disabled={busy || !usernames.length || !messages.length}
-              onClick={() => void call('outreach.workspace_start').then(ok => ok && setNotice(''))}
-            >
+            <Button disabled={busy || !usernames.length || !messages.length} onClick={() => void start()}>
               <Send size={15} /> Рассылка
             </Button>
           )}
@@ -377,6 +416,8 @@ export function Outreach() {
               variant="danger"
               onClick={() => {
                 void save(dialog === 'clear-users' ? { usernames: [] } : { messages: [] });
+                if (dialog === 'clear-users') setUserBulk(null);
+                else setMessageBulk(null);
                 setDialog(null);
               }}
             >
@@ -388,6 +429,6 @@ export function Outreach() {
           </div>
         </Modal>
       )}
-    </>
+    </div>
   );
 }

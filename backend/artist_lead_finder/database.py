@@ -38,6 +38,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     Base.metadata.create_all(engine)
     # Schemas 4 and 5 add columns to existing tables, which create_all does not do.
     added = {
+        "search_jobs": {"hidden": "BOOLEAN NOT NULL DEFAULT 0"},
         "leads": {
             "do_not_contact": "BOOLEAN NOT NULL DEFAULT 0",
             "last_contacted_at": "DATETIME",

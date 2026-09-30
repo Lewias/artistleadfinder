@@ -336,6 +336,40 @@ def test_failed_send_is_structured_and_not_retried(app):
     assert service.call("outreach.campaign", {"id": campaign_id})["status"] == "failed"
 
 
+def test_closed_messages_fail_the_recipient_and_keep_the_sender(app):
+    service, sessions, clock, senders, _ = app
+    closed, open_ = add_lead(sessions, "followonly", "F"), add_lead(sessions, "open", "O")
+    campaign_id = campaign(service, [closed, open_], senders[:1])
+    service.call("outreach.campaign_start", {"id": campaign_id})
+    handed = drive(
+        service,
+        clock,
+        lambda job: (
+            {"outcome": "error", "error": "messages_closed", "status": None}
+            if job["args"]["username"] == "followonly"
+            else sent_ok(job)
+        ),
+    )
+    assert len(handed) == 2
+    rows = recipients(sessions, campaign_id)
+    assert rows["followonly"].status == "failed"
+    assert rows["followonly"].failure_reason == reasons.MESSAGES_CLOSED
+    assert rows["open"].status == "sent"
+    status = service.call("outreach.senders", {})
+    assert next(item for item in status if item["id"] == senders[0])["status"] == "active"
+
+
+def test_refusal_details_keep_the_http_status(app):
+    service, sessions, clock, senders, _ = app
+    lead = add_lead(sessions, "refused", "R")
+    campaign_id = campaign(service, [lead], senders[:1])
+    service.call("outreach.campaign_start", {"id": campaign_id})
+    drive(service, clock, lambda job: {"outcome": "error", "error": "rejected", "status": 401})
+    row = recipients(sessions, campaign_id)["refused"]
+    assert row.failure_reason == reasons.MESSAGE_REJECTED
+    assert row.reason_details.endswith("(HTTP 401)")
+
+
 def test_network_errors_retry_with_backoff_then_fail(app):
     service, sessions, clock, senders, _ = app
     first, second = add_lead(sessions, "flaky", "F"), add_lead(sessions, "down", "D")

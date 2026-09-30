@@ -30,6 +30,7 @@
   --radius: 16px;
   --radius-lg: 22px;
   --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  --topbar-height: 62px;
   font-family: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.45;
@@ -226,7 +227,9 @@ textarea {
   justify-content: flex-end;
   align-items: center;
   gap: 10px;
-  padding: 12px 32px;
+  height: var(--topbar-height);
+  flex: none;
+  padding: 0 32px;
   background: rgba(13, 14, 18, 0.85);
   backdrop-filter: blur(12px);
 }
@@ -275,8 +278,18 @@ textarea {
   gap: 18px;
   align-content: start;
   width: 100%;
-  max-width: 1180px;
   padding: 8px 40px 48px;
+}
+/* Header + board filling the window; on short windows the board keeps its content
+   and the page scrolls instead of squeezing it. Anything after it scrolls below. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  min-height: calc(100vh - var(--topbar-height) - 8px - 72px);
+}
+.screen > .board {
+  flex: 1 1 0;
 }
 
 /* ---------- Page header ---------- */
@@ -299,7 +312,7 @@ textarea {
   letter-spacing: 0.14em;
 }
 .page-header h1 {
-  font-size: 34px;
+  font-size: 38px;
   font-weight: 400;
   line-height: 1.12;
   letter-spacing: -0.035em;
@@ -715,12 +728,6 @@ progress::-webkit-progress-value {
 .scout-workspace {
   display: grid;
   gap: 18px;
-}
-.source-board {
-  display: grid;
-  gap: 16px;
-  padding: 22px;
-  border-radius: 26px;
 }
 .chip-cloud {
   display: flex;
@@ -2009,63 +2016,161 @@ tbody tr:hover td {
   width: auto;
 }
 
-/* ---------- Primary outreach board ---------- */
-.outreach-board {
-  display: grid;
+/* ---------- Boards: Lead Scout sources, primary outreach ---------- */
+.board {
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  padding: 22px;
-  border-radius: 26px;
+  padding: 24px 22px 18px 24px;
+  border-radius: 28px;
+  border-color: #33353c;
+  background: linear-gradient(180deg, #25272c, #1d1f23 60%);
 }
-.outreach-chips {
-  gap: 8px;
-  min-height: 300px;
-  max-height: 46vh;
+.board > * {
+  flex: none;
 }
-.outreach-chips .empty-copy {
+.board-chips {
+  flex: 1 1 0;
+  gap: 9px 10px;
+  min-height: 90px;
+  max-height: none;
+  padding: 2px 10px 2px 0;
+}
+.board-chips .empty-copy {
   padding: 4px;
 }
-.outreach-chip {
+.board-chip {
   gap: 6px;
-  padding: 4px 5px 4px 11px;
+  height: 32px;
+  padding: 0 7px 0 14px;
   border-radius: 9px;
-  font-size: 12px;
-}
-.outreach-chip button {
-  width: 18px;
-  height: 18px;
-}
-.outreach-board .chip-input input {
-  height: 38px;
+  border-color: #393b43;
+  background: #2b2d33;
   font-size: 13px;
+  font-weight: 500;
 }
-.outreach-board .button {
-  min-height: 34px;
-  padding: 0 14px;
-  font-size: 12.5px;
+.board-chip button {
+  width: 20px;
+  height: 20px;
 }
-.outreach-board .button-icon {
-  width: 34px;
-  min-width: 34px;
-  padding: 0;
+.chip .chip-label {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
 }
-.outreach-chip.sent {
+.chip .chip-label:hover {
+  background: none;
+  color: inherit;
+}
+.board-chip.sent {
   border-color: var(--green-line);
   background: var(--green-bg);
   color: var(--green);
 }
-.outreach-chip.queued {
+.board-chip.queued {
   border-color: var(--violet-line);
   background: var(--violet-bg);
   color: var(--violet);
 }
-.outreach-chip.bad {
+.board-chip.bad {
   border-color: var(--red-line);
   background: var(--red-bg);
   color: var(--red);
 }
-.outreach-chip.muted {
+.board-chip.muted {
   color: var(--faint);
   text-decoration: line-through;
+}
+.board-bulk {
+  flex: 1 1 0;
+  min-height: 90px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border-color: #2a2c33;
+  background: #111217;
+  font-size: 12.5px;
+  line-height: 1.55;
+  resize: none;
+}
+.board-bulk:focus,
+.board-bulk:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+.board .chip-input {
+  background: #15161b;
+}
+.board .chip-input input {
+  height: 46px;
+  font-size: 13.5px;
+}
+.board .button {
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 13px;
+}
+.board .button-outline {
+  border-color: #34363d;
+  background: #2b2d33;
+}
+.board .button-primary {
+  padding: 0 26px;
+}
+.board .button-icon {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+.board > .board-status {
+  margin-top: -6px;
+  font-size: 11.5px;
+}
+.scout-footer .actions {
+  flex-wrap: nowrap;
+}
+
+/* «…» menu */
+.menu-root {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 240px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--sidebar);
+  box-shadow: var(--shadow);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled) {
+  background: var(--raised);
+}
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.menu-item.danger {
+  color: var(--red);
 }
 .board-toolbar {
   display: flex;
@@ -2089,8 +2194,14 @@ tbody tr:hover td {
 }
 .message-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  /* Every card is one size: two lines of text; longer ones end in an ellipsis. */
+  grid-auto-rows: 62px;
+  align-content: start;
+  gap: 9px;
+  height: clamp(130px, 22vh, 204px);
+  overflow-y: auto;
+  padding-right: 10px;
 }
 .message-card {
   position: relative;
@@ -2098,17 +2209,26 @@ tbody tr:hover td {
   align-content: start;
   gap: 10px;
   min-height: 44px;
-  padding: 10px 36px 10px 12px;
+  padding: 12px 40px 12px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid #2a2c33;
   background: #141519;
   color: var(--ink);
   font-size: 12px;
   line-height: 1.5;
 }
+.message-bulk {
+  flex: 0 0 261px;
+}
 .message-card p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.message-grid .message-card p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 .message-card > button {
   position: absolute;
@@ -2130,11 +2250,13 @@ tbody tr:hover td {
   color: var(--ink);
 }
 .message-input {
-  min-height: 44px;
-  padding: 12px 14px;
+  min-height: 46px;
+  height: 46px;
+  padding: 13px 14px;
   border-radius: 12px;
-  resize: vertical;
-  font-size: 13px;
+  resize: none;
+  background: #15161b;
+  font-size: 12.5px;
 }
 .outreach-board .board-footer {
   display: grid;
@@ -2153,9 +2275,38 @@ tbody tr:hover td {
 .board-warning {
   color: var(--amber);
 }
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+@media (max-width: 1440px) {
+  .board {
+    padding: 20px 18px 16px 20px;
+  }
+  .board .button:not(.button-icon) {
+    padding: 0 13px;
+    font-size: 12.5px;
+  }
+  .board .button-primary {
+    padding: 0 20px;
+  }
+  .board-toolbar {
+    gap: 6px;
+  }
+}
 @media (max-width: 1200px) {
   .message-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
   .outreach-board .board-footer {
     grid-template-columns: 1fr auto;
@@ -2184,6 +2335,9 @@ tbody tr:hover td {
   border: 1px solid var(--line-strong);
   background: var(--sidebar);
   box-shadow: var(--shadow);
+}
+.modal.wide {
+  width: min(1180px, calc(100vw - 32px));
 }
 .modal h2 {
   padding-right: 44px;
@@ -2250,4 +2404,138 @@ tbody tr:hover td {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+}
+
+/* ---------- Accounts page ---------- */
+.profiles-page .page-header {
+  align-items: center;
+}
+.stat-pill.small {
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+}
+.profiles-page .info-bar {
+  padding: 13px 20px;
+  border-radius: 18px;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 90px;
+  padding: 14px 20px 14px 22px;
+  border-radius: 20px;
+  border-color: #34363d;
+  background: linear-gradient(180deg, #23252a, #1d1f23);
+}
+.row-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid var(--line-strong);
+  background: #111217;
+  color: #fff;
+  cursor: pointer;
+}
+.row-check.checked {
+  border-color: var(--violet);
+  background: var(--violet);
+}
+.row-check:disabled {
+  cursor: wait;
+}
+.account-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.account-title h3 {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-title .account-meta {
+  flex-wrap: nowrap;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.account-title .account-meta span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dot.ok {
+  background: #4ade80;
+}
+.dot.busy {
+  background: var(--violet);
+}
+.dot.warn {
+  background: var(--amber);
+}
+.account-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.account-actions .button {
+  min-height: 38px;
+  padding: 0 18px;
+  font-size: 12.5px;
+}
+.account-actions .button-icon {
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+}
+.account-actions .button-icon.button-outline {
+  border-color: #2e3036;
+  background: #1a1b20;
+}
+.target-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 102px;
+  height: 38px;
+  margin-right: 2px;
+  padding: 0 10px 0 14px;
+  border-radius: 12px;
+  border: 1px solid #2a2c33;
+  background: #141519;
+  color: var(--muted);
+}
+.target-field input {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.row-error {
+  color: var(--red);
+  font-size: 11.5px;
+}
+.profile-form {
+  display: grid;
+  gap: 12px;
+}
+@media (max-width: 1320px) {
+  .account-row {
+    flex-wrap: wrap;
+  }
+  .account-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    padding-left: 40px;
+  }
 }

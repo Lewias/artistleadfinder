@@ -39,6 +39,7 @@ export const outreachReasons: Record<string, string> = {
   CHECKPOINT: 'Checkpoint',
   RATE_LIMITED: 'Ограничение Instagram',
   MESSAGE_REJECTED: 'Сообщение отклонено',
+  MESSAGES_CLOSED: 'Нельзя написать — только подписаться',
   NETWORK_ERROR: 'Сеть',
   SEND_ERROR: 'Ошибка отправки',
   CAMPAIGN_CANCELLED: 'Кампания отменена',

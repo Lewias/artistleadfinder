@@ -71,10 +71,7 @@ export function ScoutSettingsPanel() {
     </label>
   );
   return (
-    <details className="panel scout-settings" open>
-      <summary>
-        <h2>Настройки Scout</h2>
-      </summary>
+    <div className="scout-settings">
       <div className="scout-settings-grid">
         <section>
           <h3>Методы поиска</h3>
@@ -141,6 +138,7 @@ export function ScoutSettingsPanel() {
           <div className="check-list">
             {(
               [
+                ['scout_add_to_outreach', 'Добавлять новых лидов в список «Первичной рассылки»'],
                 ['scout_only_contacts', 'Только профили с контактами'],
                 ['scout_allow_unknown_followers', 'Принимать профили, у которых не прочитаны подписчики'],
                 ['scout_skip_processed', 'Пропускать уже обработанные профили'],
@@ -212,7 +210,7 @@ export function ScoutSettingsPanel() {
                   await api.request('ai.set_key', { key });
                   setKey('');
                   ai.refresh();
-                  setMessage('Ключ сохранён в защищённом хранилище Windows.');
+                  setMessage('Ключ сохранён в защищённом хранилище системы.');
                 })
               }
             >
@@ -355,6 +353,6 @@ export function ScoutSettingsPanel() {
           </span>
         )}
       </div>
-    </details>
+    </div>
   );
 }

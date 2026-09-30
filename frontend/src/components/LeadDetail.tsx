@@ -395,10 +395,10 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                 <Button
                   variant="outline"
                   disabled={ignored}
-                  title="Scout больше не будет анализировать этот профиль"
+                  title="Парсер больше не будет анализировать этот профиль"
                   onClick={() => void ignore()}
                 >
-                  {ignored ? 'В игноре Scout' : 'Игнорировать в Scout'}
+                  {ignored ? 'В игноре парсера' : 'Игнорировать в парсере'}
                 </Button>
               </div>
             </>

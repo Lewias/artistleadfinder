@@ -1,21 +1,12 @@
-import { useEffect, useState } from 'react';
-import {
-  Activity,
-  ExternalLink,
-  Globe2,
-  Pause,
-  Play,
-  RotateCcw,
-  SkipForward,
-  Square,
-  Target,
-} from 'lucide-react';
+import { useState } from 'react';
+import { Activity, ExternalLink, Globe2, Pause, Play, SkipForward, Square, Target } from 'lucide-react';
 import { api } from '../services/api';
 import type { ScoutAccountRow } from '../services/types';
 import { waitLabel } from '../lib/format';
 import { Button } from './ui/button';
 import { runStatus, skipReasons } from './scoutStatus';
 import { DiscoveryMetricsTable } from './DiscoveryMetrics';
+import { controlScout, errorText, scoutActive } from './accountRuns';
 
 const stepLabels: Record<string, string> = {
   source: 'Сетка источника',
@@ -29,25 +20,25 @@ const stepLabels: Record<string, string> = {
 const handle = (url: string | null | undefined) =>
   url ? `@${url.replace(/\/$/, '').split('/').pop()}` : '—';
 
+/** Progress of each account's latest Scout run; goals and starts live on the «Аккаунты» page. */
 export function ScoutAccounts({
   rows,
   error,
   refresh,
-  disabled,
 }: {
   rows: ScoutAccountRow[] | undefined;
   error: string;
   refresh: () => void;
-  disabled: boolean;
 }) {
-  const list = rows || [];
+  const list = (rows || []).filter(row => row.run);
   const running = list.filter(row => row.run?.status === 'running' && row.run.stage !== 'interrupted').length;
   const found = list.reduce((sum, row) => sum + row.found, 0);
+  if (!list.length && !error) return null;
   return (
     <section className="accounts-section">
       <div className="section-title">
         <h2>
-          Аккаунты <span className="page-count">{list.length}</span>
+          Запуски <span className="page-count">{list.length}</span>
         </h2>
         <div className="stat-pills">
           <span className="stat-pill">
@@ -63,69 +54,35 @@ export function ScoutAccounts({
           {error}
         </p>
       )}
-      {rows?.length === 0 && (
-        <div className="panel empty-panel">
-          Создайте профиль в разделе «Аккаунты» и войдите в Instagram — здесь появится карточка для запуска
-          Lead Scout.
-        </div>
-      )}
       {list.map(row => (
-        <AccountCard key={row.profile.id} row={row} disabled={disabled} refresh={refresh} />
+        <AccountCard key={row.profile.id} row={row} refresh={refresh} />
       ))}
     </section>
   );
 }
 
-function AccountCard({
-  row,
-  disabled,
-  refresh,
-}: {
-  row: ScoutAccountRow;
-  disabled: boolean;
-  refresh: () => void;
-}) {
-  const [target, setTarget] = useState(String(row.target));
+function AccountCard({ row, refresh }: { row: ScoutAccountRow; refresh: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => setTarget(String(row.target)), [row.target]);
   const { profile, run } = row;
   const id = profile.id;
-  const active = Boolean(run && ['running', 'paused'].includes(run.status) && run.stage !== 'interrupted');
+  const active = scoutActive(row);
   const running = active && run?.status === 'running';
   const paused = active && run?.status === 'paused';
   const reached = row.found >= row.target;
-  const targetValue = Number(target);
-  const targetValid = Number.isInteger(targetValue) && targetValue >= 1 && targetValue <= 10000;
   const act = async (operation: () => Promise<unknown>) => {
     setBusy(true);
     setError('');
     try {
       await operation();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
       refresh();
     }
   };
-  const saveTarget = async (reset = false) => {
-    if (targetValue !== row.target || reset) {
-      await api.request('scout.account_target', { profile_id: id, target: targetValue, reset });
-    }
-  };
-  const control = (action: 'pause' | 'resume' | 'cancel') =>
-    act(async () => {
-      if (action === 'resume') await api.browser('open', { id });
-      await api.request('jobs.control', { id: run!.id, action });
-    });
-  const start = () =>
-    act(async () => {
-      await saveTarget();
-      await api.browser('open', { id });
-      // The core picks the next sources by rotation and cooldown.
-      await api.browser('scout', { id });
-    });
+  const control = (action: 'pause' | 'resume' | 'cancel') => act(() => controlScout(row, action));
   const percent = Math.min(100, Math.round((row.found / Math.max(1, row.target)) * 100));
   const status = runStatus(row);
   const attention = active && Boolean(run?.error);
@@ -146,19 +103,6 @@ function AccountCard({
         <span className={`status-chip ${tone}`}>{status}</span>
       </div>
       <div className="account-controls">
-        <label className="goal-field" title="Цель: сколько подходящих лидов найти">
-          <Target size={15} aria-hidden="true" />
-          <input
-            aria-label={`Цель для ${profile.name}`}
-            type="number"
-            min={1}
-            max={10000}
-            value={target}
-            disabled={busy || active}
-            onChange={event => setTarget(event.target.value)}
-            onBlur={() => targetValid && void act(() => saveTarget())}
-          />
-        </label>
         {running && (
           <Button variant="outline" disabled={busy} onClick={() => void control('pause')}>
             <Pause size={14} /> Пауза
@@ -167,11 +111,6 @@ function AccountCard({
         {paused && (
           <Button disabled={busy} onClick={() => void control('resume')}>
             <Play size={14} /> Продолжить
-          </Button>
-        )}
-        {!active && (
-          <Button disabled={busy || disabled || !targetValid || reached} onClick={() => void start()}>
-            <Play size={14} /> {row.found > 0 && !reached ? 'Продолжить поиск' : 'Start Scout'}
           </Button>
         )}
         {active && (
@@ -193,18 +132,6 @@ function AccountCard({
               onClick={() => void act(() => api.request('scout.skip', { id: run.id }))}
             >
               <SkipForward size={16} />
-            </Button>
-          )}
-          {reached && (
-            <Button
-              icon
-              variant="outline"
-              aria-label="Новая цель с нуля"
-              title="Новая цель с нуля"
-              disabled={busy}
-              onClick={() => void act(() => saveTarget(true))}
-            >
-              <RotateCcw size={16} />
             </Button>
           )}
           <Button

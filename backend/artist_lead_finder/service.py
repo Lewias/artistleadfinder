@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from .browser_capture import BrowserCaptureService
@@ -216,6 +216,9 @@ class ApplicationService:
             "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
+            "browser.runtime.send_message": lambda p: chromium.send_message(
+                p["id"], str(p["username"]), str(p["text"])
+            ),
             "browser.runtime.eval": lambda p: chromium.evaluate(
                 p["id"], p["script"], p.get("args"), fresh=bool(p.get("fresh"))
             ),
@@ -276,6 +279,7 @@ class ApplicationService:
             "jobs.start": self._start_job,
             "jobs.control": self._control_job,
             "jobs.list": self._list_jobs,
+            "jobs.clear_history": self._clear_job_history,
             "jobs.detail": self._job_detail,
             "leads.list": self._list_leads,
             "leads.detail": self._lead_detail,
@@ -504,9 +508,22 @@ class ApplicationService:
             return [
                 serialize(job)
                 for job in session.scalars(
-                    select(SearchJob).order_by(SearchJob.created_at.desc()).limit(200)
+                    select(SearchJob)
+                    .where(SearchJob.hidden.is_(False))
+                    .order_by(SearchJob.created_at.desc())
+                    .limit(200)
                 )
             ]
+
+    def _clear_job_history(self, params: dict) -> Any:
+        """Hide finished searches from the history; active ones and all leads stay."""
+        with self.sessions.begin() as session:
+            session.execute(
+                update(SearchJob)
+                .where(SearchJob.status.not_in(("queued", "running", "paused")))
+                .values(hidden=True)
+            )
+        return {"ok": True}
 
     def _job_detail(self, params: dict) -> Any:
         with self.sessions() as session:

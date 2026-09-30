@@ -4,9 +4,9 @@ describe('desktop navigation contract', () => {
   it('exposes the required sections with distinct identities', () => {
     expect(pages.map(page => page.id)).toEqual([
       'discovery',
+      'outreach',
       'profiles',
       'leads',
-      'outreach',
       'history',
       'dashboard',
       'settings',

@@ -154,6 +154,7 @@ export interface SettingsData {
   scout_allow_unknown_followers: boolean;
   scout_min_confidence: number;
   scout_lead_status: 'new' | 'reviewed' | 'qualified';
+  scout_add_to_outreach: boolean;
   scout_skip_processed: boolean;
   scout_skip_recent_sources: boolean;
   scout_source_cooldown_hours: number;

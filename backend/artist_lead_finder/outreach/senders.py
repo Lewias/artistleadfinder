@@ -100,9 +100,7 @@ def availability(
     if not window_open:
         return SenderCheck(False, reasons.SENDER_UNAVAILABLE, "Окно браузера аккаунта закрыто")
     if busy:
-        return SenderCheck(
-            False, reasons.SENDER_UNAVAILABLE, "В окне аккаунта идёт поиск Lead Scout"
-        )
+        return SenderCheck(False, reasons.SENDER_UNAVAILABLE, "В окне аккаунта идёт парсинг")
     if row.last_sent_at:
         ready_at = as_utc(row.last_sent_at) + timedelta(
             seconds=settings.outreach_send_interval_seconds

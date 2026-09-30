@@ -74,6 +74,7 @@ from .models import (
     SearchJob,
     utcnow,
 )
+from .outreach.workspace import add_to_list
 from .pacing import Pacer, PacingSettings
 from .providers import Candidate
 
@@ -1267,6 +1268,8 @@ class ScoutService:
             session.get(Lead, lead_id).status = (
                 scout.scout_lead_status if created else previous_status
             )
+            if created and scout.scout_add_to_outreach:
+                add_to_list(session, [ref.username])
             if classification is not None:
                 self._assess(session, lead_id, candidate, observations, classification, profile)
             for url in dict.fromkeys(e["url"] for e in observations if e.get("url")):

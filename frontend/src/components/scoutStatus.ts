@@ -131,3 +131,14 @@ export function activityItem(event: ScoutEvent): ActivityItem | null {
       return null;
   }
 }
+
+export const sourceStatusLabels: Record<string, string> = {
+  new: 'Новый',
+  queued: 'В очереди',
+  scanning: 'Сканируется',
+  done: 'Просканирован',
+  stopped: 'Остановлен',
+  interrupted: 'Прерван',
+  error: 'Ошибка',
+  rate_limited: 'Ограничение',
+};

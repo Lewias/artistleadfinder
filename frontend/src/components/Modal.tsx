@@ -6,10 +6,13 @@ export function Modal({
   title,
   onClose,
   children,
+  wide = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** For dense content such as the Scout settings grid. */
+  wide?: boolean;
 }) {
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => event.key === 'Escape' && onClose();
@@ -19,7 +22,7 @@ export function Modal({
   return (
     <>
       <div className="drawer-overlay" onClick={onClose} />
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={wide ? 'modal wide' : 'modal'} role="dialog" aria-modal="true" aria-label={title}>
         <button className="drawer-close" aria-label="Закрыть" onClick={onClose}>
           <X size={16} />
         </button>

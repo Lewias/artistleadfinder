@@ -65,3 +65,24 @@ def test_provider_auth_failure_is_recorded_and_not_retried(tmp_path):
         assert len(session.get(SearchJob, job_id).errors) == 1
         assert session.get(ProviderHealth, "meta_instagram").status == "Authentication Required"
     engine.dispose()
+
+
+def test_clear_history_hides_finished_searches_and_keeps_active(tmp_path):
+    from artist_lead_finder.service import ApplicationService
+
+    engine, sessions = open_database(tmp_path / "jobs.db")
+    app = ApplicationService(sessions, tmp_path)
+    with sessions.begin() as session:
+        session.add_all(
+            [
+                SearchJob(name="Done", status="completed"),
+                SearchJob(name="Failed", status="failed"),
+                SearchJob(name="Active", status="paused"),
+            ]
+        )
+    assert app.call("jobs.clear_history", {}) == {"ok": True}
+    assert [job["name"] for job in app.call("jobs.list", {})] == ["Active"]
+    with sessions() as session:
+        assert session.query(SearchJob).count() == 3
+    app.shutdown()
+    engine.dispose()

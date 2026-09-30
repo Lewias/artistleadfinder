@@ -22,6 +22,8 @@ class ScoutSettings(BaseModel):
     scout_min_confidence: int = Field(default=0, ge=0, le=100)
     # CRM status of a new Scout lead; existing leads keep their status.
     scout_lead_status: Literal["new", "reviewed", "qualified"] = "new"
+    # A new Scout lead also goes into the primary outreach list (it is not sent by itself).
+    scout_add_to_outreach: bool = True
     scout_skip_processed: bool = True
     scout_skip_recent_sources: bool = True
     scout_source_cooldown_hours: int = Field(default=24, ge=0, le=24 * 90)

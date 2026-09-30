@@ -613,6 +613,16 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
         }
     }
 }
+/// Profile page of an outreach recipient; None for anything but a plain username.
+fn recipient_url(args: &Value) -> Option<String> {
+    let name = args["username"].as_str()?;
+    let valid = (1..=30).contains(&name.len())
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' || c == b'.');
+    valid.then(|| format!("https://www.instagram.com/{name}/"))
+}
+
 /// Outreach send queue. The core picks a due job whose sender window is open and idle
 /// and claims it; the send script runs once in that window and the result goes back to
 /// the core. A failed script call is reported as a browser failure (never resent by the
@@ -633,14 +643,28 @@ fn run_outreach_driver(core: Core, closing: BrowserClosing) {
         else {
             continue;
         };
-        let result = tauri::async_runtime::block_on(read_script(
-            core.clone(),
-            profile_id.to_owned(),
-            include_str!("send.js"),
-            job["args"].clone(),
-            true,
-        ))
-        .unwrap_or_else(|_| json!({"outcome": "error", "error": "browser"}));
+        // Open the recipient's profile in the sender window first, the way the parser opens
+        // its pages. Nothing has been sent yet, so a failed page load is a plain retry and
+        // a 429 on the page stops the sender for its rate-limit break.
+        let opened = recipient_url(&job["args"]).map(|url| {
+            request(
+                "browser.runtime.navigate",
+                json!({"id":profile_id,"url":url}),
+            )
+        });
+        let result = match opened {
+            None => json!({"outcome": "error", "error": "bad_request"}),
+            Some(Err(_)) => json!({"outcome": "error", "error": "network"}),
+            Some(Ok(page)) if page["rate_limited"] == true => {
+                json!({"outcome": "error", "error": "rate_limited"})
+            }
+            // «Отправить сообщение», the text, Enter: the way it is sent by hand.
+            Some(Ok(_)) => request(
+                "browser.runtime.send_message",
+                json!({"id":profile_id,"username":job["args"]["username"],"text":job["args"]["text"]}),
+            )
+            .unwrap_or_else(|_| json!({"outcome": "error", "error": "browser"})),
+        };
         let _ = request(
             "outreach.commit_internal",
             json!({"job_id": job_id, "token": job["token"], "result": result}),
@@ -728,6 +752,18 @@ mod tests {
             page_script(&json!({"kind": "source"})),
             include_str!("capture.js")
         );
+    }
+
+    #[test]
+    fn outreach_opens_only_plain_usernames() {
+        assert_eq!(
+            recipient_url(&json!({"username": "shot.by_jae1"})).as_deref(),
+            Some("https://www.instagram.com/shot.by_jae1/")
+        );
+        assert_eq!(recipient_url(&json!({"username": "../accounts"})), None);
+        assert_eq!(recipient_url(&json!({"username": "Upper"})), None);
+        assert_eq!(recipient_url(&json!({"username": ""})), None);
+        assert_eq!(recipient_url(&json!({})), None);
     }
 
     #[test]

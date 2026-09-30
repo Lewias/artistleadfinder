@@ -108,6 +108,7 @@ export function App() {
             {core.error ? 'Ядро недоступно' : core.data ? 'Ядро подключено' : 'Подключение…'}
           </span>
         </header>
+        {/* Board pages use the full window width, like the reference layout at 1920×1080. */}
         <div className="page">
           {active === 'dashboard' ? (
             <Dashboard navigate={setActive} />

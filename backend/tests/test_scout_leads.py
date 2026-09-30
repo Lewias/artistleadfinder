@@ -177,6 +177,35 @@ def test_duplicate_lead_is_updated_with_its_source_history(scout):  # noqa: F811
     assert [item["source_username"] for item in detail["found_via"]] == ["rapdaily", "beatsdaily"]
 
 
+def test_new_leads_go_to_the_outreach_list_and_nothing_is_sent(scout):  # noqa: F811
+    service, sessions = scout
+    first = {"artist_one": profile_page("artist_one", "Rapper · new single out now")}
+    run_pages(service, BASE, commenters(first, ["artist_one"]))
+    listed = service.call("outreach.workspace", {})["usernames"]
+    assert [(row["username"], row["status"]) for row in listed] == [("artist_one", "new")]
+    assert service.call("outreach.campaigns", {}) == []
+    # Removed by hand: a rediscovered (not new) lead is not put back.
+    service.call("outreach.workspace_update", {"usernames": []})
+    run_pages(
+        service,
+        {**BASE, "scout_skip_processed": False, "scout_profile_cache_hours": 0},
+        commenters(first, ["artist_one"]),
+        (OTHER,),
+    )
+    assert service.call("outreach.workspace", {})["usernames"] == []
+    # Turned off: new leads stay only in the contact base.
+    second = {"artist_two": profile_page("artist_two", "Rapper · new single out now")}
+    run_pages(
+        service,
+        {**BASE, "scout_add_to_outreach": False},
+        commenters(second, ["artist_two"]),
+        ("https://www.instagram.com/freshbeats/",),
+    )
+    assert service.call("outreach.workspace", {})["usernames"] == []
+    with sessions() as session:
+        assert session.scalar(select(Lead).where(Lead.username == "artist_two")) is not None
+
+
 def test_known_lead_found_again_only_updates_the_history(scout):  # noqa: F811
     service, sessions = scout
     run_pages(

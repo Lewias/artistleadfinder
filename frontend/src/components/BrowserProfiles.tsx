@@ -1,191 +1,133 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Cookie, ExternalLink, Globe2, Pencil, Plus, Save, ShieldCheck, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  Cookie,
+  Globe2,
+  LogIn,
+  Pencil,
+  Play,
+  Plus,
+  Radar,
+  RefreshCw,
+  ScanSearch,
+  ShieldCheck,
+  Sparkles,
+  Square,
+  SquareCheck,
+  Trash2,
+} from 'lucide-react';
 import { PageHeader } from './PageHeader';
 import { api } from '../services/api';
-import type { BrowserProfile, BrowserProxy } from '../services/types';
+import { useResource } from '../hooks/useResource';
+import type { BrowserProfile, OutreachWorkspace, ScoutAccountRow } from '../services/types';
 import { Button } from './ui/button';
-import { parseProxyInput, type ProxyForm } from './proxyInput';
+import { Modal } from './Modal';
+import { ProxyFields } from './ProxyFields';
+import { emptyForm, fromProfile, getProxy, type ProfileForm } from './profileForm';
+import { controlScout, errorText, scoutActive, startScout } from './accountRuns';
 
-type ProfileForm = { name: string; proxy: ProxyForm; proxyInput: string };
-const emptyProxy = (): ProxyForm => ({
-  scheme: 'none',
-  host: '',
-  port: '',
-  auth: false,
-  username: '',
-  password: '',
-  hasPassword: false,
-});
-const emptyForm = (): ProfileForm => ({ name: '', proxy: emptyProxy(), proxyInput: '' });
-const fromProfile = (profile: BrowserProfile): ProfileForm => ({
-  name: profile.name,
-  proxy: profile.proxy
-    ? {
-        scheme: profile.proxy.scheme,
-        host: profile.proxy.host,
-        port: String(profile.proxy.port),
-        auth: Boolean(profile.proxy.username),
-        username: profile.proxy.username || '',
-        password: '',
-        hasPassword: Boolean(profile.proxy.has_password),
-      }
-    : emptyProxy(),
-  proxyInput: '',
-});
-function getProxy(draft: ProfileForm): (BrowserProxy & { password?: string }) | null {
-  const form = draft.proxyInput.trim() ? parseProxyInput(draft.proxyInput, draft.proxy.scheme) : draft.proxy;
-  if (form.scheme === 'none') return null;
-  const host = form.host.trim();
-  const port = Number(form.port);
-  if (
-    !/^[A-Za-z0-9.-]+$/.test(host) ||
-    host.length > 253 ||
-    host.startsWith('.') ||
-    host.endsWith('.') ||
-    host.includes('..') ||
-    host.startsWith('-') ||
-    host.endsWith('-')
-  )
-    throw new Error('Укажите корректный адрес прокси без протокола и логина.');
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error('Порт прокси должен быть от 1 до 65535.');
-  if (!form.auth) return { scheme: form.scheme, host, port };
-  const username = form.username.trim();
-  const hasControl = (value: string) =>
-    [...value].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
-  if (
-    !username ||
-    username.includes(':') ||
-    hasControl(username) ||
-    new TextEncoder().encode(username).length > 128
-  )
-    throw new Error('Укажите корректный логин прокси.');
-  if (!form.password && !form.hasPassword) throw new Error('Укажите пароль прокси.');
-  if (form.password && (hasControl(form.password) || new TextEncoder().encode(form.password).length > 255))
-    throw new Error('Некорректный пароль прокси.');
-  return { scheme: form.scheme, host, port, username, ...(form.password ? { password: form.password } : {}) };
+type Dialog = { kind: 'create' } | { kind: 'edit' | 'delete'; profile: BrowserProfile } | null;
+
+const secretStore = navigator.userAgent.includes('Mac') ? 'macOS Keychain' : 'Windows DPAPI';
+
+/** Status line under an account name: what it is doing now, or whether it can start. */
+function accountStatus(profile: BrowserProfile, scout: ScoutAccountRow | undefined, sending: boolean) {
+  if (scout && scoutActive(scout)) {
+    const run = scout.run!;
+    if (run.status === 'paused')
+      return run.error
+        ? { text: 'Парсинг · нужна проверка в браузере', tone: 'warn' }
+        : { text: `Парсинг на паузе · ${scout.found} из ${scout.target}`, tone: 'warn' };
+    return { text: `Парсинг · найдено ${scout.found} из ${scout.target}`, tone: 'busy' };
+  }
+  if (sending) return { text: 'Рассылка идёт', tone: 'busy' };
+  return profile.cookie_count
+    ? { text: 'Сессия сохранена · готов', tone: 'ok' }
+    : { text: 'Нет сессии — откройте окно и войдите', tone: 'off' };
 }
-function ProxyFields({
-  value,
-  input,
-  onChange,
-  onInputChange,
-  disabled,
-}: {
-  value: ProxyForm;
-  input: string;
-  onChange: (value: ProxyForm) => void;
-  onInputChange: (value: string) => void;
-  disabled: boolean;
-}) {
-  const [inputError, setInputError] = useState('');
-  const apply = (text: string) => {
-    try {
-      onChange(parseProxyInput(text, value.scheme));
-      onInputChange(text);
-      setInputError('');
-    } catch (error) {
-      onInputChange(text);
-      setInputError(error instanceof Error ? error.message : 'Некорректный формат прокси.');
-    }
-  };
-  return (
-    <div className="profile-proxy-fields">
-      <label>
-        Подключение
-        <select
-          value={value.scheme}
-          disabled={disabled}
-          onChange={event => onChange({ ...value, scheme: event.target.value as ProxyForm['scheme'] })}
-        >
-          <option value="none">Без прокси</option>
-          <option value="http">HTTP-прокси</option>
-          <option value="socks5">SOCKS5-прокси</option>
-        </select>
-      </label>
-      <label>
-        Прокси одной строкой
-        <input
-          type="text"
-          value={input}
-          disabled={disabled}
-          placeholder="socks5://логин:пароль@адрес:порт"
-          autoComplete="off"
-          spellCheck={false}
-          onPaste={event => {
-            event.preventDefault();
-            apply(event.clipboardData.getData('text'));
-          }}
-          onChange={event => {
-            onInputChange(event.target.value);
-            setInputError('');
-          }}
-          onBlur={() => {
-            if (input) apply(input);
-          }}
-        />
-      </label>
-      <p className="helper profile-proxy-hint">
-        Можно вставить и без <code>socks5://</code> — такой прокси будет считаться SOCKS5. Для HTTP укажите{' '}
-        <code>http://</code> или выберите тип выше.
-      </p>
-      {inputError && (
-        <p className="error-text" role="alert">
-          {inputError}
-        </p>
-      )}
-      {value.scheme !== 'none' && value.host && (
-        <p className="helper profile-proxy-summary">
-          Настроен {value.scheme.toUpperCase()}: {value.host}:{value.port}
-          {value.auth ? ' · с авторизацией' : ''}. Для замены вставьте новую строку, для удаления выберите
-          «Без прокси».
-        </p>
-      )}
-    </div>
-  );
-}
+
 export function BrowserProfiles() {
   const [profiles, setProfiles] = useState<BrowserProfile[]>([]);
-  const [draft, setDraft] = useState<ProfileForm>(emptyForm);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<ProfileForm>(emptyForm);
-  const [busy, setBusy] = useState(false);
+  const scout = useResource<ScoutAccountRow[]>('scout.accounts', {}, 3000);
+  const workspaceResource = useResource<OutreachWorkspace>('outreach.workspace', {}, 4000);
+  const [workspace, setWorkspace] = useState<OutreachWorkspace>();
+  const [targets, setTargets] = useState<Record<string, string>>({});
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [form, setForm] = useState<ProfileForm>(emptyForm);
+  const [formError, setFormError] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const refresh = async () => setProfiles(await api.browser<BrowserProfile[]>('list'));
   useEffect(() => {
-    void refresh().catch(err => setError(String(err)));
+    void refresh().catch(err => setMessage(errorText(err)));
     // Sessions are saved automatically when a browser window closes; keep counts current.
     const timer = setInterval(() => void refresh().catch(() => undefined), 5000);
     return () => clearInterval(timer);
   }, []);
-  const run = async (operation: () => Promise<void>) => {
-    setBusy(true);
-    setError('');
+  useEffect(() => {
+    if (workspaceResource.data) setWorkspace(workspaceResource.data);
+  }, [workspaceResource.data]);
+
+  const scoutRows = new Map((scout.data ?? []).map(row => [row.profile.id, row]));
+  const selected = (workspace?.sender_ids ?? []).filter(id => profiles.some(profile => profile.id === id));
+  const outreachSenders = workspace?.running ? (workspace.campaign?.sender_ids ?? []) : [];
+  const launched = profiles.filter(
+    profile => scoutActive(scoutRows.get(profile.id)) || outreachSenders.includes(profile.id),
+  ).length;
+  const withSession = profiles.filter(profile => profile.cookie_count > 0).length;
+
+  /** Runs one account's action; its error is shown as «[name] Ошибка: …» under the list. */
+  const run = async (profile: BrowserProfile, operation: () => Promise<unknown>) => {
+    setBusy(profile.id);
     setMessage('');
+    setErrors(current => Object.fromEntries(Object.entries(current).filter(([id]) => id !== profile.id)));
     try {
       await operation();
-      await refresh();
     } catch (err) {
-      setError(String(err));
+      setErrors(current => ({ ...current, [profile.id]: errorText(err) }));
     } finally {
-      setBusy(false);
+      setBusy(null);
+      scout.refresh();
+      workspaceResource.refresh();
+      void refresh().catch(() => undefined);
     }
   };
-  const create = (event: FormEvent) => {
-    event.preventDefault();
-    void run(async () => {
-      await api.browser('create', { name: draft.name.trim(), proxy: getProxy(draft) });
-      setDraft(emptyForm());
-      setCreating(false);
-      setMessage('Профиль создан. Откройте его, чтобы войти в Instagram вручную, или импортируйте cookies.');
+  const setWorkspaceSenders = async (ids: string[]) =>
+    setWorkspace(await api.request<OutreachWorkspace>('outreach.workspace_update', { sender_ids: ids }));
+  const toggleSelected = (profile: BrowserProfile) =>
+    void run(profile, () =>
+      setWorkspaceSenders(
+        selected.includes(profile.id) ? selected.filter(id => id !== profile.id) : [...selected, profile.id],
+      ),
+    );
+  const outreach = (profile: BrowserProfile) =>
+    void run(profile, async () => {
+      if (outreachSenders.includes(profile.id)) {
+        setWorkspace(await api.request<OutreachWorkspace>('outreach.workspace_stop'));
+        return;
+      }
+      await setWorkspaceSenders([profile.id]);
+      setWorkspace(await api.request<OutreachWorkspace>('outreach.workspace_start'));
     });
+  const parse = (profile: BrowserProfile, row: ScoutAccountRow | undefined) =>
+    void run(profile, async () => {
+      if (!row) throw new Error('Данные парсера ещё загружаются, повторите через секунду.');
+      if (!scoutActive(row)) return startScout(row);
+      return controlScout(row, row.run!.status === 'paused' && row.run!.error ? 'resume' : 'cancel');
+    });
+  const saveTarget = (profile: BrowserProfile, row: ScoutAccountRow | undefined) => {
+    const value = Number(targets[profile.id]);
+    if (!row || targets[profile.id] === undefined || value === row.target) return;
+    if (!Number.isInteger(value) || value < 1 || value > 10000) {
+      setErrors(current => ({ ...current, [profile.id]: 'Цель: от 1 до 10000 лидов.' }));
+      return;
+    }
+    void run(profile, () => api.request('scout.account_target', { profile_id: profile.id, target: value }));
   };
   const pickCookies = (profile: BrowserProfile) =>
-    void run(async () => {
+    void run(profile, async () => {
       const path = await open({
         title: `Cookies для ${profile.name}`,
         multiple: false,
@@ -193,155 +135,179 @@ export function BrowserProfiles() {
       });
       if (!path || Array.isArray(path)) return;
       await api.browser('import_cookies', { id: profile.id, path });
-      setMessage(`Cookies для «${profile.name}» обновлены. Откройте профиль и проверьте вход.`);
+      setMessage(`Cookies для «${profile.name}» обновлены. Откройте окно и проверьте вход.`);
     });
-  const saveProfile = (event: FormEvent, id: string) => {
-    event.preventDefault();
-    void run(async () => {
-      await api.browser('update', { id, name: editDraft.name.trim(), proxy: getProxy(editDraft) });
-      setEditing(null);
-      setMessage('Настройки профиля сохранены. Прокси применится при следующем открытии браузера.');
-    });
+
+  const openDialog = (next: Dialog) => {
+    setDialog(next);
+    setFormError('');
+    setForm(next?.kind === 'edit' ? fromProfile(next.profile) : emptyForm());
   };
-  const withSession = profiles.filter(profile => profile.cookie_count > 0).length;
-  const withProxy = profiles.filter(profile => profile.proxy).length;
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy('form');
+    setFormError('');
+    try {
+      const proxy = getProxy(form);
+      if (dialog?.kind === 'edit') {
+        await api.browser('update', { id: dialog.profile.id, name: form.name.trim(), proxy });
+        setMessage('Настройки профиля сохранены. Прокси применится при следующем открытии окна.');
+      } else {
+        await api.browser('create', { name: form.name.trim(), proxy });
+        setMessage('Профиль создан. Откройте окно, чтобы войти в Instagram, или импортируйте cookies.');
+      }
+      setDialog(null);
+      await refresh();
+      scout.refresh();
+    } catch (err) {
+      setFormError(errorText(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = (profile: BrowserProfile) =>
+    void run(profile, async () => {
+      await api.browser('delete', { id: profile.id });
+      setDialog(null);
+      setMessage(`Профиль «${profile.name}» удалён.`);
+    });
+
+  const attention = profiles.flatMap(profile => {
+    const row = scoutRows.get(profile.id);
+    const text = errors[profile.id] || (scoutActive(row) && row?.run?.error) || '';
+    return text ? [`[${profile.name}] Ошибка: ${text}`] : [];
+  });
+
   return (
     <div className="profiles-page">
       <PageHeader
         page="profiles"
-        count={profiles.length}
+        count={
+          <span title="Всего профилей / с сохранённой сессией">{`${profiles.length} / ${withSession}`}</span>
+        }
         actions={
-          <Button onClick={() => setCreating(value => !value)}>
-            {creating ? <X size={16} /> : <Plus size={16} />} {creating ? 'Закрыть' : 'Новый профиль'}
+          <Button onClick={() => openDialog({ kind: 'create' })}>
+            <Plus size={16} /> Новый профиль
           </Button>
         }
       >
         <div className="stat-pills">
-          <span className="stat-pill">
-            <Cookie size={13} /> Сессии <b>{withSession}</b>
+          <span className="stat-pill small" title="Отмеченные аккаунты: для «Парсинг» и «Рассылка» на досках">
+            <SquareCheck size={12} /> Выбрано <b>{selected.length}</b>
           </span>
-          <span className="stat-pill">
-            <Globe2 size={13} /> С прокси <b>{withProxy}</b>
+          <span className="stat-pill small">
+            <Sparkles size={12} /> Запущено <b>{launched}</b>
           </span>
         </div>
       </PageHeader>
       <div className="panel info-bar">
-        <ShieldCheck size={17} />
+        <ShieldCheck size={16} />
         <span>Изоляция сессий</span>
-        <span className="tag">Windows DPAPI</span>
+        <span className="tag">{secretStore}</span>
         <span className="helper">
           Каждый профиль — отдельное окно Chromium. Cookies и пароль прокси хранятся зашифрованными.
         </span>
       </div>
-      {creating && (
-        <section className="panel profile-create">
-          <h2>Новый профиль</h2>
-          <p className="helper">
-            Создайте пустую сессию. Войти можно вручную после открытия окна или через импорт собственных
-            cookies.
-          </p>
-          <form onSubmit={create}>
-            <label>
-              Название профиля
-              <input
-                maxLength={80}
-                required
-                value={draft.name}
-                disabled={busy}
-                placeholder="Например, рабочий Instagram"
-                onChange={event => setDraft({ ...draft, name: event.target.value })}
-              />
-            </label>
-            <ProxyFields
-              value={draft.proxy}
-              input={draft.proxyInput}
-              disabled={busy}
-              onChange={proxy => setDraft(current => ({ ...current, proxy }))}
-              onInputChange={proxyInput => setDraft(current => ({ ...current, proxyInput }))}
-            />
-            <div className="actions">
-              <Button type="submit" disabled={busy || !draft.name.trim()}>
-                Создать профиль
-              </Button>
-            </div>
-          </form>
-          <p className="helper">
-            Поддерживаются HTTP и SOCKS5 с логином и паролем. Пароль не показывается после сохранения.
-          </p>
-        </section>
-      )}
-      {message && (
-        <p role="status" className="notice">
-          {message}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
       {profiles.length === 0 && (
         <div className="panel empty-panel">Пока нет профилей. Нажмите «Новый профиль».</div>
       )}
       <div className="profile-list">
-        {profiles.map(profile => (
-          <section className="panel account-card" key={profile.id}>
-            <div className="account-head">
-              <div>
+        {profiles.map(profile => {
+          const row = scoutRows.get(profile.id);
+          const active = scoutActive(row);
+          const needsResume = active && row?.run?.status === 'paused' && Boolean(row.run.error);
+          const sending = outreachSenders.includes(profile.id);
+          const status = accountStatus(profile, row, sending);
+          const locked = busy !== null;
+          const checked = selected.includes(profile.id);
+          return (
+            <section className="panel account-row" key={profile.id}>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={checked}
+                aria-label={`Выбрать ${profile.name}`}
+                className={`row-check${checked ? ' checked' : ''}`}
+                disabled={locked}
+                onClick={() => toggleSelected(profile)}
+              >
+                {checked && <Check size={14} strokeWidth={3} />}
+              </button>
+              <div className="account-title">
                 <h3>{profile.name}</h3>
                 <div className="account-meta">
                   <Globe2 size={13} />
                   <span>
                     {profile.proxy
-                      ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}${profile.proxy.has_password ? ' · с авторизацией' : ''}`
+                      ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}`
                       : '—'}
                   </span>
-                  <span className={`dot ${profile.cookie_count ? 'ok' : 'off'}`} />
-                  <span>
-                    {profile.cookie_count
-                      ? `Сессия сохранена · ${profile.cookie_count} cookies`
-                      : 'Cookies не добавлены'}
-                  </span>
+                  <span className={`dot ${status.tone}`} />
+                  <span>{status.text}</span>
                 </div>
               </div>
-            </div>
-            <div className="account-controls">
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const result = await api.browser<{ warning?: string }>('open', { id: profile.id });
-                    setMessage(
-                      result.warning ||
-                        'Браузер открыт. Проверьте вход: сессия сохранится автоматически при закрытии окна.',
-                    );
-                  })
-                }
-              >
-                <ExternalLink size={15} /> Открыть браузер
-              </Button>
-              <div className="icon-actions">
+              <div className="account-actions">
+                <label className="target-field" title="Цель парсера: сколько подходящих лидов найти">
+                  <ScanSearch size={15} aria-hidden="true" />
+                  <input
+                    aria-label={`Цель парсера для ${profile.name}`}
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={targets[profile.id] ?? String(row?.target ?? '')}
+                    disabled={locked || active || !row}
+                    onChange={event =>
+                      setTargets(current => ({ ...current, [profile.id]: event.target.value }))
+                    }
+                    onBlur={() => saveTarget(profile, row)}
+                  />
+                </label>
+                <Button
+                  disabled={locked}
+                  title={sending ? 'Остановить рассылку' : 'Запустить рассылку списка с этого аккаунта'}
+                  onClick={() => outreach(profile)}
+                >
+                  {sending ? <Square size={13} /> : <Play size={14} />} {sending ? 'Стоп' : 'Рассылка'}
+                </Button>
+                <Button
+                  variant={active && !needsResume ? 'danger' : 'green'}
+                  disabled={locked || !row}
+                  title={
+                    active
+                      ? needsResume
+                        ? 'Продолжить после проверки в браузере'
+                        : 'Остановить парсинг, прогресс сохранится'
+                      : 'Искать лидов по SMM-источникам'
+                  }
+                  onClick={() => parse(profile, row)}
+                >
+                  {active && !needsResume ? <Square size={13} /> : <Radar size={15} />}
+                  {active ? (needsResume ? 'Продолжить' : 'Стоп') : 'Парсинг'}
+                </Button>
                 <Button
                   icon
                   variant="outline"
-                  aria-label="Сохранить сессию"
-                  title="Сохранить сессию сейчас"
-                  disabled={busy}
+                  aria-label="Открыть окно браузера"
+                  title="Открыть окно браузера (вход в Instagram)"
+                  disabled={locked}
                   onClick={() =>
-                    void run(async () => {
-                      await api.browser('save', { id: profile.id });
-                      setMessage('Cookies текущей сессии сохранены.');
+                    void run(profile, async () => {
+                      const result = await api.browser<{ warning?: string }>('open', { id: profile.id });
+                      setMessage(
+                        result.warning ||
+                          `Окно «${profile.name}» открыто. Сессия сохранится автоматически при закрытии.`,
+                      );
                     })
                   }
                 >
-                  <Save size={16} />
+                  <LogIn size={16} />
                 </Button>
                 <Button
                   icon
                   variant="outline"
                   aria-label="Импорт cookies"
                   title="Импорт cookies"
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() => pickCookies(profile)}
                 >
                   <Cookie size={16} />
@@ -351,93 +317,114 @@ export function BrowserProfiles() {
                   variant="outline"
                   aria-label="Настроить профиль"
                   title="Название и прокси"
-                  disabled={busy}
-                  onClick={() => {
-                    setEditing(editing === profile.id ? null : profile.id);
-                    setEditDraft(fromProfile(profile));
-                    setDeleting(null);
-                  }}
+                  disabled={locked}
+                  onClick={() => openDialog({ kind: 'edit', profile })}
                 >
                   <Pencil size={16} />
+                </Button>
+                <Button
+                  icon
+                  variant="outline"
+                  aria-label="Сохранить сессию"
+                  title="Сохранить сессию из открытого окна сейчас"
+                  disabled={locked}
+                  onClick={() =>
+                    void run(profile, async () => {
+                      await api.browser('save', { id: profile.id });
+                      setMessage(`Сессия «${profile.name}» сохранена.`);
+                    })
+                  }
+                >
+                  <RefreshCw size={16} />
                 </Button>
                 <Button
                   icon
                   variant="danger"
                   aria-label="Удалить профиль"
                   title="Удалить профиль"
-                  disabled={busy}
-                  onClick={() => {
-                    setDeleting(deleting === profile.id ? null : profile.id);
-                    setEditing(null);
-                  }}
+                  disabled={locked}
+                  onClick={() => openDialog({ kind: 'delete', profile })}
                 >
                   <Trash2 size={16} />
                 </Button>
               </div>
-            </div>
-            {editing === profile.id && (
-              <form className="profile-editor" onSubmit={event => saveProfile(event, profile.id)}>
-                <label>
-                  Название
-                  <input
-                    maxLength={80}
-                    required
-                    value={editDraft.name}
-                    disabled={busy}
-                    onChange={event => setEditDraft({ ...editDraft, name: event.target.value })}
-                  />
-                </label>
-                <ProxyFields
-                  value={editDraft.proxy}
-                  input={editDraft.proxyInput}
-                  disabled={busy}
-                  onChange={proxy => setEditDraft(current => ({ ...current, proxy }))}
-                  onInputChange={proxyInput => setEditDraft(current => ({ ...current, proxyInput }))}
-                />
-                <div className="actions">
-                  <Button type="submit" disabled={busy || !editDraft.name.trim()}>
-                    Сохранить изменения
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setEditing(null)}>
-                    Отмена
-                  </Button>
-                </div>
-                <p className="helper">Для смены прокси сначала закройте окно этого профиля.</p>
-              </form>
-            )}
-            {deleting === profile.id && (
-              <div className="profile-delete" role="alert">
-                <p>
-                  Удалить профиль «{profile.name}» и его сохранённые cookies? Перед этим закройте окно
-                  браузера.
-                </p>
-                <div className="actions">
-                  <Button
-                    variant="danger"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api.browser('delete', { id: profile.id });
-                        setDeleting(null);
-                        setMessage('Профиль удалён.');
-                      })
-                    }
-                  >
-                    Удалить профиль
-                  </Button>
-                  <Button variant="outline" onClick={() => setDeleting(null)}>
-                    Отмена
-                  </Button>
-                </div>
-              </div>
-            )}
-          </section>
-        ))}
+            </section>
+          );
+        })}
       </div>
-      <p className="helper">
-        Импорт принимает только cookies Instagram в формате JSON или Netscape cookies.txt до 1 МБ. Наличие
-        cookies не подтверждает успешный вход.
-      </p>
+      {attention.map(text => (
+        <p role="alert" className="row-error" key={text}>
+          {text}
+        </p>
+      ))}
+      {message && (
+        <p role="status" className="helper">
+          {message}
+        </p>
+      )}
+
+      {(dialog?.kind === 'create' || dialog?.kind === 'edit') && (
+        <Modal
+          title={dialog.kind === 'edit' ? 'Настройки профиля' : 'Новый профиль'}
+          onClose={() => setDialog(null)}
+        >
+          <form className="profile-form" onSubmit={event => void submit(event)}>
+            <label>
+              Название профиля
+              <input
+                maxLength={80}
+                required
+                autoFocus
+                value={form.name}
+                disabled={busy === 'form'}
+                placeholder="Например, рабочий Instagram"
+                onChange={event => setForm({ ...form, name: event.target.value })}
+              />
+            </label>
+            <ProxyFields
+              value={form.proxy}
+              input={form.proxyInput}
+              disabled={busy === 'form'}
+              onChange={proxy => setForm(current => ({ ...current, proxy }))}
+              onInputChange={proxyInput => setForm(current => ({ ...current, proxyInput }))}
+            />
+            {formError && (
+              <p role="alert" className="error-text">
+                {formError}
+              </p>
+            )}
+            <p className="helper">
+              {dialog.kind === 'edit'
+                ? 'Для смены прокси сначала закройте окно этого профиля.'
+                : 'Создаётся пустая сессия: войдите вручную после открытия окна или импортируйте cookies. Поддерживаются HTTP и SOCKS5 с логином и паролем.'}
+            </p>
+            <div className="actions">
+              <Button type="submit" disabled={busy === 'form' || !form.name.trim()}>
+                {dialog.kind === 'edit' ? 'Сохранить' : 'Создать профиль'}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setDialog(null)}>
+                Отмена
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {dialog?.kind === 'delete' && (
+        <Modal title={`Удалить «${dialog.profile.name}»?`} onClose={() => setDialog(null)}>
+          <p className="helper">
+            Профиль и его сохранённые cookies будут удалены. Перед этим закройте окно браузера профиля. Лиды и
+            история рассылок останутся.
+          </p>
+          <div className="actions">
+            <Button variant="danger" disabled={busy !== null} onClick={() => remove(dialog.profile)}>
+              <Trash2 size={15} /> Удалить профиль
+            </Button>
+            <Button variant="outline" onClick={() => setDialog(null)}>
+              Отмена
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

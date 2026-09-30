@@ -2,11 +2,18 @@
 export const pages = [
   {
     id: 'discovery',
-    label: 'Lead Scout',
-    eyebrow: 'INSTAGRAM',
-    title: 'Lead Scout',
-    description:
-      'SMM-источники → связанные профили → проверка артиста → фильтры → лид. Scout никому не пишет.',
+    label: 'Локальный парсер',
+    eyebrow: 'SMM РЕСУРСЫ',
+    title: 'Локальный парсер',
+    description: '',
+    placement: 'main',
+  },
+  {
+    id: 'outreach',
+    label: 'Первичная рассылка',
+    eyebrow: 'АККАУНТЫ',
+    title: 'Первичная рассылка',
+    description: '',
     placement: 'main',
   },
   {
@@ -23,14 +30,6 @@ export const pages = [
     eyebrow: 'КОНТАКТЫ',
     title: 'База артистов',
     description: 'Все собранные профили, сигналы и статусы в одном месте.',
-    placement: 'main',
-  },
-  {
-    id: 'outreach',
-    label: 'Первичная рассылка',
-    eyebrow: 'АККАУНТЫ',
-    title: 'Первичная рассылка',
-    description: '',
     placement: 'main',
   },
   {

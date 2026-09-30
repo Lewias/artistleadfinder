@@ -154,11 +154,7 @@ class WorkspaceService:
 
     def add_usernames(self, names: list[str]) -> int:
         with self.sessions.begin() as session:
-            row = self._row(session)
-            merged = list(dict.fromkeys([*row.usernames, *names]))[:MAX_RECIPIENTS]
-            added = len(merged) - len(row.usernames)
-            row.usernames = merged
-            return added
+            return add_to_list(session, names)
 
     def add_leads(self, params: dict) -> dict:
         """Leads chosen in the contact base, or every lead with the given CRM statuses."""
@@ -258,3 +254,14 @@ class WorkspaceService:
         if status in UNFINISHED:
             self.campaigns.control({"id": campaign_id, "action": "cancel"})
         return self.state()
+
+
+def add_to_list(session, names: list[str]) -> int:
+    """Appends usernames to the list inside the caller's transaction; returns how many
+    were new. Nothing is sent: only a started «Рассылка» writes to the list."""
+    row = WorkspaceService._row(session)
+    names = [name for name in map(normalize_username, names) if name]
+    merged = list(dict.fromkeys([*row.usernames, *names]))[:MAX_RECIPIENTS]
+    added = len(merged) - len(row.usernames)
+    row.usernames = merged
+    return added

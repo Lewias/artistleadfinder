@@ -45,6 +45,8 @@ class SearchJob(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     started_at: Mapped[datetime | None]
     completed_at: Mapped[datetime | None]
+    # «Очистить историю» hides finished searches; their leads stay in the database.
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Lead(Base):
