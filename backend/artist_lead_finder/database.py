@@ -32,7 +32,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 11 for version in versions):
+        if any(version > 13 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
@@ -76,6 +76,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "ai_category": "VARCHAR(20)",
             "origin_id": "VARCHAR(120)",
         },
+        "imessage_workspace": {"messages": "JSON NOT NULL DEFAULT '[]'"},
         "scout_sources": {
             "last_scanned_at": "DATETIME",
             "status": "VARCHAR(40) NOT NULL DEFAULT 'new'",
@@ -143,4 +144,12 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # hidden templates.
         if session.get(SchemaMigration, 11) is None:
             session.add(SchemaMigration(version=11))
+        # Schema 12: iMessage through the iPhone (workspace, attachments, campaigns, jobs,
+        # events); new tables only.
+        if session.get(SchemaMigration, 12) is None:
+            session.add(SchemaMigration(version=12))
+        # Schema 13: the Instagram and iMessage CRMs (crm_contacts, crm_statuses); new
+        # tables only.
+        if session.get(SchemaMigration, 13) is None:
+            session.add(SchemaMigration(version=13))
     return engine, factory

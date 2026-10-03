@@ -49,6 +49,7 @@ const methodLabels: Record<string, string> = {
   followers: 'подписчики',
   following: 'подписки',
   comment: 'комментарий',
+  profile: 'проверка профиля',
 };
 export const methodLabel = (method: string) => methodLabels[method] || method;
 

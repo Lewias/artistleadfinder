@@ -129,7 +129,9 @@ SETTINGS = {"min_followers": 1000, "max_followers": 50000, "activity_days": 30, 
             "scout_allow_unknown_followers": True, "scout_min_confidence": 0, "scout_lead_status": "new",
             "scout_skip_processed": True, "scout_skip_recent_sources": True,
             "scout_source_cooldown_hours": 24, "scout_sources_per_run": 5, "scout_follow_page_size": 12,
-            "scout_follow_delay_seconds": 2, "scout_follow_max": 100, "scout_ai_mode": "uncertain",
+            "scout_follow_delay_seconds": 2, "scout_followers_max": 100, "scout_following_max": 100,
+            "scout_use_followers_range": True, "scout_rotate_sources": True,
+            "scout_add_to_outreach": True, "scout_ai_mode": "uncertain",
             "scout_ai_model": "anthropic/claude-haiku-4.5", "scout_ai_timeout_seconds": 15,
             "scout_ai_concurrency": 2, "scout_ai_min_confidence": 55, "scout_max_posts_per_source": 120,
             "scout_max_scroll_rounds": 15, "scout_scroll_delay_ms": 1200, "scout_max_no_progress_rounds": 2,
@@ -318,6 +320,10 @@ CORE["leads.detail"]["outreach"] = {
     "messages": [{"direction": "outbound", "type": "initial", "sent_at": "2026-09-29T09:40:00+00:00",
                   "body": "Hey Jay, checked your music out — wanted to reach out real quick."}],
 }
+# iMessage: state of a running campaign taken from the real service (loopback, no sends).
+CORE.update(json.loads((ROOT / "scripts" / "ui-preview-imessage.json").read_text(encoding="utf-8")))
+# CRM: four contacts saved through the real CrmService (scratch database).
+CORE.update(json.loads((ROOT / "scripts" / "ui-preview-crm.json").read_text(encoding="utf-8")))
 MOCK = """
 (() => {
   const core = %s;

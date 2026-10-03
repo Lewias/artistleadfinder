@@ -148,6 +148,7 @@ export interface SettingsData {
   rate_limit_pause_minutes: number;
   scout_methods: ScoutMethod[];
   scout_profile_type: 'artists' | 'artists_producers' | 'everyone';
+  scout_use_followers_range: boolean;
   scout_min_followers: number;
   scout_max_followers: number;
   scout_only_contacts: boolean;
@@ -157,11 +158,13 @@ export interface SettingsData {
   scout_add_to_outreach: boolean;
   scout_skip_processed: boolean;
   scout_skip_recent_sources: boolean;
+  scout_rotate_sources: boolean;
   scout_source_cooldown_hours: number;
   scout_sources_per_run: number;
   scout_follow_page_size: number;
   scout_follow_delay_seconds: number;
-  scout_follow_max: number;
+  scout_followers_max: number;
+  scout_following_max: number;
   scout_ai_mode: 'off' | 'uncertain' | 'always';
   scout_ai_model: string;
   scout_ai_timeout_seconds: number;
@@ -196,7 +199,8 @@ export interface DiscoveryMetrics {
   alreadyProcessed: number;
   failures: number;
 }
-export type ScoutMethod = 'posts' | 'comments' | 'tagged' | 'stories' | 'followers' | 'following';
+export type ScoutMethod =
+  'profiles' | 'posts' | 'comments' | 'tagged' | 'stories' | 'followers' | 'following';
 export interface ScoutStats {
   discovered: number;
   resolved?: number;
@@ -500,4 +504,142 @@ export interface OutreachWorkspace {
   sender_ids: string[];
   campaign: OutreachCampaign | null;
   running: boolean;
+}
+
+// ---------- iMessage through the iPhone ----------
+export type IMessageJobStatus = 'pending' | 'issued' | 'execution_acknowledged' | 'uncertain' | 'failed';
+export type IMessageProtocol = 'legacy' | 'v2';
+export interface IMessageRecipient {
+  phone: string;
+  message: string;
+  /** Latest status of the number in a real (non-test) campaign. */
+  status: IMessageJobStatus | null;
+}
+export interface IMessageAttachment {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+}
+export interface IMessageCampaign {
+  id: number;
+  protocol: IMessageProtocol;
+  status: 'running' | 'paused' | 'stopped' | 'finished';
+  is_test: boolean;
+  delay_seconds: number;
+  total: number;
+  created_at: string;
+  finished_at: string | null;
+  counts: Record<IMessageJobStatus, number>;
+}
+export interface IMessageJob {
+  id: number;
+  key: string;
+  position: number;
+  phone: string;
+  message: string;
+  status: IMessageJobStatus;
+  attempts: number;
+  issued_at: string | null;
+  text_acked_at: string | null;
+  acked_at: string | null;
+  ack_scope: 'text' | 'complete' | 'manual' | null;
+  resolution: string | null;
+  note: string | null;
+}
+export interface IMessageBridge {
+  running: boolean;
+  ip: string | null;
+  port: number;
+  addresses: string[];
+  token_valid: boolean;
+  token_expires_at: string | null;
+  last_seen: { ip: string; at: string; user_agent: string } | null;
+  connect_url: string | null;
+  urls: Record<IMessageProtocol, string> | null;
+  deep_links: Record<IMessageProtocol, string> | null;
+}
+export interface IMessageState {
+  bridge: IMessageBridge;
+  workspace: {
+    recipients: IMessageRecipient[];
+    /** Variants given to recipients in turn; {Phone} becomes the recipient. */
+    messages: string[];
+    attachments: IMessageAttachment[];
+    protocol: IMessageProtocol;
+    shortcut_name: string;
+    legacy_shortcut_name: string;
+    delay_seconds: number;
+  };
+  campaign: IMessageCampaign | null;
+  active: boolean;
+  jobs: IMessageJob[];
+  skipped?: number;
+  added?: number;
+}
+export interface IMessageEvent {
+  id: number;
+  campaign_id: number | null;
+  job_id: number | null;
+  type: string;
+  detail: string;
+  created_at: string;
+}
+export interface IMessagePreview {
+  protocol: IMessageProtocol;
+  items: { phone: string; text: string; individual: boolean }[];
+  payload: Record<string, unknown>;
+}
+
+export type CrmId = 'instagram' | 'imessage';
+export type CrmChannelKind = 'instagram' | 'email' | 'phone';
+export interface CrmChannel {
+  kind: CrmChannelKind;
+  value: string;
+}
+export type CrmColor = 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'pink' | 'slate';
+export interface CrmStatus {
+  label: string;
+  color: CrmColor;
+}
+export interface CrmContact {
+  id: number;
+  name: string;
+  statuses: string[];
+  channels: CrmChannel[];
+  notes: string;
+  last_contact_at: string | null;
+  next_action: string;
+  next_action_at: string | null;
+  earned: number;
+  potential: number;
+  lead_id: number | null;
+  deleted_at: string | null;
+  attention: boolean;
+}
+export type CrmTab = 'all' | 'attention' | 'trash';
+export interface CrmFilters {
+  statuses?: string[];
+  channels?: CrmChannelKind[];
+  last?: 'never' | 'week' | 'month' | 'older';
+  next?: 'none' | 'due' | 'planned';
+  notes?: 'with' | 'without';
+  money?: 'earned' | 'potential' | 'none';
+}
+export interface CrmList {
+  items: CrmContact[];
+  total: number;
+  counts: Record<CrmTab, number>;
+  totals: { earned: number; potential: number };
+  statuses: CrmStatus[];
+  labels: string[];
+}
+export interface CrmSource {
+  id: 'leads' | CrmId;
+  count: number;
+}
+export interface CrmImportResult {
+  added: number;
+  merged: number;
+  skipped: number;
 }

@@ -3,7 +3,13 @@ import { runInNewContext } from 'node:vm';
 import { expect, test } from 'vitest';
 
 const script = readFileSync('src-tauri/src/capture.js', 'utf8');
-function extract(blocked = false, username = 'artist', loginDialog = false, text = 'Artist profile') {
+function extract(
+  blocked = false,
+  username = 'artist',
+  loginDialog = false,
+  text = 'Artist profile',
+  description = '1200 Followers - Artist on Instagram: "Independent rapper"',
+) {
   return runInNewContext(script, {
     URL,
     location: { href: `https://www.instagram.com/${username}/`, pathname: `/${username}/` },
@@ -25,8 +31,7 @@ function extract(blocked = false, username = 'artist', loginDialog = false, text
             ],
           };
         if (selector === 'meta[property="instapp:owner_user_id"]') return { content: '4242' };
-        if (selector.includes('description'))
-          return { content: '1200 Followers - Artist on Instagram: "Independent rapper"' };
+        if (selector.includes('description')) return { content: description };
         return null;
       },
       querySelectorAll: (selector: string) =>
@@ -71,4 +76,22 @@ test('collects every external link, grid captions and the Instagram id for Lead 
   expect(result.links).toEqual(['https://open.spotify.com/artist/example', 'https://linktr.ee/artist']);
   expect(result.captions).toEqual(['Photo by Artist. New single out now']);
   expect(result.user_id).toBe('4242');
+});
+test('counts of a Russian meta description stay with their own labels', () => {
+  const counts = (description: string) =>
+    Object.fromEntries(
+      Object.entries(extract(false, 'artist', false, 'Artist profile', description).profile.stats).map(
+        ([kind, item]) => [kind, (item as { raw: string }).raw],
+      ),
+    );
+  expect(counts('Подписчики: 96, подписки: 210, публикации: 100 — посмотрите фото и видео')).toEqual({
+    followers: '96',
+    following: '210',
+    posts: '100',
+  });
+  expect(counts('96 подписчиков, 210 подписок, 100 публикаций — посмотрите фото')).toEqual({
+    followers: '96',
+    following: '210',
+    posts: '100',
+  });
 });

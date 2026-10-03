@@ -528,3 +528,20 @@ def test_logs_never_carry_session_secrets():
     result = InstagramProfileResolver().resolve("artist123", context(Fetcher(api=[snapshot])))
     text = "\n".join(result.log) + json.dumps(result.profile.as_dict())
     assert "SECRET" not in text and "TOKEN" not in text and "cookie" not in text.lower()
+
+
+def test_page_bio_drops_header_buttons_and_keeps_typed_links():
+    from artist_lead_finder.lead_scout.profiles.browser import BrowserProfileProvider
+
+    snapshot = browser_snapshot(
+        bio="Talk My Sh*t out now!\nlinktr.ee/boujielucy\nПодписаться\nОтправить сообщение"
+        "\nHighlights\nraised where wolves at...\nещё"
+    )
+    snapshot["links"], snapshot["external_url"] = [], ""
+    profile = BrowserProfileProvider().get_profile(
+        "artist123", snapshot, "https://www.instagram.com/artist123/"
+    )
+    assert profile.biography == (
+        "Talk My Sh*t out now!\nlinktr.ee/boujielucy\nraised where wolves at"
+    )
+    assert profile.external_url == "https://linktr.ee/boujielucy"

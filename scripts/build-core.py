@@ -70,6 +70,10 @@ def main() -> None:
             name,
             "--paths",
             "backend",
+            "--add-data",
+            str(ROOT / "backend/artist_lead_finder/imessage/Verse iMessage.shortcut")
+            + os.pathsep
+            + "artist_lead_finder/imessage",
             "--distpath",
             "src-tauri/binaries",
             "--workpath",

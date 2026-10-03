@@ -12,13 +12,28 @@ const errorText = (err: unknown) => String(err).replace(/^Error:\s*/, '');
 
 const crmStatuses = ['new', 'reviewed', 'qualified', 'contacted', 'rejected'] as const;
 
+const instagramCrmNote =
+  'Все лиды из «Базы артистов» с выбранными статусами попадут в список. Отмеченные «Не связываться» не ' +
+  'добавляются; тем, кому уже писали, рассылка повторно не отправит.';
+
 /** Adds every lead with the chosen CRM statuses to the list (never «Не связываться»). */
-export function CrmModal({ onClose, onAdded }: { onClose: () => void; onAdded: (added: number) => void }) {
+export function CrmModal({
+  onClose,
+  onAdded,
+  method = 'outreach.workspace_add_leads',
+  note = instagramCrmNote,
+}: {
+  onClose: () => void;
+  onAdded: (added: number) => void;
+  /** The list to add to: the Instagram list by default, or the iMessage one. */
+  method?: string;
+  note?: string;
+}) {
   const [chosen, setChosen] = useState<string[]>(['qualified']);
   const [error, setError] = useState('');
   const add = async () => {
     try {
-      const result = await api.request<{ added: number }>('outreach.workspace_add_leads', {
+      const result = await api.request<{ added: number }>(method, {
         statuses: chosen,
       });
       onAdded(result.added);
@@ -29,10 +44,7 @@ export function CrmModal({ onClose, onAdded }: { onClose: () => void; onAdded: (
   };
   return (
     <Modal title="Добавить из CRM" onClose={onClose}>
-      <p className="helper">
-        Все лиды из «Базы артистов» с выбранными статусами попадут в список. Отмеченные «Не связываться» не
-        добавляются; тем, кому уже писали, рассылка повторно не отправит.
-      </p>
+      <p className="helper">{note}</p>
       <div className="check-rows">
         {crmStatuses.map(status => (
           <label className="check-row" key={status}>
@@ -69,10 +81,13 @@ export function TemplatesModal({
   messages,
   onAdd,
   onClose,
+  hint,
 }: {
   messages: string[];
   onAdd: (texts: string[]) => void;
   onClose: () => void;
+  /** Placeholders the channel fills in; Instagram's by default. */
+  hint?: string;
 }) {
   const templates = useResource<OutreachTemplate[]>('outreach.templates');
   const [error, setError] = useState('');
@@ -97,8 +112,8 @@ export function TemplatesModal({
   return (
     <Modal title="Шаблоны сообщений" onClose={onClose}>
       <p className="helper">
-        Переменные: {'{{firstName}}'}, {'{{username}}'}, {'{{artistName}}'}, {'{{followers}}'}. Пустое имя
-        заменяется на «there».
+        {hint ??
+          'Переменные: {{firstName}}, {{username}}, {{artistName}}, {{followers}}. Пустое имя заменяется на «there».'}
       </p>
       <div className="actions">
         <Button variant="outline" disabled={!unsaved.length} onClick={() => void saveAll()}>

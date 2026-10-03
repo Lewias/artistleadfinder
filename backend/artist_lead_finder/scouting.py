@@ -583,6 +583,7 @@ class ScoutService:
                     scout.scout_sources_per_run,
                     scout.scout_source_cooldown_hours,
                     scout.scout_skip_recent_sources,
+                    scout.scout_rotate_sources,
                 )
             if not picked:
                 raise ValueError(
@@ -620,9 +621,15 @@ class ScoutService:
                     tasks=tasks,
                     notices=notices[-30:],
                     # Rotation runs rewind the source cursor when they stop early.
-                    stats={**empty_stats(picked), "rotation": not explicit},
+                    stats={
+                        **empty_stats(picked),
+                        "rotation": not explicit and scout.scout_rotate_sources,
+                    },
                 )
             )
+            # A profile check run starts with a profile step: filters and phase come first.
+            session.flush()
+            self._prepare_profile(session, session.get(ScoutRun, created["id"]), queue)
             for url in picked:
                 source = session.get(ScoutSource, url)
                 if source is not None:

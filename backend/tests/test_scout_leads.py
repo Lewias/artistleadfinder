@@ -206,6 +206,42 @@ def test_new_leads_go_to_the_outreach_list_and_nothing_is_sent(scout):  # noqa: 
         assert session.scalar(select(Lead).where(Lead.username == "artist_two")) is not None
 
 
+def test_profile_check_takes_each_source_as_the_lead_itself(scout):  # noqa: F811
+    service, sessions = scout
+    pages = {
+        "rapdaily": profile_page("rapdaily", "Rapper · new single out now", followers=50),
+        "beatsdaily": profile_page("beatsdaily", "Wedding photographer"),
+    }
+    _, state, visited = run_pages(
+        service,
+        # Posts stay on, but the profile check does not walk the source.
+        {"scout_methods": ["profiles", "posts"], "scout_min_followers": 100},
+        lambda state: pages[name_of(state["url"])],
+        (SOURCE, OTHER),
+    )
+    assert [kind for kind, _ in visited] == ["profile", "profile"]
+    assert state["stats"]["skips"] == {"FOLLOWERS_TOO_LOW": 1, "WRONG_PROFILE_TYPE": 1}
+    # The followers range switched off: the small artist becomes a lead.
+    run_pages(
+        service,
+        {
+            "scout_methods": ["profiles"],
+            "scout_min_followers": 100,
+            "scout_use_followers_range": False,
+            "scout_skip_processed": False,
+            "scout_skip_recent_sources": False,
+            "scout_profile_cache_hours": 0,
+        },
+        lambda state: pages[name_of(state["url"])],
+        (SOURCE,),
+    )
+    with sessions() as session:
+        lead = session.scalar(select(Lead).where(Lead.username == "rapdaily"))
+        assert lead is not None
+        source = session.scalar(select(ScoutLeadSource).where(ScoutLeadSource.lead_id == lead.id))
+        assert source.discovery_method == "profile"
+
+
 def test_known_lead_found_again_only_updates_the_history(scout):  # noqa: F811
     service, sessions = scout
     run_pages(

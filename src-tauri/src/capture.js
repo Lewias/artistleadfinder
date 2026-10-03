@@ -29,11 +29,19 @@
     unavailable: /sorry, this page isn[’']?t available|эта страница недоступна|page not found|страница не найдена/i,
     stats: {
       followers: /followers|подписчик/i,
-      following: /following|подписк/i,
+      following: /following|подписк|подписок/i,
       posts: /posts?|публикаци/i,
     },
-    // Meta description: "12K Followers, 300 Following, 40 Posts - See Instagram photos…".
-    metaCount: label => new RegExp(`(\\d[\\d\\s.,\\u00a0\\u202f]*\\s*(?:[KkMmBb]|тыс\\.?|млн\\.?)?)\\s*(?:${label.source})`, 'i'),
+    // Meta description: "12K Followers, 300 Following, 40 Posts - See Instagram photos…" or,
+    // in Russian, "Подписчики: 12K, подписки: 300, публикации: 40 — …" (label first). A number
+    // ends with a digit, so "12K, подписки" never lends the followers count to "following".
+    metaCount: label => {
+      const number = String.raw`(\d(?:[\d\s.,\u00a0\u202f]*\d)?\s*(?:[KkMmBb]|тыс\.?|млн\.?)?)`;
+      return [
+        new RegExp(String.raw`${number}\s*(?:${label.source})`, 'i'),
+        new RegExp(String.raw`(?:${label.source})[^\d:,]{0,4}:\s*${number}`, 'i'),
+      ];
+    },
     contactLine: /@|\+\d|e-?mail|mail|phone|tel\b|whats\s?app|viber|telegram|booking|mgmt|management|телефон|почта|букинг|менеджмент/i,
     // Auto-generated image descriptions are not captions.
     autoAlt: /^(?:photo|video|image)s? (?:shared )?by .{1,80}? on \w|may be an? (?:image|graphic)|может быть изображение/i,
@@ -81,7 +89,7 @@
       const link = root?.querySelector?.(SELECTORS.statLink(kind));
       // Exact counts sit in a title attribute; the visible text is often rounded.
       const exact = link?.querySelector('[title]')?.getAttribute('title') || link?.getAttribute('title');
-      const fromMeta = description.match(TEXT.metaCount(label))?.[1];
+      const fromMeta = TEXT.metaCount(label).map(pattern => description.match(pattern)?.[1]).find(Boolean);
       const fromLink = link ? clean(link.innerText) : '';
       const line = (root?.innerText || '').split('\n').map(clean).find(text => label.test(text) && /\d/.test(text));
       const chain = [[exact, 'title_attribute'], [fromMeta, 'meta_description'], [fromLink, 'header_link'], [line, 'visible_text']];

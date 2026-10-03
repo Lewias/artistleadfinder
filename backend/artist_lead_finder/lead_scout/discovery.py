@@ -42,6 +42,7 @@ GROUP_OF_METHOD = {
     "story": "stories",
     "followers": "followers",
     "following": "following",
+    "profile": "profiles",
 }
 
 
@@ -518,6 +519,11 @@ class FollowDiscoveryProvider(DiscoveryProvider):
         self.group = name
         self.kinds = (name,)
 
+    def limit(self, settings: ScoutSettings) -> int:
+        if self.method == "followers":
+            return settings.scout_followers_max
+        return settings.scout_following_max
+
     def start(self, source_url, ctx):
         settings = ctx.settings
         return [
@@ -528,7 +534,7 @@ class FollowDiscoveryProvider(DiscoveryProvider):
                 "args": {
                     "pageSize": settings.scout_follow_page_size,
                     "delayMs": settings.scout_follow_delay_seconds * 1000,
-                    "max": settings.scout_follow_max,
+                    "max": self.limit(settings),
                 },
             }
         ]
@@ -540,7 +546,7 @@ class FollowDiscoveryProvider(DiscoveryProvider):
             raise ValueError("Invalid follow list snapshot")
         result.metrics["itemsSeen"] += len(users)
         before = ctx.gate.duplicates
-        for raw in users[: ctx.settings.scout_follow_max]:
+        for raw in users[: self.limit(ctx.settings)]:
             name = ctx.gate.admit(str(raw))
             if name:
                 result.candidates.append(
@@ -561,6 +567,18 @@ class FollowDiscoveryProvider(DiscoveryProvider):
         return result
 
 
+class ProfileCheckProvider(DiscoveryProvider):
+    """«Проверить профили»: the source account itself becomes the only profile step."""
+
+    method = "profile"
+    group = "profiles"
+
+    def start(self, source_url, ctx):
+        name = source_name(source_url)
+        return [ScoutCandidate(name, name, self.method, None, source_url).task()]
+
+
+PROFILE_CHECK = ProfileCheckProvider()
 PROVIDERS: list[DiscoveryProvider] = [
     PostDiscoveryProvider(),
     TaggedDiscoveryProvider(),
@@ -579,6 +597,9 @@ def provider_for(kind: str) -> DiscoveryProvider:
 
 def initial_tasks(source_url: str, ctx: DiscoveryContext) -> tuple[list[dict], list[str]]:
     tasks, notices = [], []
+    if PROFILE_CHECK.enabled(ctx.settings):
+        # The profile check does not walk the source's posts or connections.
+        return PROFILE_CHECK.start(source_url, ctx), notices
     for provider in PROVIDERS:
         if provider.enabled(ctx.settings):
             started = provider.start(source_url, ctx)

@@ -3,7 +3,16 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -636,3 +645,158 @@ class OutreachWorkspace(Base):
         ForeignKey("outreach_campaigns.id", ondelete="SET NULL")
     )
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+# ---------- iMessage through the user's iPhone (schema 12) ----------
+
+
+class IMessageWorkspace(Base):
+    """The single iMessage list: recipients, texts, attachments and bridge settings."""
+
+    __tablename__ = "imessage_workspace"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # [{phone (E.164 number or an iMessage email), message}]; an empty message takes
+    # the next message variant.
+    recipients: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    # Before the variants: one common text; read as the only variant.
+    message: Mapped[str] = mapped_column(String(2000), default="")
+    messages: Mapped[list[str]] = mapped_column(JSON, default=list)
+    attachment_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    protocol: Mapped[str] = mapped_column(String(10), default="legacy")
+    shortcut_name: Mapped[str] = mapped_column(String(80), default="Verse iPhone Bridge")
+    legacy_shortcut_name: Mapped[str] = mapped_column(String(80), default="Verse iMessage")
+    delay_seconds: Mapped[int] = mapped_column(default=30)
+    bind_ip: Mapped[str | None] = mapped_column(String(45))
+    port: Mapped[int] = mapped_column(default=47615)
+    # The bridge comes back after a restart of the core when it was on.
+    bridge_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Bridge token encrypted for the OS user (secret_box); never stored in plain text.
+    token_box: Mapped[bytes | None] = mapped_column(LargeBinary)
+    token_expires_at: Mapped[datetime | None]
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class IMessageAttachment(Base):
+    """A file copied into the app folder; served to the phone by id only."""
+
+    __tablename__ = "imessage_attachments"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    filename: Mapped[str] = mapped_column(String(200))
+    mime: Mapped[str] = mapped_column(String(100))
+    size: Mapped[int]
+    sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class IMessageCampaign(Base):
+    __tablename__ = "imessage_campaigns"
+    __table_args__ = (
+        CheckConstraint("status IN ('running','paused','stopped','finished')"),
+        CheckConstraint("protocol IN ('legacy','v2')"),
+        Index("ix_imessage_campaigns_status", "status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    protocol: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
+    message: Mapped[str] = mapped_column(String(2000), default="")
+    attachment_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    delay_seconds: Mapped[int] = mapped_column(default=30)
+    total: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None]
+
+
+class IMessageJob(Base):
+    """One recipient of a campaign. Handed to the phone at most once by itself:
+    pending -> issued -> execution_acknowledged; a lost ACK makes it uncertain."""
+
+    __tablename__ = "imessage_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','issued','execution_acknowledged','uncertain','failed')"
+        ),
+        Index("ix_imessage_jobs_campaign", "campaign_id", "status", "position"),
+        Index("ix_imessage_jobs_phone", "phone"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("imessage_campaigns.id", ondelete="CASCADE")
+    )
+    # The stable jobId of both protocols.
+    key: Mapped[str] = mapped_column(String(40), unique=True)
+    position: Mapped[int]
+    # Phone number or email of the recipient.
+    phone: Mapped[str] = mapped_column(String(254))
+    message: Mapped[str] = mapped_column(String(2000))
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    attempts: Mapped[int] = mapped_column(default=0)
+    issued_at: Mapped[datetime | None]
+    # No ACK by then: the job becomes uncertain.
+    deadline_at: Mapped[datetime | None]
+    text_acked_at: Mapped[datetime | None]
+    acked_at: Mapped[datetime | None]
+    # text: the original Shortcut passed the text step; complete: text and attachments;
+    # manual: the user checked the thread on the phone.
+    ack_scope: Mapped[str | None] = mapped_column(String(10))
+    ack_count: Mapped[int] = mapped_column(default=0)
+    resolution: Mapped[str | None] = mapped_column(String(20))
+    note: Mapped[str | None] = mapped_column(String(300))
+
+
+class IMessageEvent(Base):
+    __tablename__ = "imessage_events"
+    __table_args__ = (Index("ix_imessage_events_campaign", "campaign_id", "id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int | None] = mapped_column(
+        ForeignKey("imessage_campaigns.id", ondelete="CASCADE")
+    )
+    job_id: Mapped[int | None]
+    type: Mapped[str] = mapped_column(String(40))
+    detail: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class CrmContact(Base):
+    """Schema 13: a person in the Instagram or the iMessage CRM. The two CRMs are separate
+    tables of the same shape; contacts move between them only by an explicit import."""
+
+    __tablename__ = "crm_contacts"
+    __table_args__ = (
+        CheckConstraint("crm IN ('instagram','imessage')"),
+        Index("ix_crm_contacts_crm", "crm", "deleted_at", "id"),
+        Index("ix_crm_contacts_lead", "lead_id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    crm: Mapped[str] = mapped_column(String(12))
+    name: Mapped[str] = mapped_column(String(160))
+    # Labels in display order; colors come from crm_statuses, unknown labels are neutral.
+    statuses: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # [{"kind": "instagram" | "email" | "phone", "value": str}]; the first is the main one.
+    channels: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    notes: Mapped[str] = mapped_column(String(5000), default="")
+    last_contact_at: Mapped[datetime | None]
+    next_action: Mapped[str] = mapped_column(String(300), default="")
+    next_action_at: Mapped[datetime | None]
+    earned: Mapped[float] = mapped_column(default=0)
+    potential: Mapped[float] = mapped_column(default=0)
+    lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
+    # In the trash since; null for live contacts.
+    deleted_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class CrmStatus(Base):
+    """Schema 13: the configured statuses of one CRM («Настроить статусы»)."""
+
+    __tablename__ = "crm_statuses"
+    __table_args__ = (
+        CheckConstraint("crm IN ('instagram','imessage')"),
+        UniqueConstraint("crm", "label", name="uq_crm_status_label"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    crm: Mapped[str] = mapped_column(String(12))
+    label: Mapped[str] = mapped_column(String(40))
+    color: Mapped[str] = mapped_column(String(12), default="violet")
+    position: Mapped[int] = mapped_column(default=0)

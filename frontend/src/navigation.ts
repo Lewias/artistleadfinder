@@ -1,4 +1,5 @@
-// Sidebar order; `placement: 'footer'` entries sit under the divider at the bottom.
+// Sidebar order per channel; `placement: 'footer'` entries sit under the divider at the
+// bottom and are shown in both channels.
 export const pages = [
   {
     id: 'discovery',
@@ -7,6 +8,7 @@ export const pages = [
     title: 'Локальный парсер',
     description: '',
     placement: 'main',
+    channel: 'instagram',
   },
   {
     id: 'outreach',
@@ -15,6 +17,7 @@ export const pages = [
     title: 'Первичная рассылка',
     description: '',
     placement: 'main',
+    channel: 'instagram',
   },
   {
     id: 'profiles',
@@ -23,6 +26,7 @@ export const pages = [
     title: 'Аккаунты',
     description: 'Отдельная сессия, cookies и прокси для каждого профиля.',
     placement: 'main',
+    channel: 'instagram',
   },
   {
     id: 'leads',
@@ -31,6 +35,7 @@ export const pages = [
     title: 'База артистов',
     description: 'Все собранные профили, сигналы и статусы в одном месте.',
     placement: 'main',
+    channel: 'instagram',
   },
   {
     id: 'history',
@@ -39,6 +44,7 @@ export const pages = [
     title: 'История поисков',
     description: 'Результаты и состояние прошедших поисков.',
     placement: 'main',
+    channel: 'instagram',
   },
   {
     id: 'dashboard',
@@ -47,6 +53,43 @@ export const pages = [
     title: 'Статистика',
     description: 'Что происходит с поисками, артистами и вашей базой.',
     placement: 'main',
+    channel: 'instagram',
+  },
+  {
+    id: 'crm',
+    label: 'CRM',
+    eyebrow: 'INSTAGRAM',
+    title: 'CRM Instagram',
+    description: 'Контакты, статусы, следующие шаги и деньги в одной рабочей таблице.',
+    placement: 'main',
+    channel: 'instagram',
+  },
+  {
+    id: 'imessage',
+    label: 'Кампании',
+    eyebrow: 'IMESSAGE',
+    title: 'Кампании iMessage',
+    description: 'Рассылка с вашего iPhone через Команды так же понятно, как в Instagram.',
+    placement: 'main',
+    channel: 'imessage',
+  },
+  {
+    id: 'imessage-log',
+    label: 'Логи',
+    eyebrow: 'IMESSAGE',
+    title: 'Логи iMessage',
+    description: 'Каждый шаг моста и Shortcut с точным статусом.',
+    placement: 'main',
+    channel: 'imessage',
+  },
+  {
+    id: 'imessage-crm',
+    label: 'CRM',
+    eyebrow: 'IMESSAGE',
+    title: 'CRM iMessage',
+    description: 'Телефоны и email, статусы, следующие шаги и деньги в одной рабочей таблице.',
+    placement: 'main',
+    channel: 'imessage',
   },
   {
     id: 'settings',
@@ -55,6 +98,12 @@ export const pages = [
     title: 'Настройки',
     description: 'Темп сбора, параметры оценки и локальные данные.',
     placement: 'footer',
+    channel: 'instagram',
   },
 ] as const;
 export type PageId = (typeof pages)[number]['id'];
+export type Channel = (typeof pages)[number]['channel'];
+export const channels: { id: Channel; label: string; section: string }[] = [
+  { id: 'instagram', label: 'Instagram', section: 'INSTAGRAM' },
+  { id: 'imessage', label: 'iMessage', section: 'IMESSAGE' },
+];

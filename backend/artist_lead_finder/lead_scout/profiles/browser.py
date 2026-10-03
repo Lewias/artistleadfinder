@@ -46,6 +46,49 @@ POSTS_TEXT = re.compile(
 )
 
 
+# Buttons and labels of the profile header that the page text mixes into the bio.
+INTERFACE_LINES = {
+    "подписаться",
+    "подписаться в ответ",
+    "вы подписаны",
+    "подписки",
+    "отправить сообщение",
+    "сообщение",
+    "контакты",
+    "актуальное",
+    "ещё",
+    "еще",
+    "follow",
+    "follow back",
+    "following",
+    "message",
+    "contact",
+    "email",
+    "highlights",
+    "more",
+    "… more",
+    "... more",
+}
+# A link written as plain bio text: "linktr.ee/name", "https://site.com/x".
+TEXT_LINK = re.compile(
+    r"(?<![@\w.])((?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}/[^\s,;)]*|https?://[^\s,;)]+)",
+    re.I,
+)
+
+
+def clean_bio(text: str | None) -> str | None:
+    """Bio without header buttons ("Подписаться", "Highlights") or the "…" of a cut bio."""
+    if text is None:
+        return None
+    lines = []
+    for line in str(text).splitlines():
+        line = line.strip()
+        if line.lower() in INTERFACE_LINES:
+            continue
+        lines.append(re.sub(r"\s*(?:\.\.\.|…)$", "", line))
+    return "\n".join(line for line in lines if line)
+
+
 def _category_from_header(header: str) -> str | None:
     for line in header.splitlines():
         if line.strip().lower() in KNOWN_CATEGORIES:
@@ -113,6 +156,7 @@ class BrowserProfileProvider:
         biography, strategy = _field(page, "bio")
         if biography is None and "bio" not in unknown:
             biography, strategy = candidate.bio, evidence.get("bio_method", "dom")
+        biography = clean_bio(biography)
         if strategy:
             strategies["biography"] = strategy
         full_name, _ = _field(page, "full_name")
@@ -125,6 +169,8 @@ class BrowserProfileProvider:
         if category:
             strategies["category_name"] = strategy
         raw_links = [str(link) for link in snapshot.get("links", []) if isinstance(link, str)]
+        # Links typed into the bio are not anchors in the header.
+        raw_links += TEXT_LINK.findall(biography or "")[:5]
         external = normalize_external_url(snapshot.get("external_url")) or (
             normalize_external_url(raw_links[0]) if raw_links else None
         )

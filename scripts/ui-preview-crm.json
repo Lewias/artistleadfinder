@@ -1,0 +1,173 @@
+{
+ "crm.list": {
+  "items": [
+   {
+    "id": 4,
+    "name": "wallo4vr",
+    "statuses": [
+     "Артист",
+     "only1mofetti",
+     "Сделка"
+    ],
+    "channels": [
+     {
+      "kind": "instagram",
+      "value": "wallo4vr"
+     },
+     {
+      "kind": "email",
+      "value": "walloforevermusic@gmail.com"
+     },
+     {
+      "kind": "phone",
+      "value": "+14045550188"
+     }
+    ],
+    "notes": "CINEMA! OSSWELL! wallo forever",
+    "last_contact_at": null,
+    "next_action": "",
+    "next_action_at": null,
+    "earned": 150.0,
+    "potential": 0.0,
+    "lead_id": null,
+    "deleted_at": null,
+    "attention": false
+   },
+   {
+    "id": 3,
+    "name": "real.sinu",
+    "statuses": [
+     "Артист",
+     "4shootersonly"
+    ],
+    "channels": [
+     {
+      "kind": "instagram",
+      "value": "real.sinu"
+     },
+     {
+      "kind": "email",
+      "value": "sinubookings@gmail.com"
+     },
+     {
+      "kind": "phone",
+      "value": "+13125550147"
+     }
+    ],
+    "notes": "888 ✨ Chicago | Atlanta Bookings",
+    "last_contact_at": null,
+    "next_action": "Созвон по фиту",
+    "next_action_at": "2026-10-02T00:00:00",
+    "earned": 300.0,
+    "potential": 1200.0,
+    "lead_id": null,
+    "deleted_at": null,
+    "attention": true
+   },
+   {
+    "id": 2,
+    "name": "pimpindown",
+    "statuses": [
+     "Артист",
+     "streetgossipmedia",
+     "Интересуется"
+    ],
+    "channels": [
+     {
+      "kind": "instagram",
+      "value": "pimpindown"
+     }
+    ],
+    "notes": "Influencer / motivational speaker / comedian",
+    "last_contact_at": null,
+    "next_action": "Отправить бит",
+    "next_action_at": "2026-10-05T00:00:00",
+    "earned": 0.0,
+    "potential": 400.0,
+    "lead_id": null,
+    "deleted_at": null,
+    "attention": true
+   },
+   {
+    "id": 1,
+    "name": "deals_loudnclear",
+    "statuses": [
+     "Артист",
+     "streetgossipmedia"
+    ],
+    "channels": [
+     {
+      "kind": "instagram",
+      "value": "deals_loudnclear"
+     }
+    ],
+    "notes": "Artists Management / Artists Development · Atlanta",
+    "last_contact_at": null,
+    "next_action": "",
+    "next_action_at": null,
+    "earned": 0.0,
+    "potential": 0.0,
+    "lead_id": null,
+    "deleted_at": null,
+    "attention": false
+   }
+  ],
+  "total": 4,
+  "counts": {
+   "all": 4,
+   "attention": 2,
+   "trash": 0
+  },
+  "totals": {
+   "earned": 450.0,
+   "potential": 1600.0
+  },
+  "statuses": [
+   {
+    "label": "Артист",
+    "color": "violet"
+   },
+   {
+    "label": "Интересуется",
+    "color": "amber"
+   },
+   {
+    "label": "Ответил",
+    "color": "green"
+   },
+   {
+    "label": "Сделка",
+    "color": "green"
+   },
+   {
+    "label": "Отказ",
+    "color": "red"
+   },
+   {
+    "label": "Не связываться",
+    "color": "red"
+   }
+  ],
+  "labels": [
+   "Артист",
+   "Интересуется",
+   "Ответил",
+   "Сделка",
+   "Отказ",
+   "Не связываться",
+   "streetgossipmedia",
+   "4shootersonly",
+   "only1mofetti"
+  ]
+ },
+ "crm.sources": [
+  {
+   "id": "leads",
+   "count": 1606
+  },
+  {
+   "id": "imessage",
+   "count": 0
+  }
+ ]
+}

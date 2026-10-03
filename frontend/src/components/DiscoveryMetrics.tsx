@@ -1,6 +1,7 @@
 import type { DiscoveryMetrics } from '../services/types';
 
 const groupLabels: Record<string, string> = {
+  profiles: 'Проверка профилей',
   posts: 'Posts / Reels',
   comments: 'Комментарии',
   tagged: 'Tagged',

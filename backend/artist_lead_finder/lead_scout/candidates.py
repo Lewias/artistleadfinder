@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-METHODS = ("post", "reel", "tagged", "story", "followers", "following", "comment")
+METHODS = ("post", "reel", "tagged", "story", "followers", "following", "comment", "profile")
 
 # Instagram paths that look like usernames but are product pages.
 SYSTEM_PATHS = {

@@ -181,17 +181,18 @@ def rewind_cursor(session, picked: list[str], done: list[str]) -> None:
 
 
 def pick_sources(
-    session, batch: int, cooldown_hours: int, skip_recent: bool
+    session, batch: int, cooldown_hours: int, skip_recent: bool, rotate: bool = True
 ) -> tuple[list[str], list[str]]:
     """Next `batch` enabled sources after the stored cursor, skipping ones in cooldown.
 
     Returns (picked urls, skipped-in-cooldown urls). The cursor advances past the
     last picked source, so consecutive runs cycle A B, C D, E F, A B...
+    Without `rotate` every run starts from the top of the list.
     """
     sources = enabled_sources(session)
     if not sources:
         return [], []
-    cursor = int(state_get(session, "source_cursor", 0) or 0) % len(sources)
+    cursor = int(state_get(session, "source_cursor", 0) or 0) % len(sources) if rotate else 0
     picked, cooling, last_index = [], [], None
     for step in range(len(sources)):
         index = (cursor + step) % len(sources)
@@ -203,6 +204,6 @@ def pick_sources(
         last_index = index
         if len(picked) >= batch:
             break
-    if last_index is not None:
+    if rotate and last_index is not None:
         state_set(session, "source_cursor", (last_index + 1) % len(sources))
     return picked, cooling

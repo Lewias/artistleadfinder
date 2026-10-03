@@ -137,6 +137,8 @@ def normalized_username(value: str) -> str:
 
 def _source_account(data: FilterInput, settings: ScoutSettings) -> Outcome:
     candidate = data.candidate
+    if candidate.method == "profile":
+        return None  # "Проверить профили": the source itself is the profile under check
     if normalized_username(candidate.username) == normalized_username(candidate.source_username):
         return SOURCE_ACCOUNT, f"@{candidate.username} is the source itself"
     return None
@@ -167,14 +169,18 @@ def _required(data: FilterInput, settings: ScoutSettings) -> Outcome:
         return MISSING_REQUIRED_DATA, "username missing"
     if profile.is_private:
         return PROFILE_PRIVATE, "private account"
-    if profile.followers_count is None and not settings.scout_allow_unknown_followers:
+    if (
+        profile.followers_count is None
+        and settings.scout_use_followers_range
+        and not settings.scout_allow_unknown_followers
+    ):
         return MISSING_REQUIRED_DATA, "followers count unknown"
     return None
 
 
 def _followers(data: FilterInput, settings: ScoutSettings) -> Outcome:
     followers = data.profile.followers_count
-    if followers is None:
+    if followers is None or not settings.scout_use_followers_range:
         return None
     if followers < settings.scout_min_followers:
         return FOLLOWERS_TOO_LOW, f"{followers} < min {settings.scout_min_followers}"

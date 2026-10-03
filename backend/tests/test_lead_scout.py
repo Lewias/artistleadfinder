@@ -68,7 +68,27 @@ def test_source_rotation_and_cooldown(tmp_path):
         picked, cooling = memory.pick_sources(session, 2, 24, skip_recent=True)
     assert [url.split("/")[-2] for url in picked] == ["d", "e"]
     assert cooling == ["https://www.instagram.com/c/"]
+    # Rotation off: every run starts from the top and the cursor stays where it was.
+    with sessions.begin() as session:
+        picked, _ = memory.pick_sources(session, 2, 24, skip_recent=False, rotate=False)
+        assert [url.split("/")[-2] for url in picked] == ["a", "b"]
+        assert memory.state_get(session, "source_cursor") == 5
     engine.dispose()
+
+
+def test_settings_of_an_older_version_still_save(scout):
+    from artist_lead_finder.models import Setting
+
+    service, sessions = scout
+    with sessions.begin() as session:
+        session.add(Setting(key="scout_follow_max", value=250))
+        session.add(Setting(key="scout_following_max", value=40))
+        session.add(Setting(key="removed_long_ago", value=1))
+    loaded = service.call("settings.get", {})
+    assert (loaded["scout_followers_max"], loaded["scout_following_max"]) == (250, 40)
+    assert "scout_follow_max" not in loaded and "removed_long_ago" not in loaded
+    # The UI sends back everything it got.
+    assert service.call("settings.save", loaded)["scout_followers_max"] == 250
 
 
 def profile_page(name, bio, followers=2500, category="", links=(), user_id=None, captions=()):

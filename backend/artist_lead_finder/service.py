@@ -15,7 +15,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from .browser_capture import BrowserCaptureService
 from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
+from .crm.service import CrmService
 from .discovery import DiscoveryEngine
+from .imessage import shortcut as imessage_shortcut
+from .imessage.service import IMessageService
 from .jobs import DiscoveryManager
 from .lead_scout import leads as scout_leads
 from .lead_scout.ai import AIKeyStore, OpenRouterClassifier
@@ -191,12 +194,24 @@ class ApplicationService:
         self.outreach.recover()
         with self.sessions.begin() as session:
             outreach_events.prune(session)
+        # iMessage through the iPhone: the LAN bridge comes back if it was on.
+        self.imessage = IMessageService(sessions, data_dir)
+        self.crm = CrmService(sessions, self.workspace.add_usernames, self.imessage.add_recipients)
+        self.imessage.prune()
+        self.imessage.remove_orphan_files()
+        self.imessage.restore()
         self.handlers = self._handlers()
 
     def settings(self) -> dict:
         with self.sessions() as session:
             stored = {setting.key: setting.value for setting in session.scalars(select(Setting))}
-        return {**DEFAULTS, **stored}
+        # Before 0.2.2 one limit served both follow lists; it seeds the two limits.
+        legacy = stored.pop("scout_follow_max", None)
+        if legacy is not None:
+            stored.setdefault("scout_followers_max", legacy)
+            stored.setdefault("scout_following_max", legacy)
+        # Keys of older versions never go back to the UI: a save would reject them.
+        return {**DEFAULTS, **{key: value for key, value in stored.items() if key in DEFAULTS}}
 
     def call(self, method: str, params: dict) -> Any:
         handler = self.handlers.get(method)
@@ -263,6 +278,35 @@ class ApplicationService:
             "outreach.next_internal": lambda p: self.outreach.next_job(),
             "outreach.commit_internal": self.outreach.commit,
             "leads.do_not_contact": self.campaigns.set_do_not_contact,
+            "crm.list": self.crm.contacts,
+            "crm.save": self.crm.save,
+            "crm.trash": self.crm.trash,
+            "crm.restore": self.crm.restore,
+            "crm.purge": self.crm.purge,
+            "crm.label": self.crm.label,
+            "crm.statuses_save": self.crm.statuses_save,
+            "crm.write": self.crm.write,
+            "crm.sources": self.crm.sources,
+            "crm.import_verse": self.crm.import_verse,
+            "crm.import_file": self.crm.import_file,
+            "crm.export": self.crm.export,
+            "imessage.state": self.imessage.state,
+            "imessage.workspace_update": self.imessage.workspace_update,
+            "imessage.add_leads": self.imessage.add_leads,
+            "imessage.attachment_add": self.imessage.attachment_add,
+            "imessage.attachment_remove": self.imessage.attachment_remove,
+            "imessage.bridge_start": self.imessage.bridge_start,
+            "imessage.bridge_stop": self.imessage.bridge_stop,
+            "imessage.bridge_rotate": self.imessage.rotate_token,
+            "imessage.start": self.imessage.start,
+            "imessage.control": self.imessage.control,
+            "imessage.resolve": self.imessage.resolve,
+            "imessage.preview": self.imessage.preview,
+            "imessage.events": self.imessage.events,
+            "imessage.campaigns": self.imessage.campaigns,
+            "imessage.shortcut_guide": lambda p: imessage_shortcut.guide(),
+            "imessage.shortcut_save": self.imessage.shortcut_save,
+            "imessage.shortcut_export": lambda p: imessage_shortcut.export(str(p["path"])),
             "ai.status": lambda p: {"configured": self.ai_keys.configured()},
             "ai.set_key": self._set_ai_key,
             "scout.account_target": self.scout.set_target,
@@ -440,7 +484,7 @@ class ApplicationService:
 
     def _system_info(self, params: dict) -> dict:
         return {
-            "version": "0.2.1",
+            "version": "0.9.0",
             "data_dir": str(self.data_dir),
             "log_dir": str(self.data_dir / "logs"),
             "transport": "stdio",
@@ -788,5 +832,6 @@ class ApplicationService:
         return {"count": count, "path": str(path)}
 
     def shutdown(self) -> None:
+        self.imessage.shutdown()
         self.chromium.shutdown()
         self.manager.shutdown()

@@ -1,0 +1,698 @@
+{
+ "imessage.state": {
+  "bridge": {
+   "running": true,
+   "ip": "192.168.1.42",
+   "port": 47615,
+   "addresses": [
+    "192.168.1.42",
+    "10.0.0.17"
+   ],
+   "token_valid": true,
+   "token_expires_at": "2026-10-03T21:00:07+00:00",
+   "last_seen": {
+    "ip": "192.168.1.42",
+    "at": "2026-10-03T09:09:34+00:00",
+    "user_agent": "Shortcuts/3200 CFNetwork Darwin/24.0.0"
+   },
+   "connect_url": "http://192.168.1.42:47615/connect?token=Q2x9mV4tLr8pZk3nW7yB1cHs",
+   "urls": {
+    "legacy": "http://192.168.1.42:47615/task?token=Q2x9mV4tLr8pZk3nW7yB1cHs",
+    "v2": "http://192.168.1.42:47615/v2/next?token=Q2x9mV4tLr8pZk3nW7yB1cHs"
+   },
+   "deep_links": {
+    "legacy": "shortcuts://run-shortcut?name=Verse%20iMessage&input=text&text=http%3A%2F%2F192.168.1.42%3A47615%2Ftask%3Ftoken%3DQ2x9mV4tLr8pZk3nW7yB1cHs",
+    "v2": "shortcuts://run-shortcut?name=Verse%20iPhone%20Bridge&input=text&text=http%3A%2F%2F192.168.1.42%3A47615%2Fv2%2Fnext%3Ftoken%3DQ2x9mV4tLr8pZk3nW7yB1cHs"
+   }
+  },
+  "workspace": {
+   "recipients": [
+    {
+     "phone": "+15555550101",
+     "message": "",
+     "status": "execution_acknowledged"
+    },
+    {
+     "phone": "+15555550102",
+     "message": "",
+     "status": "execution_acknowledged"
+    },
+    {
+     "phone": "+15555550103",
+     "message": "",
+     "status": "uncertain"
+    },
+    {
+     "phone": "+15555550104",
+     "message": "",
+     "status": "issued"
+    },
+    {
+     "phone": "+15555550105",
+     "message": "",
+     "status": "pending"
+    },
+    {
+     "phone": "+15555550106",
+     "message": "Yo Jay, your last drop was crazy — got beats for you",
+     "status": "pending"
+    },
+    {
+     "phone": "fan.mail@example.com",
+     "message": "",
+     "status": "pending"
+    },
+    {
+     "phone": "+15555550108",
+     "message": "Hey! Sent you a pack, lmk what you think",
+     "status": "pending"
+    }
+   ],
+   "messages": [
+    "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "Yo {Phone}, been bumpin your stuff — got beats for you"
+   ],
+   "attachments": [
+    {
+     "id": "e8823c1df29f98a2a6ed0b81febd6b4f",
+     "filename": "beatpack-preview.mp3",
+     "mime": "audio/mpeg",
+     "size": 4200003
+    },
+    {
+     "id": "65ca0610c0b48659bddbdb51318a9393",
+     "filename": "cover.jpg",
+     "mime": "image/jpeg",
+     "size": 380002
+    }
+   ],
+   "protocol": "v2",
+   "shortcut_name": "Verse iPhone Bridge",
+   "legacy_shortcut_name": "Verse iMessage",
+   "delay_seconds": 30
+  },
+  "campaign": {
+   "id": 1,
+   "protocol": "v2",
+   "status": "running",
+   "is_test": false,
+   "delay_seconds": 30,
+   "total": 8,
+   "created_at": "2026-10-03T09:01:59+00:00",
+   "finished_at": null,
+   "counts": {
+    "pending": 4,
+    "issued": 1,
+    "execution_acknowledged": 2,
+    "uncertain": 1,
+    "failed": 0
+   }
+  },
+  "active": true,
+  "jobs": [
+   {
+    "id": 1,
+    "key": "1-1-f1c9c0b0",
+    "position": 1,
+    "phone": "+15555550101",
+    "message": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "status": "execution_acknowledged",
+    "attempts": 1,
+    "issued_at": "2026-10-03T09:02:55+00:00",
+    "text_acked_at": "2026-10-03T09:03:23+00:00",
+    "acked_at": "2026-10-03T09:04:19+00:00",
+    "ack_scope": "complete",
+    "resolution": null,
+    "note": null
+   },
+   {
+    "id": 2,
+    "key": "1-2-addbef16",
+    "position": 2,
+    "phone": "+15555550102",
+    "message": "Yo +15555550102, been bumpin your stuff — got beats for you",
+    "status": "execution_acknowledged",
+    "attempts": 1,
+    "issued_at": "2026-10-03T09:04:54+00:00",
+    "text_acked_at": "2026-10-03T09:05:22+00:00",
+    "acked_at": "2026-10-03T09:06:18+00:00",
+    "ack_scope": "complete",
+    "resolution": null,
+    "note": null
+   },
+   {
+    "id": 3,
+    "key": "1-3-e5941ea1",
+    "position": 3,
+    "phone": "+15555550103",
+    "message": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "status": "uncertain",
+    "attempts": 1,
+    "issued_at": "2026-10-03T09:06:53+00:00",
+    "text_acked_at": "2026-10-03T09:07:21+00:00",
+    "acked_at": null,
+    "ack_scope": null,
+    "resolution": null,
+    "note": "Телефон запросил следующее задание без подтверждения этого. Текст был подтверждён, вложения — нет."
+   },
+   {
+    "id": 4,
+    "key": "1-4-cc4b345d",
+    "position": 4,
+    "phone": "+15555550104",
+    "message": "Yo +15555550104, been bumpin your stuff — got beats for you",
+    "status": "issued",
+    "attempts": 1,
+    "issued_at": "2026-10-03T09:08:31+00:00",
+    "text_acked_at": "2026-10-03T09:08:59+00:00",
+    "acked_at": null,
+    "ack_scope": null,
+    "resolution": null,
+    "note": null
+   },
+   {
+    "id": 5,
+    "key": "1-5-d3f3167f",
+    "position": 5,
+    "phone": "+15555550105",
+    "message": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "status": "pending",
+    "attempts": 0,
+    "issued_at": null,
+    "text_acked_at": null,
+    "acked_at": null,
+    "ack_scope": null,
+    "resolution": null,
+    "note": null
+   },
+   {
+    "id": 6,
+    "key": "1-6-e38bdbcb",
+    "position": 6,
+    "phone": "+15555550106",
+    "message": "Yo Jay, your last drop was crazy — got beats for you",
+    "status": "pending",
+    "attempts": 0,
+    "issued_at": null,
+    "text_acked_at": null,
+    "acked_at": null,
+    "ack_scope": null,
+    "resolution": null,
+    "note": null
+   },
+   {
+    "id": 7,
+    "key": "1-7-09977c2b",
+    "position": 7,
+    "phone": "fan.mail@example.com",
+    "message": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "status": "pending",
+    "attempts": 0,
+    "issued_at": null,
+    "text_acked_at": null,
+    "acked_at": null,
+    "ack_scope": null,
+    "resolution": null,
+    "note": null
+   },
+   {
+    "id": 8,
+    "key": "1-8-2d3f971c",
+    "position": 8,
+    "phone": "+15555550108",
+    "message": "Hey! Sent you a pack, lmk what you think",
+    "status": "pending",
+    "attempts": 0,
+    "issued_at": null,
+    "text_acked_at": null,
+    "acked_at": null,
+    "ack_scope": null,
+    "resolution": null,
+    "note": null
+   }
+  ]
+ },
+ "imessage.events": [
+  {
+   "id": 15,
+   "campaign_id": 1,
+   "job_id": 4,
+   "type": "text_ack",
+   "detail": "+15555550104: шаг отправки текста пройден",
+   "created_at": "2026-10-03T09:09:06+00:00"
+  },
+  {
+   "id": 14,
+   "campaign_id": 1,
+   "job_id": 4,
+   "type": "job_issued",
+   "detail": "+15555550104: задание выдано телефону (попытка 1)",
+   "created_at": "2026-10-03T09:08:38+00:00"
+  },
+  {
+   "id": 13,
+   "campaign_id": 1,
+   "job_id": 3,
+   "type": "job_uncertain",
+   "detail": "+15555550103: Телефон запросил следующее задание без подтверждения этого. Текст был подтверждён, вложения — нет. Проверьте переписку на iPhone.",
+   "created_at": "2026-10-03T09:08:24+00:00"
+  },
+  {
+   "id": 12,
+   "campaign_id": 1,
+   "job_id": 3,
+   "type": "text_ack",
+   "detail": "+15555550103: шаг отправки текста пройден",
+   "created_at": "2026-10-03T09:07:28+00:00"
+  },
+  {
+   "id": 11,
+   "campaign_id": 1,
+   "job_id": 3,
+   "type": "job_issued",
+   "detail": "+15555550103: задание выдано телефону (попытка 1)",
+   "created_at": "2026-10-03T09:07:00+00:00"
+  },
+  {
+   "id": 10,
+   "campaign_id": 1,
+   "job_id": 2,
+   "type": "job_acknowledged",
+   "detail": "+15555550102: Shortcut подтвердил выполнение: текст и вложения переданы в Messages",
+   "created_at": "2026-10-03T09:06:25+00:00"
+  },
+  {
+   "id": 9,
+   "campaign_id": 1,
+   "job_id": 2,
+   "type": "text_ack",
+   "detail": "+15555550102: шаг отправки текста пройден",
+   "created_at": "2026-10-03T09:05:29+00:00"
+  },
+  {
+   "id": 8,
+   "campaign_id": 1,
+   "job_id": 2,
+   "type": "job_issued",
+   "detail": "+15555550102: задание выдано телефону (попытка 1)",
+   "created_at": "2026-10-03T09:05:01+00:00"
+  },
+  {
+   "id": 7,
+   "campaign_id": 1,
+   "job_id": 1,
+   "type": "job_acknowledged",
+   "detail": "+15555550101: Shortcut подтвердил выполнение: текст и вложения переданы в Messages",
+   "created_at": "2026-10-03T09:04:26+00:00"
+  },
+  {
+   "id": 6,
+   "campaign_id": 1,
+   "job_id": 1,
+   "type": "text_ack",
+   "detail": "+15555550101: шаг отправки текста пройден",
+   "created_at": "2026-10-03T09:03:30+00:00"
+  },
+  {
+   "id": 5,
+   "campaign_id": 1,
+   "job_id": 1,
+   "type": "job_issued",
+   "detail": "+15555550101: задание выдано телефону (попытка 1)",
+   "created_at": "2026-10-03T09:03:02+00:00"
+  },
+  {
+   "id": 4,
+   "campaign_id": null,
+   "job_id": null,
+   "type": "phone_connected",
+   "detail": "Запрос с устройства 192.168.1.42",
+   "created_at": "2026-10-03T09:02:41+00:00"
+  },
+  {
+   "id": 3,
+   "campaign_id": 1,
+   "job_id": null,
+   "type": "campaign_started",
+   "detail": "Запущена рассылка №1: 8 получ., новый Shortcut",
+   "created_at": "2026-10-03T09:02:06+00:00"
+  },
+  {
+   "id": 2,
+   "campaign_id": null,
+   "job_id": null,
+   "type": "bridge_started",
+   "detail": "Мост включён: 192.168.1.42:61463",
+   "created_at": "2026-10-03T09:00:35+00:00"
+  },
+  {
+   "id": 1,
+   "campaign_id": null,
+   "job_id": null,
+   "type": "token_rotated",
+   "detail": "Выпущен новый токен моста; старые ссылки больше не работают.",
+   "created_at": "2026-10-03T09:00:14+00:00"
+  }
+ ],
+ "imessage.campaigns": [
+  {
+   "id": 1,
+   "protocol": "v2",
+   "status": "running",
+   "is_test": false,
+   "delay_seconds": 30,
+   "total": 8,
+   "created_at": "2026-10-03T09:01:59+00:00",
+   "finished_at": null,
+   "counts": {
+    "pending": 4,
+    "issued": 1,
+    "execution_acknowledged": 2,
+    "uncertain": 1,
+    "failed": 0
+   }
+  }
+ ],
+ "imessage.shortcut_guide": [
+  {
+   "number": 1,
+   "identifier": "is.workflow.actions.setvariable",
+   "text": "«Задать переменную» `nextUrl` = **Входные данные быстрой команды** (адрес задания из ссылки или QR-кода).",
+   "original": 1,
+   "depth": 0,
+   "notes": []
+  },
+  {
+   "number": 2,
+   "identifier": "is.workflow.actions.repeat.count",
+   "text": "«Повторить» **1000** раз. Внутри — шаги 3–30; Shortcut выходит из цикла сам, когда сервер отвечает `stopped` или `finished`.",
+   "original": null,
+   "depth": 0,
+   "notes": [
+    "В исходном цикл шёл по всем контактам сразу (действие 11); здесь — по одному заданию."
+   ]
+  },
+  {
+   "number": 3,
+   "identifier": "is.workflow.actions.downloadurl",
+   "text": "«Получить содержимое URL» из `nextUrl` (метод GET).",
+   "original": 1,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 4,
+   "identifier": "is.workflow.actions.detect.dictionary",
+   "text": "«Получить словарь из» содержимого URL.",
+   "original": 2,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 5,
+   "identifier": "is.workflow.actions.setvariable",
+   "text": "«Задать переменную» `job` = Словарь.",
+   "original": null,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 6,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `state` из `job` → переименуйте вывод в `state`.",
+   "original": null,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 7,
+   "identifier": "is.workflow.actions.conditional",
+   "text": "«Если» `state` **является** `ready`.",
+   "original": null,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 8,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `recipient` из `job` → переименуйте вывод в `recipient`.",
+   "original": 12,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 9,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `message` из `job` → переименуйте вывод в `message`.",
+   "original": 13,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 10,
+   "identifier": "is.workflow.actions.sendmessage",
+   "text": "«Отправить сообщение»: Сообщение = `message`, Получатели = `recipient` (переменная, не контакт из списка). **Показывать при выполнении — включено.**",
+   "original": 14,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 11,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `textAckUrl` из `job` → переименуйте вывод в `textAckUrl`.",
+   "original": null,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 12,
+   "identifier": "is.workflow.actions.downloadurl",
+   "text": "«Получить содержимое URL» из `textAckUrl` — сервер отмечает, что шаг текста пройден.",
+   "original": 16,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 13,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `attachments` из `job` → переименуйте вывод в `attachments`.",
+   "original": 5,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 14,
+   "identifier": "is.workflow.actions.repeat.each",
+   "text": "«Повторить с каждым» объектом в `attachments`.",
+   "original": 6,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 15,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `downloadUrl` из **Repeat Item 2** (элемент этого, вложенного, цикла — не внешнего).",
+   "original": 7,
+   "depth": 3,
+   "notes": []
+  },
+  {
+   "number": 16,
+   "identifier": "is.workflow.actions.downloadurl",
+   "text": "«Получить содержимое URL» из значения словаря — это файл с именем и типом от сервера.",
+   "original": 8,
+   "depth": 3,
+   "notes": []
+  },
+  {
+   "number": 17,
+   "identifier": "is.workflow.actions.sendmessage",
+   "text": "«Отправить сообщение»: в поле Сообщение — **только** переменная «Содержимое URL» из шага 16, без пробелов и текста; нажмите на неё → Тип → **Файл**. Получатели = `recipient`. Показывать при выполнении — включено.",
+   "original": 18,
+   "depth": 3,
+   "notes": [
+    "В исходном файлы сначала собирались в переменную `files` (действие 9), а затем отправлялись из неё; здесь каждый файл уходит сразу после загрузки.",
+    "Если вставить переменную рядом с текстом, Команды превратят файл в его текстовое описание — поэтому поле должно содержать только её."
+   ]
+  },
+  {
+   "number": 18,
+   "identifier": "is.workflow.actions.repeat.each",
+   "text": "Конец «Повторить с каждым».",
+   "original": 10,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 19,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `ackUrl` из `job` → переименуйте вывод в `ackUrl`.",
+   "original": 15,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 20,
+   "identifier": "is.workflow.actions.downloadurl",
+   "text": "«Получить содержимое URL» из `ackUrl` — подтверждение **после** текста и всех вложений (в исходном оно шло до вложений).",
+   "original": 16,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 21,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `delaySeconds` из `job` → переименуйте вывод в `delaySeconds`.",
+   "original": null,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 22,
+   "identifier": "is.workflow.actions.delay",
+   "text": "«Ждать» `delaySeconds` секунд (задаётся в приложении; после последнего — 0).",
+   "original": 21,
+   "depth": 2,
+   "notes": [
+    "В исходном пауза была случайной, 20–50 с (действия 20–21); здесь — фиксированная, из приложения."
+   ]
+  },
+  {
+   "number": 23,
+   "identifier": "is.workflow.actions.conditional",
+   "text": "«Иначе».",
+   "original": null,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 24,
+   "identifier": "is.workflow.actions.conditional",
+   "text": "Вложенное «Если» `state` **является** `paused`.",
+   "original": null,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 25,
+   "identifier": "is.workflow.actions.getvalueforkey",
+   "text": "«Получить значение для ключа» `retrySeconds` из `job` → переименуйте вывод в `retrySeconds`.",
+   "original": null,
+   "depth": 3,
+   "notes": []
+  },
+  {
+   "number": 26,
+   "identifier": "is.workflow.actions.delay",
+   "text": "«Ждать» `retrySeconds` (15 с) — затем цикл снова спросит сервер.",
+   "original": null,
+   "depth": 3,
+   "notes": []
+  },
+  {
+   "number": 27,
+   "identifier": "is.workflow.actions.conditional",
+   "text": "«Иначе» (`stopped`, `finished` или ошибка сервера).",
+   "original": null,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 28,
+   "identifier": "is.workflow.actions.exit",
+   "text": "«Остановить эту быструю команду».",
+   "original": null,
+   "depth": 3,
+   "notes": []
+  },
+  {
+   "number": 29,
+   "identifier": "is.workflow.actions.conditional",
+   "text": "Конец вложенного «Если».",
+   "original": null,
+   "depth": 2,
+   "notes": []
+  },
+  {
+   "number": 30,
+   "identifier": "is.workflow.actions.conditional",
+   "text": "Конец «Если» `ready`.",
+   "original": null,
+   "depth": 1,
+   "notes": []
+  },
+  {
+   "number": 31,
+   "identifier": "is.workflow.actions.repeat.count",
+   "text": "Конец «Повторить».",
+   "original": null,
+   "depth": 0,
+   "notes": []
+  }
+ ],
+ "imessage.preview": {
+  "protocol": "v2",
+  "items": [
+   {
+    "phone": "+15555550101",
+    "text": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "individual": false
+   },
+   {
+    "phone": "+15555550102",
+    "text": "Yo +15555550102, been bumpin your stuff — got beats for you",
+    "individual": false
+   },
+   {
+    "phone": "+15555550103",
+    "text": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "individual": false
+   },
+   {
+    "phone": "+15555550104",
+    "text": "Yo +15555550104, been bumpin your stuff — got beats for you",
+    "individual": false
+   },
+   {
+    "phone": "+15555550105",
+    "text": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "individual": false
+   },
+   {
+    "phone": "+15555550106",
+    "text": "Yo Jay, your last drop was crazy — got beats for you",
+    "individual": true
+   },
+   {
+    "phone": "fan.mail@example.com",
+    "text": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+    "individual": false
+   },
+   {
+    "phone": "+15555550108",
+    "text": "Hey! Sent you a pack, lmk what you think",
+    "individual": true
+   }
+  ],
+  "payload": {
+   "state": "ready",
+   "jobId": "…",
+   "recipient": "+15555550101",
+   "message": "Yo fam, fw your sound heavy. Got some beats that fit — want me to send?",
+   "attachments": [
+    {
+     "downloadUrl": "…/attachment/e8823c1df29f98a2a6ed0b81febd6b4f?token=•••",
+     "name": "beatpack-preview.mp3"
+    },
+    {
+     "downloadUrl": "…/attachment/65ca0610c0b48659bddbdb51318a9393?token=•••",
+     "name": "cover.jpg"
+    }
+   ],
+   "ackUrl": "…/v2/ack?token=•••&jobId=…&stage=done",
+   "textAckUrl": "…/v2/ack?token=•••&jobId=…&stage=text",
+   "statusUrl": "…/v2/status?token=•••",
+   "delaySeconds": 30
+  }
+ }
+}
