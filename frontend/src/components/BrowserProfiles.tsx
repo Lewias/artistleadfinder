@@ -1,3 +1,4 @@
+import { ErrorToast } from './Toaster';
 import { useEffect, useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -388,11 +389,7 @@ export function BrowserProfiles() {
               onChange={proxy => setForm(current => ({ ...current, proxy }))}
               onInputChange={proxyInput => setForm(current => ({ ...current, proxyInput }))}
             />
-            {formError && (
-              <p role="alert" className="error-text">
-                {formError}
-              </p>
-            )}
+            <ErrorToast message={formError} />
             <p className="helper">
               {dialog.kind === 'edit'
                 ? 'Для смены прокси сначала закройте окно этого профиля.'

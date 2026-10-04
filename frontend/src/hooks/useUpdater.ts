@@ -1,3 +1,4 @@
+import { errorText } from '../lib/errors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -28,7 +29,7 @@ export function trackDownload() {
   };
 }
 
-const message = (err: unknown) => String(err).replace(/^Error:\s*/, '');
+const message = errorText;
 
 /** Checks the release feed on start and every 6 hours; installs on request and restarts. */
 export function useUpdater(checkFn = check, restart = relaunch) {

@@ -10,6 +10,8 @@ import secrets
 import subprocess
 import sys
 
+from .errors import UserError
+
 MAC_PREFIX = b"ALF1"
 KEYCHAIN_SERVICE = "ArtistLeadFinder"
 KEYCHAIN_ACCOUNT = "secret-box"
@@ -20,7 +22,7 @@ def protect(data: bytes, decrypt: bool = False) -> bytes:
         return _dpapi(data, decrypt)
     if sys.platform == "darwin":
         return keychain_box(data, decrypt, _keychain_key)
-    raise ValueError("Хранилище секретов поддерживается на Windows и macOS.")
+    raise UserError("Хранилище секретов поддерживается на Windows и macOS.")
 
 
 def keychain_box(data: bytes, decrypt: bool, key_source) -> bytes:
@@ -57,7 +59,7 @@ def _keychain_key(create: bool) -> bytes:
     if found.returncode == 0 and len(found.stdout.strip()) == 64:
         return bytes.fromhex(found.stdout.strip())
     if not create:
-        raise ValueError("Ключ шифрования не найден в Keychain.")
+        raise UserError("Ключ шифрования не найден в Keychain.")
     key = secrets.token_bytes(32)
     added = subprocess.run(
         [
@@ -74,7 +76,7 @@ def _keychain_key(create: bool) -> bytes:
         capture_output=True,
     )
     if added.returncode != 0:
-        raise ValueError("Не удалось сохранить ключ шифрования в Keychain.")
+        raise UserError("Не удалось сохранить ключ шифрования в Keychain.")
     return key
 
 

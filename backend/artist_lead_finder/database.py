@@ -32,7 +32,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 13 for version in versions):
+        if any(version > 14 for version in versions):
             engine.dispose()
             raise RuntimeError("База создана более новой версией приложения.")
     Base.metadata.create_all(engine)
@@ -76,7 +76,12 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "ai_category": "VARCHAR(20)",
             "origin_id": "VARCHAR(120)",
         },
-        "imessage_workspace": {"messages": "JSON NOT NULL DEFAULT '[]'"},
+        "imessage_workspace": {
+            "messages": "JSON NOT NULL DEFAULT '[]'",
+            "sequence": "JSON NOT NULL DEFAULT '[]'",
+        },
+        "imessage_campaigns": {"steps": "JSON NOT NULL DEFAULT '[]'"},
+        "imessage_jobs": {"step": "INTEGER NOT NULL DEFAULT 0"},
         "scout_sources": {
             "last_scanned_at": "DATETIME",
             "status": "VARCHAR(40) NOT NULL DEFAULT 'new'",
@@ -152,4 +157,8 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # tables only.
         if session.get(SchemaMigration, 13) is None:
             session.add(SchemaMigration(version=13))
+        # Schema 14: iMessage templates (imessage_templates) and chains of messages
+        # (workspace.sequence, campaigns.steps, jobs.step).
+        if session.get(SchemaMigration, 14) is None:
+            session.add(SchemaMigration(version=14))
     return engine, factory

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import select
 
 from .discovery import DiscoveryRecord
+from .errors import UserError
 from .models import BrowserQueue, Lead, LeadAnalysis, SearchJob, utcnow
 from .pipeline import CandidatePipeline
 from .providers import Candidate
@@ -190,7 +191,7 @@ class BrowserCaptureService:
                 )
             )
             if active:
-                raise ValueError("Для этого профиля уже идёт поиск. Остановите или завершите его.")
+                raise UserError("Для этого профиля уже идёт поиск. Остановите или завершите его.")
             job = SearchJob(
                 **config.model_dump(),
                 status="running",

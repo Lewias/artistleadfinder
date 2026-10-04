@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
+from ..errors import UserError
 from ..models import Conversation, Message, OutreachSender, utcnow
 from . import reasons
 from .settings import OutreachSettings
@@ -142,7 +143,7 @@ class SenderAllocator:
 
     def __init__(self, sender_ids: list[str]):
         if not sender_ids:
-            raise ValueError("Нет доступных аккаунтов-отправителей.")
+            raise UserError("Нет доступных аккаунтов-отправителей.")
         self.sender_ids = list(sender_ids)
         self.position = 0
 

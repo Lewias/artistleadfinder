@@ -1,3 +1,4 @@
+import { ErrorToast } from '../Toaster';
 import { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { useResource } from '../../hooks/useResource';
@@ -8,7 +9,7 @@ import { Modal } from '../Modal';
 import { StatusBadge } from '../DataState';
 import { dateTime, senderStatusLabels } from './outreachText';
 
-const errorText = (err: unknown) => String(err).replace(/^Error:\s*/, '');
+import { errorText } from '../../lib/errors';
 
 const crmStatuses = ['new', 'reviewed', 'qualified', 'contacted', 'rejected'] as const;
 
@@ -59,11 +60,7 @@ export function CrmModal({
           </label>
         ))}
       </div>
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
       <div className="actions">
         <Button disabled={!chosen.length} onClick={() => void add()}>
           Добавить
@@ -129,11 +126,7 @@ export function TemplatesModal({
           Добавить все
         </Button>
       </div>
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
       <div className="template-pick">
         {enabled.map(item => (
           <div className="message-card" key={item.id}>
@@ -291,11 +284,7 @@ export function OutreachSettingsModal({
           </label>
         </div>
       )}
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
       {message && !error && <p className="helper">{message}</p>}
       <div className="actions">
         <Button disabled={!form} onClick={() => void saveSettings()}>

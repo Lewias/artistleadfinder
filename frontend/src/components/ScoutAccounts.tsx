@@ -1,3 +1,4 @@
+import { ErrorToast } from './Toaster';
 import { useState } from 'react';
 import { Activity, ExternalLink, Globe2, Pause, Play, SkipForward, Square, Target } from 'lucide-react';
 import { api } from '../services/api';
@@ -49,11 +50,7 @@ export function ScoutAccounts({
           </span>
         </div>
       </div>
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
       {list.map(row => (
         <AccountCard key={row.profile.id} row={row} refresh={refresh} />
       ))}
@@ -222,9 +219,10 @@ function AccountCard({ row, refresh }: { row: ScoutAccountRow; refresh: () => vo
           {run.backlog ? ` · публикаций в запасе ${run.backlog}` : ''}
         </p>
       )}
-      {(error || attention) && (
+      <ErrorToast message={error} />
+      {attention && (
         <p role="alert" className="error-text">
-          {error || run?.error}
+          {run?.error}
         </p>
       )}
       {!!run?.notices?.length && (

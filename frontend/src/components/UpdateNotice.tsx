@@ -1,3 +1,4 @@
+import { ErrorToast } from './Toaster';
 import { useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import type { UpdaterState } from '../hooks/useUpdater';
@@ -36,11 +37,7 @@ export function UpdateNotice({ state, install }: Props) {
               </span>
             </div>
           )}
-          {state.status === 'error' && state.error && (
-            <p role="alert" className="error-text">
-              {state.error}
-            </p>
-          )}
+          <ErrorToast message={state.status === 'error' ? state.error : null} title="Обновление" />
           <div className="actions">
             <Button disabled={active} onClick={() => void install()}>
               <RefreshCw size={15} /> {state.status === 'error' ? 'Повторить' : 'Обновить и перезапустить'}
@@ -79,11 +76,10 @@ export function UpdatesPanel({
         </p>
         {state.status === 'available' && <p className="helper">Доступна версия {state.version}.</p>}
         {statusText[state.status] && <p className="helper">{statusText[state.status]}</p>}
-        {state.status === 'error' && state.error && (
-          <p role="alert" className="error-text">
-            Не удалось проверить обновления: {state.error}
-          </p>
-        )}
+        <ErrorToast
+          message={state.status === 'error' ? state.error : null}
+          title="Не удалось проверить обновления"
+        />
       </div>
       <div className="actions">
         <Button

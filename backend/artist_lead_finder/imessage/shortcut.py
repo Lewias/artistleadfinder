@@ -11,6 +11,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..errors import UserError
+
 # The signed original Verse Shortcut (legacy protocol). iOS imports it as is.
 SIGNED = Path(__file__).with_name("Verse iMessage.shortcut")
 
@@ -367,10 +369,10 @@ def guide() -> list[dict]:
 def save_signed(path: str) -> dict:
     target = Path(path)
     if target.suffix.lower() != ".shortcut":
-        raise ValueError("Сохраните команду с расширением .shortcut.")
+        raise UserError("Сохраните команду с расширением .shortcut.")
     data = SIGNED.read_bytes()
     if not data.startswith(b"AEA1"):
-        raise ValueError("Встроенный файл команды повреждён.")
+        raise UserError("Встроенный файл команды повреждён.")
     target.write_bytes(data)
     return {"path": str(target), "size": len(data)}
 
@@ -378,6 +380,6 @@ def save_signed(path: str) -> dict:
 def export(path: str) -> dict:
     target = Path(path)
     if target.suffix.lower() != ".plist":
-        raise ValueError("Сохраните исходник с расширением .plist.")
+        raise UserError("Сохраните исходник с расширением .plist.")
     target.write_bytes(unsigned_plist())
     return {"path": str(target), "actions": len(steps())}

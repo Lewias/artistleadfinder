@@ -1,3 +1,4 @@
+import { ErrorToast } from '../components/Toaster';
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { api } from '../services/api';
@@ -144,11 +145,7 @@ export function SearchHistory() {
             Завершённые поиски пропадут из истории. Найденные артисты останутся в базе, активные поиски не
             затрагиваются.
           </p>
-          {error && (
-            <p role="alert" className="error-text">
-              {error}
-            </p>
-          )}
+          <ErrorToast message={error} />
           <div className="actions">
             <Button variant="danger" disabled={busy} onClick={() => void clear()}>
               <Trash2 size={15} /> Очистить

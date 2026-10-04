@@ -662,6 +662,9 @@ class IMessageWorkspace(Base):
     message: Mapped[str] = mapped_column(String(2000), default="")
     messages: Mapped[list[str]] = mapped_column(JSON, default=list)
     attachment_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Schema 14: a chain of messages every recipient gets in order, [{text, attachment_ids}];
+    # empty means the variants and the common attachments above.
+    sequence: Mapped[list[dict]] = mapped_column(JSON, default=list)
     protocol: Mapped[str] = mapped_column(String(10), default="legacy")
     shortcut_name: Mapped[str] = mapped_column(String(80), default="Verse iPhone Bridge")
     legacy_shortcut_name: Mapped[str] = mapped_column(String(80), default="Verse iMessage")
@@ -701,6 +704,9 @@ class IMessageCampaign(Base):
     is_test: Mapped[bool] = mapped_column(Boolean, default=False)
     message: Mapped[str] = mapped_column(String(2000), default="")
     attachment_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Schema 14, a chain: [{attachment_ids, run}] per message; a run is one launch of the
+    # Shortcut. Empty for a single message with the attachments above.
+    steps: Mapped[list[dict]] = mapped_column(JSON, default=list)
     delay_seconds: Mapped[int] = mapped_column(default=30)
     total: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
@@ -726,6 +732,8 @@ class IMessageJob(Base):
     # The stable jobId of both protocols.
     key: Mapped[str] = mapped_column(String(40), unique=True)
     position: Mapped[int]
+    # Index of the message in the campaign's chain (0 without a chain).
+    step: Mapped[int] = mapped_column(default=0)
     # Phone number or email of the recipient.
     phone: Mapped[str] = mapped_column(String(254))
     message: Mapped[str] = mapped_column(String(2000))
@@ -742,6 +750,19 @@ class IMessageJob(Base):
     ack_count: Mapped[int] = mapped_column(default=0)
     resolution: Mapped[str | None] = mapped_column(String(20))
     note: Mapped[str | None] = mapped_column(String(300))
+
+
+class IMessageTemplate(Base):
+    """Schema 14: a saved iMessage template, one or more messages of text and/or files."""
+
+    __tablename__ = "imessage_templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    folder: Mapped[str] = mapped_column(String(60), default="")
+    # [{text, attachment_ids}] in sending order.
+    parts: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class IMessageEvent(Base):

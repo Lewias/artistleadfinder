@@ -1,7 +1,7 @@
 import { api } from '../services/api';
 import type { ScoutAccountRow } from '../services/types';
 
-export const errorText = (err: unknown) => String(err).replace(/^Error:\s*/, '');
+export { errorText } from '../lib/errors';
 
 /** A Scout run that holds the account (running, or paused waiting for the user). */
 export const scoutActive = (row?: ScoutAccountRow | null) =>

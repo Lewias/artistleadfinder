@@ -13,6 +13,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from .browser_capture import parse_snapshot, profile_url
 from .chromium_runtime import GUEST_ID
+from .errors import UserError
 from .lead_scout import events, leads, memory
 from .lead_scout.candidates import CandidateGate, profile_link
 from .lead_scout.classification import (
@@ -472,7 +473,7 @@ class ScoutService:
         profile_id = str(params["profile_id"])
         target = int(params["target"])
         if not 1 <= target <= 10000:
-            raise ValueError("Цель: от 1 до 10000 лидов.")
+            raise UserError("Цель: от 1 до 10000 лидов.")
         with self.sessions.begin() as session:
             account = session.get(ScoutAccount, profile_id) or ScoutAccount(profile_id=profile_id)
             account.target = target
@@ -487,7 +488,7 @@ class ScoutService:
         """Legacy list API: replace the enabled set with `values`, return enabled URLs."""
         if values is not None:
             if not isinstance(values, list) or not 1 <= len(values) <= 500:
-                raise ValueError("Добавьте от 1 до 500 Instagram-источников.")
+                raise UserError("Добавьте от 1 до 500 Instagram-источников.")
             urls = list(dict.fromkeys(profile_url(value) for value in values))
             with self.sessions.begin() as session:
                 for source in session.scalars(select(ScoutSource)):
@@ -535,11 +536,11 @@ class ScoutService:
     def add_sources(self, params) -> list[dict]:
         values = params.get("values")
         if not isinstance(values, list) or not 1 <= len(values) <= 500:
-            raise ValueError("Добавьте от 1 до 500 Instagram-источников.")
+            raise UserError("Добавьте от 1 до 500 Instagram-источников.")
         urls = list(dict.fromkeys(profile_url(value) for value in values))
         with self.sessions.begin() as session:
             if session.scalar(select(func.count()).select_from(ScoutSource)) + len(urls) > 500:
-                raise ValueError("Не больше 500 источников.")
+                raise UserError("Не больше 500 источников.")
             now = utcnow()
             for index, url in enumerate(urls):
                 row = session.get(ScoutSource, url)
@@ -554,7 +555,7 @@ class ScoutService:
         with self.sessions.begin() as session:
             row = session.get(ScoutSource, profile_url(params["url"]))
             if row is None:
-                raise ValueError("Источник не найден.")
+                raise UserError("Источник не найден.")
             row.enabled = bool(params["enabled"])
         return self.source_rows()
 
@@ -586,7 +587,7 @@ class ScoutService:
                     scout.scout_rotate_sources,
                 )
             if not picked:
-                raise ValueError(
+                raise UserError(
                     "Нет источников для запуска: добавьте и включите источники"
                     + (" или дождитесь конца кулдауна." if cooling else ".")
                 )
@@ -598,7 +599,7 @@ class ScoutService:
                 tasks += added
                 notices += [message for message in messages if message not in notices]
         if not tasks:
-            raise ValueError("Включите хотя бы один доступный метод поиска в настройках Scout.")
+            raise UserError("Включите хотя бы один доступный метод поиска в настройках Scout.")
         if cooling:
             notices.append(f"Пропущены по кулдауну: {len(cooling)} источник(ов).")
         if profile != GUEST_ID:
@@ -607,7 +608,7 @@ class ScoutService:
                 if account is None:
                     session.add(ScoutAccount(profile_id=profile))
                 elif account.found >= account.target:
-                    raise ValueError("Цель достигнута. Увеличьте цель или сбросьте счётчик.")
+                    raise UserError("Цель достигнута. Увеличьте цель или сбросьте счётчик.")
         created = self.capture.start(
             {"urls": picked, "profile_id": profile, "name": "Lead Scout"},
             settings,
@@ -1852,7 +1853,7 @@ class ScoutService:
     def skip(self, job_id):
         state = self.state(job_id)
         if not state.get("scout") or state["status"] != "paused" or state["stage"] == "interrupted":
-            raise ValueError("Можно пропустить шаг только в приостановленном поиске.")
+            raise UserError("Можно пропустить шаг только в приостановленном поиске.")
         self.advance(job_id, notice="Пропущено пользователем: " + state["url"])
         if self.state(job_id)["status"] == "paused":
             self.capture.control(job_id, "resume")

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { deepLink, jobStatusDetail, jobStatusLabel, parseRecipients, recipientsText } from './imessageText';
+import {
+  chainPlan,
+  deepLink,
+  jobStatusDetail,
+  jobStatusLabel,
+  parseRecipients,
+  recipientsText,
+} from './imessageText';
 
 describe('iMessage recipients', () => {
   it('reads one number per line with an optional text after ";"', () => {
@@ -45,5 +52,20 @@ describe('job statuses', () => {
       text_acked_at: null,
     });
     expect(acknowledged).toContain('доставка не подтверждаются');
+  });
+});
+
+describe('chains of messages', () => {
+  const file = { id: 'a'.repeat(32), filename: 'cover.png', mime: 'image/png', size: 10 };
+  const part = (text: string, files = 0) => ({ text, attachments: Array(files).fill(file) });
+  it('sends texts in one launch and gives files a launch of their own', () => {
+    expect(chainPlan([part('Привет'), part('Как дела?')])).toEqual({ messages: 2, launches: 1, error: null });
+    expect(chainPlan([part('Привет'), part('', 1)])).toEqual({ messages: 1, launches: 1, error: null });
+    expect(chainPlan([part('Привет'), part('Трек', 1), part('Пока')]).launches).toBe(3);
+    expect(chainPlan([part('Трек', 1), part('Пока'), part('Ещё')]).launches).toBe(2);
+  });
+  it('cannot open with files or keep an empty message', () => {
+    expect(chainPlan([part('', 1), part('Текст')]).error).toMatch('начинает');
+    expect(chainPlan([part('Текст'), part('')]).error).toMatch('пустое');
   });
 });

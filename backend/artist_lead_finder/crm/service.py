@@ -13,6 +13,7 @@ from pathlib import Path
 
 from sqlalchemy import delete, func, select
 
+from ..errors import UserError
 from ..imessage.phones import EMAIL, normalize_phone
 from ..models import (
     Conversation,
@@ -81,7 +82,7 @@ SOURCES = {
 def _crm(params: dict) -> str:
     crm = str(params.get("crm") or "")
     if crm not in CRMS:
-        raise ValueError("Неизвестная CRM.")
+        raise UserError("Неизвестная CRM.")
     return crm
 
 
@@ -92,7 +93,7 @@ def _ids(params: dict) -> list[int]:
         or len(ids) > 100000
         or any(not isinstance(value, int) or value <= 0 for value in ids)
     ):
-        raise ValueError("Некорректный список контактов.")
+        raise UserError("Некорректный список контактов.")
     return ids
 
 
@@ -114,19 +115,19 @@ def normalize_channel(kind: str, value: object) -> str | None:
 def channels_from(value: object) -> list[dict]:
     """Validated, de-duplicated channels; the order is kept, the first is the main one."""
     if not isinstance(value, list) or len(value) > 50:
-        raise ValueError("Некорректный список каналов.")
+        raise UserError("Некорректный список каналов.")
     result: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for item in value:
         kind = str(item.get("kind") if isinstance(item, dict) else "")
         if kind not in KINDS:
-            raise ValueError("Канал: Instagram, email или телефон.")
+            raise UserError("Канал: Instagram, email или телефон.")
         raw = item.get("value")
         normalized = normalize_channel(kind, raw)
         if normalized is None:
             label = {"instagram": "Instagram", "email": "Email", "phone": "Телефон"}[kind]
             hint = " (с «+» и кодом страны)" if kind == "phone" else ""
-            raise ValueError(f"{label}{hint}: «{str(raw)[:60]}» не подходит.")
+            raise UserError(f"{label}{hint}: «{str(raw)[:60]}» не подходит.")
         if (kind, normalized) not in seen:
             seen.add((kind, normalized))
             result.append({"kind": kind, "value": normalized})
@@ -135,7 +136,7 @@ def channels_from(value: object) -> list[dict]:
 
 def labels_from(value: object) -> list[str]:
     if not isinstance(value, list) or len(value) > MAX_STATUSES:
-        raise ValueError("Некорректный список статусов.")
+        raise UserError("Некорректный список статусов.")
     result: list[str] = []
     for item in value:
         label = " ".join(str(item).split())[:MAX_LABEL]
@@ -151,9 +152,9 @@ def _money(value: object) -> float:
     try:
         amount = float(text) if text else 0.0
     except ValueError as error:
-        raise ValueError(f"Сумма «{str(value)[:30]}» не число.") from error
+        raise UserError(f"Сумма «{str(value)[:30]}» не число.") from error
     if not 0 <= amount <= 1e12:
-        raise ValueError("Сумма — от 0.")
+        raise UserError("Сумма — от 0.")
     return round(amount, 2)
 
 
@@ -175,7 +176,7 @@ def _day(value: object) -> datetime | None:
     serial = sheets.excel_date(text)
     if serial is not None:
         return serial
-    raise ValueError(f"Дата «{text[:30]}» не распознана (нужно 2026-10-05 или 05.10.2026).")
+    raise UserError(f"Дата «{text[:30]}» не распознана (нужно 2026-10-05 или 05.10.2026).")
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -236,17 +237,17 @@ class CrmService:
         crm = _crm(params)
         items = params.get("statuses")
         if not isinstance(items, list) or len(items) > MAX_STATUSES:
-            raise ValueError(f"Не больше {MAX_STATUSES} статусов.")
+            raise UserError(f"Не больше {MAX_STATUSES} статусов.")
         wanted: list[tuple[str, str]] = []
         for item in items:
             label = " ".join(str(item.get("label") or "").split())[:MAX_LABEL]
             color = str(item.get("color") or "violet")
             if not label:
-                raise ValueError("У статуса должно быть название.")
+                raise UserError("У статуса должно быть название.")
             if color not in COLORS:
-                raise ValueError("Неизвестный цвет статуса.")
+                raise UserError("Неизвестный цвет статуса.")
             if any(label.casefold() == known.casefold() for known, _ in wanted):
-                raise ValueError(f"Статус «{label}» повторяется.")
+                raise UserError(f"Статус «{label}» повторяется.")
             wanted.append((label, color))
         with self.sessions.begin() as session:
             removed = {row.label for row in self._statuses(session, crm)} - {
@@ -336,7 +337,7 @@ class CrmService:
         crm = _crm(params)
         tab = str(params.get("tab") or "all")
         if tab not in ("all", "attention", "trash"):
-            raise ValueError("Неизвестная вкладка.")
+            raise UserError("Неизвестная вкладка.")
         search = str(params.get("search") or "").strip().casefold()[:200]
         sort = str(params.get("sort") or "created")
         descending = bool(params.get("descending", sort == "created"))
@@ -467,7 +468,7 @@ class CrmService:
         if not name:
             name = channels[0]["value"] if channels else ""
         if not name:
-            raise ValueError("Укажите имя или хотя бы один канал.")
+            raise UserError("Укажите имя или хотя бы один канал.")
         values = {
             "name": name,
             "channels": channels,
@@ -483,12 +484,12 @@ class CrmService:
             if params.get("id"):
                 contact = session.get(CrmContact, int(params["id"]))
                 if contact is None or contact.crm != crm:
-                    raise ValueError("Контакт не найден.")
+                    raise UserError("Контакт не найден.")
             else:
                 keys = {(item["kind"], item["value"]) for item in channels}
                 for other in session.scalars(select(CrmContact).where(CrmContact.crm == crm)):
                     if keys & _keys(other):
-                        raise ValueError(f"Такой контакт уже есть: {other.name}.")
+                        raise UserError(f"Такой контакт уже есть: {other.name}.")
                 contact = CrmContact(crm=crm)
                 session.add(contact)
             for key, value in values.items():
@@ -540,7 +541,7 @@ class CrmService:
         """Adds or removes one status on the chosen contacts."""
         label = " ".join(str(params.get("label") or "").split())[:MAX_LABEL]
         if not label:
-            raise ValueError("Выберите статус.")
+            raise UserError("Выберите статус.")
         add = bool(params.get("add", True))
 
         def apply(contact: CrmContact) -> None:
@@ -581,7 +582,7 @@ class CrmService:
             if value:
                 values.append(value)
         if not values:
-            raise ValueError(
+            raise UserError(
                 "У выбранных нет Instagram."
                 if crm == "instagram"
                 else "У выбранных нет телефона или email."
@@ -670,7 +671,7 @@ class CrmService:
         crm = _crm(params)
         source = str(params.get("source") or "")
         if source not in SOURCES[crm]:
-            raise ValueError("Неизвестный источник импорта.")
+            raise UserError("Неизвестный источник импорта.")
         with self.sessions.begin() as session:
             if source == "leads":
                 incoming = self._lead_contacts(session)
@@ -749,7 +750,7 @@ class CrmService:
         crm = _crm(params)
         rows = sheets.read_table(Path(str(params.get("path") or "")))
         if not rows:
-            raise ValueError("Файл пустой.")
+            raise UserError("Файл пустой.")
         header = [cell.casefold().strip() for cell in rows[0]]
         columns = {
             field: header.index(name)
@@ -758,7 +759,7 @@ class CrmService:
             if name in header
         }
         if not {"instagram", "email", "phone"} & set(columns):
-            raise ValueError(
+            raise UserError(
                 "Нужна хотя бы одна колонка: Instagram, Email или Телефон "
                 "(первая строка — названия колонок)."
             )

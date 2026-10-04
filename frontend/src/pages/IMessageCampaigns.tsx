@@ -1,3 +1,4 @@
+import { ErrorToast } from '../components/Toaster';
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import {
@@ -8,6 +9,7 @@ import {
   FolderOpen,
   LayoutGrid,
   LayoutTemplate,
+  ListOrdered,
   MessageSquare,
   Paperclip,
   Pause,
@@ -25,38 +27,28 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
-import type { IMessageJob, IMessagePreview, IMessageState } from '../services/types';
+import type { IMessageJob, IMessagePart, IMessagePreview, IMessageState } from '../services/types';
 import { number, plural } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/button';
 import { Modal } from '../components/Modal';
 import { errorText } from '../components/accountRuns';
-import { CrmModal, TemplatesModal } from '../components/outreach/OutreachModals';
+import { CrmModal } from '../components/outreach/OutreachModals';
+import { PartsEditor, PlanNote, TemplateEditor, TemplatePicker } from '../components/imessage/Templates';
 import { parseMessages } from '../components/outreach/outreachList';
 import { PhoneModal, type PhoneStage } from '../components/imessage/PhoneModal';
 import {
+  ATTACHMENT_EXTENSIONS,
   campaignStatusLabel,
   fileSize,
   jobStatusDetail,
   jobStatusLabel,
   jobStatusTone,
   parseRecipients,
+  partsPayload,
   recipientsText,
 } from '../components/imessage/imessageText';
 
-const ATTACHMENT_EXTENSIONS = [
-  'jpg',
-  'jpeg',
-  'png',
-  'gif',
-  'heic',
-  'webp',
-  'mp4',
-  'mov',
-  'm4a',
-  'mp3',
-  'pdf',
-];
 const RECIPIENTS_HINT = 'Один телефон или email на строку: +15555550123 или name@example.com.';
 const MESSAGES_HINT =
   'Разделяйте варианты пустой строкой. Для телефона или email доступна подстановка {Phone}.';
@@ -70,6 +62,8 @@ type Dialog =
   | 'templates'
   | 'clear-users'
   | 'clear-messages'
+  | 'clear-chain'
+  | 'save-template'
   | null;
 
 const time = (value: string | null) =>
@@ -132,6 +126,15 @@ export function IMessageCampaigns() {
   const attachments = workspace?.attachments ?? [];
   const campaign = state?.campaign;
   const active = !!state?.active;
+  // The chain is edited locally; a new version from the core replaces the draft.
+  const sequenceKey = JSON.stringify(workspace?.sequence ?? []);
+  const [chainSource, setChainSource] = useState('[]');
+  const [chain, setChain] = useState<IMessagePart[]>([]);
+  if (sequenceKey !== chainSource) {
+    setChainSource(sequenceKey);
+    setChain(JSON.parse(sequenceKey) as IMessagePart[]);
+  }
+  const chained = (workspace?.sequence.length ?? 0) > 0;
 
   const call = async (method: string, params: object = {}) => {
     setBusy(true);
@@ -163,6 +166,21 @@ export function IMessageCampaigns() {
   };
   const addMessages = async (texts: string[]) =>
     texts.length ? !!(await save({ messages: [...messages, ...texts] })) : false;
+  const saveChain = (parts: IMessagePart[]) => void save({ sequence: partsPayload(parts) });
+  // «Несколько сообщений»: the first variant and the list's files open the chain.
+  const startChain = () =>
+    void save({
+      sequence: [
+        { text: messages[0] ?? '', attachment_ids: attachments.map(item => item.id) },
+        { text: '', attachment_ids: [] },
+      ],
+    });
+  const insertTemplate = async (id: number) => {
+    if (await call('imessage.template_use', { id })) {
+      setDialog(null);
+      setNotice('Шаблон вставлен.');
+    }
+  };
 
   const onUserKey = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return;
@@ -281,8 +299,16 @@ export function IMessageCampaigns() {
           </div>
           <div className="im-counts">
             <span>{plural(recipients.length, ['получатель', 'получателя', 'получателей'])}</span>
-            <span>{plural(messages.length, ['сообщение', 'сообщения', 'сообщений'])}</span>
-            <span>{plural(attachments.length, ['вложение', 'вложения', 'вложений'])}</span>
+            {chained ? (
+              <span>
+                цепочка: {plural(workspace?.sequence.length ?? 0, ['сообщение', 'сообщения', 'сообщений'])}
+              </span>
+            ) : (
+              <>
+                <span>{plural(messages.length, ['сообщение', 'сообщения', 'сообщений'])}</span>
+                <span>{plural(attachments.length, ['вложение', 'вложения', 'вложений'])}</span>
+              </>
+            )}
           </div>
         </header>
 
@@ -362,124 +388,162 @@ export function IMessageCampaigns() {
           </div>
         </Card>
 
-        <Card icon={<MessageSquare size={15} />} title="Сообщения" hint={MESSAGES_HINT}>
-          {messageBulk === null ? (
-            <>
-              {messages.length ? (
-                <div className="message-grid im-messages">
-                  {messages.map((text, index) => (
-                    <div className="message-card" key={text}>
-                      <p title={text}>{text}</p>
-                      <button
-                        type="button"
-                        aria-label={`Удалить сообщение ${index + 1}`}
-                        disabled={busy}
-                        onClick={() => void save({ messages: messages.filter(item => item !== text) })}
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="im-empty im-messages-empty">{MESSAGES_HINT}</p>
-              )}
-              <div className="im-compose">
-                <textarea
-                  className="message-input"
-                  rows={2}
-                  aria-label="Новое сообщение"
-                  placeholder={MESSAGES_HINT}
-                  value={messageDraft}
-                  disabled={busy}
-                  onChange={event => setMessageDraft(event.target.value)}
-                  onKeyDown={onMessageKey}
-                />
-                <Button
-                  variant="outline"
-                  icon
-                  aria-label="Добавить сообщение"
-                  title="Добавить сообщение"
-                  disabled={busy || !messageDraft.trim()}
-                  onClick={() =>
-                    void addMessages([messageDraft.trim()]).then(ok => ok && setMessageDraft(''))
-                  }
-                >
-                  <Plus size={16} />
-                </Button>
-              </div>
-            </>
-          ) : (
-            <textarea
-              className="board-bulk message-bulk"
-              autoFocus
-              aria-label="Сообщения, отделяйте пустой строкой"
-              placeholder={'Первый вариант, {Phone}\n\nВторой вариант — отделяйте пустой строкой'}
-              value={messageBulk}
-              disabled={busy}
-              onChange={event => setMessageBulk(event.target.value)}
+        {chained ? (
+          <Card
+            icon={<ListOrdered size={15} />}
+            title="Цепочка сообщений"
+            hint="Каждый получатель получит сообщения по порядку. В каждом — текст, файлы или и то и другое; {Phone} подставит получателя."
+          >
+            <PartsEditor
+              parts={chain}
+              busy={busy}
+              onChange={setChain}
+              onCommit={saveChain}
+              onError={setError}
             />
-          )}
-          <div className="board-toolbar">
-            <Button variant="outline" disabled={busy} onClick={toggleMessageBulk}>
-              {messageBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
-              {messageBulk === null ? 'Массовый' : 'Карточки'}
-            </Button>
-            <Button variant="outline" disabled={messageBulk !== null} onClick={() => setDialog('templates')}>
-              <LayoutTemplate size={15} /> Шаблоны
-            </Button>
-            <Button
-              variant="danger"
-              icon
-              aria-label="Удалить все сообщения"
-              title="Удалить все сообщения"
-              disabled={!messages.length}
-              onClick={() => setDialog('clear-messages')}
-            >
-              <Trash2 size={15} />
-            </Button>
-          </div>
-        </Card>
-
-        <Card
-          icon={<Paperclip size={15} />}
-          title="Вложения"
-          hint={
-            attachments.length ? 'Каждый файл уходит отдельным сообщением после текста' : 'Файлы не выбраны'
-          }
-        >
-          {attachments.length ? (
-            <div className="chip-cloud attachment-chips">
-              {attachments.map(item => (
-                <span className="chip board-chip" key={item.id} title={item.mime}>
-                  <Paperclip size={13} aria-hidden="true" />
-                  {item.filename} · {fileSize(item.size)}
-                  <button
-                    type="button"
-                    aria-label={`Удалить ${item.filename}`}
-                    disabled={busy}
-                    onClick={() => void call('imessage.attachment_remove', { id: item.id })}
-                  >
-                    <X size={13} />
-                  </button>
-                </span>
-              ))}
+            <PlanNote parts={chain} />
+            <div className="board-toolbar">
+              <Button variant="outline" onClick={() => setDialog('templates')}>
+                <LayoutTemplate size={15} /> Шаблоны
+              </Button>
+              <Button variant="outline" onClick={() => setDialog('save-template')}>
+                <Plus size={15} /> Сохранить как шаблон
+              </Button>
+              <Button variant="outline" disabled={busy} onClick={() => setDialog('clear-chain')}>
+                <MessageSquare size={15} /> Одно сообщение
+              </Button>
             </div>
-          ) : (
-            <p className="im-files-empty">Файлы не выбраны</p>
-          )}
-          <div className="board-toolbar">
-            <Button variant="outline" disabled={busy} onClick={() => void addAttachment()}>
-              <FolderOpen size={15} /> Выбрать файлы
-            </Button>
-          </div>
-        </Card>
-
-        {error && (
-          <p role="alert" className="error-text">
-            {error}
-          </p>
+          </Card>
+        ) : (
+          <Card icon={<MessageSquare size={15} />} title="Сообщения" hint={MESSAGES_HINT}>
+            {messageBulk === null ? (
+              <>
+                {messages.length ? (
+                  <div className="message-grid im-messages">
+                    {messages.map((text, index) => (
+                      <div className="message-card" key={text}>
+                        <p title={text}>{text}</p>
+                        <button
+                          type="button"
+                          aria-label={`Удалить сообщение ${index + 1}`}
+                          disabled={busy}
+                          onClick={() => void save({ messages: messages.filter(item => item !== text) })}
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="im-empty im-messages-empty">{MESSAGES_HINT}</p>
+                )}
+                <div className="im-compose">
+                  <textarea
+                    className="message-input"
+                    rows={2}
+                    aria-label="Новое сообщение"
+                    placeholder={MESSAGES_HINT}
+                    value={messageDraft}
+                    disabled={busy}
+                    onChange={event => setMessageDraft(event.target.value)}
+                    onKeyDown={onMessageKey}
+                  />
+                  <Button
+                    variant="outline"
+                    icon
+                    aria-label="Добавить сообщение"
+                    title="Добавить сообщение"
+                    disabled={busy || !messageDraft.trim()}
+                    onClick={() =>
+                      void addMessages([messageDraft.trim()]).then(ok => ok && setMessageDraft(''))
+                    }
+                  >
+                    <Plus size={16} />
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <textarea
+                className="board-bulk message-bulk"
+                autoFocus
+                aria-label="Сообщения, отделяйте пустой строкой"
+                placeholder={'Первый вариант, {Phone}\n\nВторой вариант — отделяйте пустой строкой'}
+                value={messageBulk}
+                disabled={busy}
+                onChange={event => setMessageBulk(event.target.value)}
+              />
+            )}
+            <div className="board-toolbar">
+              <Button variant="outline" disabled={busy} onClick={toggleMessageBulk}>
+                {messageBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
+                {messageBulk === null ? 'Массовый' : 'Карточки'}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={messageBulk !== null}
+                onClick={() => setDialog('templates')}
+              >
+                <LayoutTemplate size={15} /> Шаблоны
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || messageBulk !== null}
+                title="Каждый получатель получит несколько сообщений по порядку"
+                onClick={startChain}
+              >
+                <ListOrdered size={15} /> Несколько сообщений
+              </Button>
+              <Button
+                variant="danger"
+                icon
+                aria-label="Удалить все сообщения"
+                title="Удалить все сообщения"
+                disabled={!messages.length}
+                onClick={() => setDialog('clear-messages')}
+              >
+                <Trash2 size={15} />
+              </Button>
+            </div>
+          </Card>
         )}
+
+        {!chained && (
+          <Card
+            icon={<Paperclip size={15} />}
+            title="Вложения"
+            hint={
+              attachments.length ? 'Каждый файл уходит отдельным сообщением после текста' : 'Файлы не выбраны'
+            }
+          >
+            {attachments.length ? (
+              <div className="chip-cloud attachment-chips">
+                {attachments.map(item => (
+                  <span className="chip board-chip" key={item.id} title={item.mime}>
+                    <Paperclip size={13} aria-hidden="true" />
+                    {item.filename} · {fileSize(item.size)}
+                    <button
+                      type="button"
+                      aria-label={`Удалить ${item.filename}`}
+                      disabled={busy}
+                      onClick={() => void call('imessage.attachment_remove', { id: item.id })}
+                    >
+                      <X size={13} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="im-files-empty">Файлы не выбраны</p>
+            )}
+            <div className="board-toolbar">
+              <Button variant="outline" disabled={busy} onClick={() => void addAttachment()}>
+                <FolderOpen size={15} /> Выбрать файлы
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        <ErrorToast message={error} />
         {notice && !error && <p className="helper">{notice}</p>}
 
         <footer className="im-footer">
@@ -514,7 +578,10 @@ export function IMessageCampaigns() {
               <Smartphone size={15} /> Окно рассылки
             </Button>
           ) : (
-            <Button disabled={busy || !recipients.length || !messages.length} onClick={() => void start()}>
+            <Button
+              disabled={busy || !recipients.length || !(chained || messages.length)}
+              onClick={() => void start()}
+            >
               <Smartphone size={15} /> Рассылка через телефон
             </Button>
           )}
@@ -548,7 +615,12 @@ export function IMessageCampaigns() {
                 {state?.jobs.map(job => (
                   <tr key={job.id}>
                     <td>{job.position}</td>
-                    <td title={job.message}>{job.phone}</td>
+                    <td title={job.message}>
+                      {job.phone}
+                      {campaign.messages > 1 && (
+                        <small className="job-detail">сообщение {job.step + 1}</small>
+                      )}
+                    </td>
                     <td>
                       <span className={`status-badge job-${job.status}`}>{jobStatusLabel[job.status]}</span>
                       <small className="job-detail">{job.note ?? jobStatusDetail(job)}</small>
@@ -595,14 +667,14 @@ export function IMessageCampaigns() {
             Команда «{workspace.legacy_shortcut_name}» берёт весь список за раз и сама ждёт 20–50 с между
             получателями. Пауза и остановка не действуют на уже выданный список; подтверждается только текст.
           </p>
-          {error && <p className="error-text">{error}</p>}
+
           <div className="actions">
             <Button variant="outline" disabled={!recipients.length} onClick={() => void openPreview()}>
               <Eye size={15} /> Предпросмотр
             </Button>
             <Button
               variant="outline"
-              disabled={busy || active || !recipients.length || !messages.length}
+              disabled={busy || active || !recipients.length || !(chained || messages.length)}
               onClick={() => {
                 setTestPhone(recipients[0]?.phone ?? '');
                 setDialog('test');
@@ -699,13 +771,31 @@ export function IMessageCampaigns() {
             {preview.items.map(item => (
               <div className="preview-item" key={item.phone}>
                 <strong>{item.phone}</strong>
-                <span className="helper">{item.individual ? 'свой текст' : 'вариант из списка'}</span>
-                <p>{item.text || <span className="error-text">Нет текста — добавьте сообщение</span>}</p>
-                {attachments.length > 0 && <span className="helper">+ файлов: {attachments.length}</span>}
+                {item.messages ? (
+                  item.messages.map((message, index) => (
+                    <div className="preview-message" key={index}>
+                      <span className="helper">
+                        Сообщение {index + 1}
+                        {index === 0 && item.individual ? ' · свой текст' : ''} · запуск {message.launch}
+                      </span>
+                      <p>{message.text}</p>
+                      {message.files > 0 && <span className="helper">+ файлов: {message.files}</span>}
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <span className="helper">{item.individual ? 'свой текст' : 'вариант из списка'}</span>
+                    <p>{item.text || <span className="error-text">Нет текста — добавьте сообщение</span>}</p>
+                    {attachments.length > 0 && <span className="helper">+ файлов: {attachments.length}</span>}
+                  </>
+                )}
               </div>
             ))}
           </div>
-          <h3>Что получит команда (GET /task)</h3>
+          <h3>
+            Что получит команда (GET /task{preview.items.some(item => item.messages) ? ', первый запуск' : ''}
+            )
+          </h3>
           <div className="log-viewer">
             <pre>{JSON.stringify(preview.payload, null, 2)}</pre>
           </div>
@@ -714,8 +804,10 @@ export function IMessageCampaigns() {
       {dialog === 'test' && (
         <Modal title="Тест на один номер" onClose={() => setDialog(null)}>
           <p className="helper">
-            Отправится одно сообщение (свой текст получателя или первый подходящий вариант) и вложения. Тест
-            не отмечает получателя как получившего рассылку.
+            {chained
+              ? 'Отправится вся цепочка сообщений по порядку.'
+              : 'Отправится одно сообщение (свой текст получателя или первый подходящий вариант) и вложения.'}{' '}
+            Тест не отмечает получателя как получившего рассылку.
           </p>
           <label>
             Телефон или email
@@ -731,7 +823,7 @@ export function IMessageCampaigns() {
               ))}
             </datalist>
           </label>
-          {error && <p className="error-text">{error}</p>}
+
           <div className="actions">
             <Button disabled={busy || !testPhone.trim()} onClick={() => void start(testPhone.trim())}>
               <FlaskConical size={15} /> Запустить тест
@@ -776,12 +868,44 @@ export function IMessageCampaigns() {
         />
       )}
       {dialog === 'templates' && (
-        <TemplatesModal
-          messages={messages}
-          hint="Шаблоны общие с Instagram. В iMessage подставляется только {Phone} — телефон или email получателя."
+        <TemplatePicker
+          chain={chained}
           onClose={() => setDialog(null)}
-          onAdd={texts => void addMessages(texts.filter(text => !messages.includes(text)))}
+          onUse={template => void insertTemplate(template.id)}
         />
+      )}
+      {dialog === 'save-template' && (
+        <TemplateEditor
+          initial={chain}
+          folders={[]}
+          onClose={() => setDialog(null)}
+          onSaved={template => {
+            setDialog(null);
+            setNotice(`Шаблон «${template.name}» сохранён.`);
+          }}
+        />
+      )}
+      {dialog === 'clear-chain' && (
+        <Modal title="Вернуться к одному сообщению?" onClose={() => setDialog(null)}>
+          <p className="helper">
+            Цепочка будет удалена из рассылки, получатели снова получат по одному сообщению из вариантов.
+            Сохранённые шаблоны останутся.
+          </p>
+          <div className="actions">
+            <Button
+              variant="danger"
+              onClick={() => {
+                void save({ sequence: [] });
+                setDialog(null);
+              }}
+            >
+              <Trash2 size={15} /> Удалить цепочку
+            </Button>
+            <Button variant="outline" onClick={() => setDialog(null)}>
+              Отмена
+            </Button>
+          </div>
+        </Modal>
       )}
       {(dialog === 'clear-users' || dialog === 'clear-messages') && (
         <Modal

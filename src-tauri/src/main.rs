@@ -44,6 +44,24 @@ struct Backend {
     next_id: u64,
     timeouts: u32,
 }
+/// The frozen core. Windows: the one-file sidecar next to the app. macOS: a one-folder
+/// build in Contents/Resources/core, because the one-file loader needs a System V
+/// semaphore that some Macs (MDM profiles, security agents) refuse.
+#[cfg(not(debug_assertions))]
+fn core_executable() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|_| "Нет пути приложения")?;
+    let dir = exe.parent().ok_or("Нет каталога приложения")?;
+    Ok(if cfg!(target_os = "macos") {
+        dir.parent()
+            .ok_or("Нет каталога приложения")?
+            .join("Resources/core/artist-core")
+    } else if cfg!(windows) {
+        dir.join("artist-core.exe")
+    } else {
+        dir.join("artist-core")
+    })
+}
+
 impl Backend {
     fn start() -> Result<Self, String> {
         #[cfg(debug_assertions)]
@@ -60,17 +78,7 @@ impl Backend {
             c
         };
         #[cfg(not(debug_assertions))]
-        let mut command = Command::new(
-            std::env::current_exe()
-                .map_err(|_| "Нет пути приложения")?
-                .parent()
-                .ok_or("Нет каталога приложения")?
-                .join(if cfg!(windows) {
-                    "artist-core.exe"
-                } else {
-                    "artist-core"
-                }),
-        );
+        let mut command = Command::new(core_executable()?);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

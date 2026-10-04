@@ -1,6 +1,6 @@
 import { Download, LoaderCircle, Pause, Play, Send, Smartphone, Square } from 'lucide-react';
 import type { IMessageState } from '../../services/types';
-import { number } from '../../lib/format';
+import { number, plural } from '../../lib/format';
 import { Button } from '../ui/button';
 import { Modal } from '../Modal';
 import { QrCode } from './QrCode';
@@ -88,6 +88,14 @@ export function PhoneModal({
         </div>
       ) : (
         stage !== 'error' && <div className="phone-qr-placeholder" />
+      )}
+
+      {state?.active && campaign && campaign.runs > 1 && (
+        <p className="helper phone-launch">
+          {campaign.next_run
+            ? `Цепочка идёт за ${plural(campaign.runs, ['запуск', 'запуска', 'запусков'])} команды. Следующий — ${campaign.next_run}-й: когда команда закончит текущий список, отсканируйте QR-код снова.`
+            : 'Все запуски команды выданы телефону.'}
+        </p>
       )}
 
       {state?.active && (

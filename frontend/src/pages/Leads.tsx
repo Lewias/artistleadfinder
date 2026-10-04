@@ -1,3 +1,4 @@
+import { ErrorToast } from '../components/Toaster';
 import { useState } from 'react';
 import { FilterX, RefreshCw, Search, Send, SlidersHorizontal } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
@@ -54,11 +55,7 @@ export function Leads({
           <Send size={15} /> В рассылку
         </Button>
       )}
-      {outreachError && (
-        <span role="alert" className="error-text">
-          {outreachError}
-        </span>
-      )}
+      <ErrorToast message={outreachError} />
     </>
   );
   return (

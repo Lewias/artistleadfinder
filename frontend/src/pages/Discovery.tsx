@@ -1,3 +1,5 @@
+import { ErrorToast } from '../components/Toaster';
+import { errorText } from '../lib/errors';
 import { useState, type FormEvent } from 'react';
 import { useResource } from '../hooks/useResource';
 import { api } from '../services/api';
@@ -83,7 +85,7 @@ function DiscoveryForm({
       });
       refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -198,11 +200,7 @@ function DiscoveryForm({
             </Button>
           </div>
         </fieldset>
-        {error && (
-          <p role="alert" className="error-text">
-            {error}
-          </p>
-        )}
+        <ErrorToast message={error} />
       </form>
       <div>
         {jobs[0] ? (

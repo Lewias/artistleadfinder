@@ -4,6 +4,7 @@ import re
 import unicodedata
 from datetime import timezone
 
+from .errors import UserError
 from .providers import Candidate
 
 
@@ -20,7 +21,7 @@ def normalize(candidate: Candidate) -> Candidate:
     data["platform"] = clean_text(candidate.platform).casefold()
     data["username"] = clean_text(candidate.username).lstrip("@").casefold()
     if not re.fullmatch(r"[\w.\-]+", data["username"], flags=re.UNICODE):
-        raise ValueError("Некорректное имя профиля.")
+        raise UserError("Некорректное имя профиля.")
     data["platform_user_id"] = (candidate.platform_user_id or "").strip() or None
     for key in ("bio", "display_name"):
         data[key] = clean_text(data[key])

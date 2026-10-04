@@ -1,3 +1,4 @@
+import { ErrorToast } from '../Toaster';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ChevronRight,
@@ -129,7 +130,7 @@ export function StatusesModal({
       >
         <Plus size={15} /> Добавить статус
       </Button>
-      {error && <p className="error-text">{error}</p>}
+      <ErrorToast message={error} />
       <div className="actions modal-actions">
         <Button variant="outline" onClick={onClose}>
           Отмена
@@ -318,7 +319,7 @@ export function ContactModal({
           />
         </label>
       </div>
-      {error && <p className="error-text">{error}</p>}
+      <ErrorToast message={error} />
       <div className="actions modal-actions">
         {onTrash && (
           <Button variant="outline" className="crm-trash-button" disabled={busy} onClick={onTrash}>

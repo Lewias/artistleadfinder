@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .analysis import ProfileSignals
 from .classification import ClassificationResult
+from .errors import UserError
 from .providers import Candidate
 from .schemas import SearchConfiguration
 
@@ -21,7 +22,7 @@ class ScoringWeights(BaseModel):
     @model_validator(mode="after")
     def total(self):
         if sum(self.model_dump().values()) != 100:
-            raise ValueError("Сумма весов должна равняться 100.")
+            raise UserError("Сумма весов должна равняться 100.")
         return self
 
 

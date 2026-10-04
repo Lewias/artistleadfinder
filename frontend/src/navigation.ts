@@ -74,6 +74,16 @@ export const pages = [
     channel: 'imessage',
   },
   {
+    id: 'imessage-templates',
+    label: 'Шаблоны',
+    eyebrow: 'IMESSAGE',
+    title: 'Шаблоны сообщений',
+    description:
+      'Храните общие шаблоны по папкам, затем вставляйте их в рассылку одним нажатием. Шаблон — одно или несколько сообщений из текста и файлов.',
+    placement: 'main',
+    channel: 'imessage',
+  },
+  {
     id: 'imessage-log',
     label: 'Логи',
     eyebrow: 'IMESSAGE',

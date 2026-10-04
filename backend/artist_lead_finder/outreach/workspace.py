@@ -10,6 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
+from ..errors import UserError
 from ..models import (
     CampaignRecipient,
     Lead,
@@ -41,31 +42,31 @@ def normalize_username(value: object) -> str | None:
 
 def usernames_from(value: object) -> list[str]:
     if not isinstance(value, list):
-        raise ValueError("Некорректный список аккаунтов.")
+        raise UserError("Некорректный список аккаунтов.")
     result = []
     for item in value:
         username = normalize_username(item)
         if username is None:
-            raise ValueError(f"Некорректный username: {str(item)[:40]}")
+            raise UserError(f"Некорректный username: {str(item)[:40]}")
         result.append(username)
     result = list(dict.fromkeys(result))
     if len(result) > MAX_RECIPIENTS:
-        raise ValueError(f"В списке не больше {MAX_RECIPIENTS} аккаунтов.")
+        raise UserError(f"В списке не больше {MAX_RECIPIENTS} аккаунтов.")
     return result
 
 
 def messages_from(value: object) -> list[str]:
     if not isinstance(value, list):
-        raise ValueError("Некорректный список сообщений.")
+        raise UserError("Некорректный список сообщений.")
     result = [str(item).strip() for item in value if str(item).strip()]
     if len(result) > MAX_MESSAGES:
-        raise ValueError(f"Не больше {MAX_MESSAGES} сообщений.")
+        raise UserError(f"Не больше {MAX_MESSAGES} сообщений.")
     for index, text in enumerate(result, start=1):
         if len(text) > MAX_MESSAGE_LENGTH:
-            raise ValueError(f"Сообщение №{index} длиннее {MAX_MESSAGE_LENGTH} символов.")
+            raise UserError(f"Сообщение №{index} длиннее {MAX_MESSAGE_LENGTH} символов.")
         errors = template_errors(text)
         if errors:
-            raise ValueError(f"Сообщение №{index}: {' '.join(errors)}")
+            raise UserError(f"Сообщение №{index}: {' '.join(errors)}")
     return list(dict.fromkeys(result))
 
 
@@ -166,7 +167,7 @@ class WorkspaceService:
         elif params.get("statuses"):
             query = query.where(Lead.status.in_([str(s) for s in params["statuses"]]))
         else:
-            raise ValueError("Выберите лидов или статусы CRM.")
+            raise UserError("Выберите лидов или статусы CRM.")
         with self.sessions() as session:
             names = [n for n in session.scalars(query.order_by(Lead.id)) if USERNAME.match(n)]
         return {"added": self.add_usernames(names)}
@@ -177,11 +178,11 @@ class WorkspaceService:
             row = self._row(session)
             current = session.get(OutreachCampaign, row.campaign_id) if row.campaign_id else None
             if current and current.status in UNFINISHED:
-                raise ValueError("Рассылка уже идёт.")
+                raise UserError("Рассылка уже идёт.")
             if not row.messages:
-                raise ValueError("Добавьте хотя бы одно сообщение.")
+                raise UserError("Добавьте хотя бы одно сообщение.")
             if not row.sender_ids:
-                raise ValueError("Выберите аккаунт-отправитель в «Настройках».")
+                raise UserError("Выберите аккаунт-отправитель в «Настройках».")
             statuses = self._statuses(session, row.usernames)
             targets = [
                 name
@@ -189,7 +190,7 @@ class WorkspaceService:
                 if statuses.get(name, {}).get("status") not in DONE | BUSY
             ]
             if not targets:
-                raise ValueError("В списке нет аккаунтов, которым ещё не писали.")
+                raise UserError("В списке нет аккаунтов, которым ещё не писали.")
             leads = {
                 lead.username: lead
                 for lead in session.scalars(

@@ -1,3 +1,5 @@
+import { ErrorToast } from './Toaster';
+import { errorText } from '../lib/errors';
 import { useState } from 'react';
 import { api } from '../services/api';
 import type { SearchJob } from '../services/types';
@@ -16,7 +18,7 @@ export function JobProgress({ job, refresh }: { job: SearchJob; refresh: () => v
       await api.request('jobs.control', { id: job.id, action });
       refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -68,11 +70,7 @@ export function JobProgress({ job, refresh }: { job: SearchJob; refresh: () => v
           </Button>
         </div>
       )}
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
       {job.errors.map((err, index) => (
         <p className="error-text" key={index}>
           {err.provider && `${err.provider}: `}

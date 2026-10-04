@@ -130,8 +130,12 @@ SHA256: `B845226FE057A71673C210DDC53F2E5646E03E772D1A004A865321AB096DE4FD`.
 поэтому обновление видно только после публикации черновика. На Windows установка идёт в
 режиме `passive` (окно прогресса без вопросов).
 
-macOS: ядро — `Contents/MacOS/artist-core` рядом с основным exe; dev-режим использует
-`.venv/bin/python`. Секреты шифруются AES-GCM ключом из login Keychain
+macOS: ядро собирается PyInstaller в режиме `--onedir` и лежит в
+`Contents/Resources/core/artist-core` (конфиг `src-tauri/tauri.macos-core.conf.json`
+добавляется к сборке в CI). Режим `--onefile` на macOS синхронизирует загрузчик с
+процессом ядра через семафор System V; на части Mac (MDM-профили, защитные агенты)
+`semctl` запрещён — «Failed to initialize sync semaphore», ядро не стартует. dev-режим
+использует `.venv/bin/python`. Секреты шифруются AES-GCM ключом из login Keychain
 (`security`, сервис `ArtistLeadFinder`); файлы с префиксом `ALF1`. Windows по-прежнему DPAPI.
 Бандл не подписан и не нотаризован (нет Apple Developer ID); при появлении добавить в
 workflow `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,

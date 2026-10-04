@@ -521,13 +521,37 @@ export interface IMessageAttachment {
   mime: string;
   size: number;
 }
+/** One message of a template or chain: text, files or both. */
+export interface IMessagePart {
+  text: string;
+  attachments: IMessageAttachment[];
+}
+/** How the signed Shortcut sends a chain; `error` when it cannot. */
+export interface IMessagePlan {
+  messages: number;
+  launches: number;
+  error: string | null;
+}
+export interface IMessageTemplate {
+  id: number;
+  name: string;
+  folder: string;
+  parts: IMessagePart[];
+  plan: IMessagePlan;
+  updated_at: string;
+}
 export interface IMessageCampaign {
   id: number;
   protocol: IMessageProtocol;
   status: 'running' | 'paused' | 'stopped' | 'finished';
   is_test: boolean;
   delay_seconds: number;
+  /** Jobs: one per recipient, or one per message of a chain. */
   total: number;
+  /** Messages per recipient, launches of the Shortcut, and the launch the phone gets next. */
+  messages: number;
+  runs: number;
+  next_run: number | null;
   created_at: string;
   finished_at: string | null;
   counts: Record<IMessageJobStatus, number>;
@@ -536,6 +560,8 @@ export interface IMessageJob {
   id: number;
   key: string;
   position: number;
+  /** Index of the message in the chain. */
+  step: number;
   phone: string;
   message: string;
   status: IMessageJobStatus;
@@ -566,6 +592,9 @@ export interface IMessageState {
     /** Variants given to recipients in turn; {Phone} becomes the recipient. */
     messages: string[];
     attachments: IMessageAttachment[];
+    /** A chain every recipient gets in order; empty when the variants are used. */
+    sequence: IMessagePart[];
+    plan: IMessagePlan | null;
     protocol: IMessageProtocol;
     shortcut_name: string;
     legacy_shortcut_name: string;
@@ -587,7 +616,12 @@ export interface IMessageEvent {
 }
 export interface IMessagePreview {
   protocol: IMessageProtocol;
-  items: { phone: string; text: string; individual: boolean }[];
+  items: {
+    phone: string;
+    text: string;
+    individual: boolean;
+    messages?: { text: string; files: number; launch: number }[];
+  }[];
   payload: Record<string, unknown>;
 }
 

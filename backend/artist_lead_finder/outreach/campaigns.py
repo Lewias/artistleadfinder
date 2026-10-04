@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select, update
 
+from ..errors import UserError
 from ..models import (
     CampaignRecipient,
     Conversation,
@@ -60,7 +61,7 @@ def parse_time(value: object) -> datetime | None:
         return None
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is None:
-        raise ValueError("Время без часового пояса.")
+        raise UserError("Время без часового пояса.")
     return parsed.astimezone(timezone.utc)
 
 
@@ -232,7 +233,7 @@ class CampaignService:
         name = str(params.get("name", "")).strip()
         body = str(params.get("body", ""))
         if not name or len(name) > 120:
-            raise ValueError("Укажите название шаблона (до 120 символов).")
+            raise UserError("Укажите название шаблона (до 120 символов).")
         errors = template_errors(body)
         if errors:
             raise ValueError(" ".join(errors))
@@ -240,7 +241,7 @@ class CampaignService:
             if params.get("id"):
                 template = session.get(OutreachTemplate, int(params["id"]))
                 if template is None:
-                    raise ValueError("Шаблон не найден.")
+                    raise UserError("Шаблон не найден.")
             else:
                 template = OutreachTemplate()
                 session.add(template)
@@ -256,7 +257,7 @@ class CampaignService:
             if params.get("lead_id"):
                 lead = session.get(Lead, int(params["lead_id"]))
                 if lead is None:
-                    raise ValueError("Лид не найден.")
+                    raise UserError("Лид не найден.")
                 variables = lead_variables(lead, session.get(LeadScoutProfile, lead.id))
             else:
                 variables = LeadVariables("jaycarter", "Jay Carter", 12500, "rapdaily", "artist")
@@ -277,13 +278,13 @@ class CampaignService:
     def save_sequence(self, params: dict) -> dict:
         name = str(params.get("name", "")).strip()
         if not name or len(name) > 120:
-            raise ValueError("Укажите название цепочки (до 120 символов).")
+            raise UserError("Укажите название цепочки (до 120 символов).")
         with self.sessions.begin() as session:
             steps = validate_steps(session, params.get("steps"))
             if params.get("id"):
                 sequence = session.get(FollowUpSequence, int(params["id"]))
                 if sequence is None:
-                    raise ValueError("Цепочка не найдена.")
+                    raise UserError("Цепочка не найдена.")
             else:
                 sequence = FollowUpSequence()
                 session.add(sequence)
@@ -351,7 +352,7 @@ class CampaignService:
                     )
                 )
                 if not lead_ids:
-                    raise ValueError("В кампании нет получателей, ожидающих проверки.")
+                    raise UserError("В кампании нет получателей, ожидающих проверки.")
                 params = {
                     "lead_ids": lead_ids,
                     "sender_ids": campaign.sender_ids,
@@ -418,24 +419,24 @@ class CampaignService:
     def create(self, params: dict) -> dict:
         name = str(params.get("name", "")).strip()
         if not name or len(name) > 160:
-            raise ValueError("Укажите название кампании (до 160 символов).")
+            raise UserError("Укажите название кампании (до 160 символов).")
         lead_ids = self._lead_ids(params.get("lead_ids"))
         sender_ids = self._sender_ids(params.get("sender_ids"))
         scheduled_at = parse_time(params.get("scheduled_at"))
         with self.sessions.begin() as session:
             template = session.get(OutreachTemplate, int(params.get("template_id") or 0))
             if template is None or not template.enabled:
-                raise ValueError("Выберите включённый шаблон сообщения.")
+                raise UserError("Выберите включённый шаблон сообщения.")
             sequence_id = params.get("followup_sequence_id")
             if sequence_id:
                 sequence = session.get(FollowUpSequence, int(sequence_id))
                 if sequence is None or not sequence.enabled:
-                    raise ValueError("Цепочка follow-up не найдена.")
+                    raise UserError("Цепочка follow-up не найдена.")
             leads = {
                 lead.id: lead for lead in session.scalars(select(Lead).where(Lead.id.in_(lead_ids)))
             }
             if not leads:
-                raise ValueError("Выбранные лиды не найдены.")
+                raise UserError("Выбранные лиды не найдены.")
             campaign = OutreachCampaign(
                 name=name,
                 template_id=template.id,
@@ -468,17 +469,17 @@ class CampaignService:
         with self.sessions.begin() as session:
             campaign = self._campaign(session, params)
             if campaign.status != "draft":
-                raise ValueError("Запустить можно только черновик кампании.")
+                raise UserError("Запустить можно только черновик кампании.")
             template = session.get(OutreachTemplate, campaign.template_id)
             if template is None or not template.enabled:
-                raise ValueError("Шаблон кампании выключен или удалён.")
+                raise UserError("Шаблон кампании выключен или удалён.")
             active = [
                 sender
                 for sender in campaign.sender_ids
                 if current_status(session, sender, now).status == "active"
             ]
             if not active:
-                raise ValueError(
+                raise UserError(
                     "Нет активных аккаунтов-отправителей. Проверьте их состояние в «Рассылках»."
                 )
             later = campaign.scheduled_at is not None and as_utc(campaign.scheduled_at) > now
@@ -555,12 +556,12 @@ class CampaignService:
             campaign = self._campaign(session, params)
             if action == "pause":
                 if campaign.status not in {"running", "scheduled"}:
-                    raise ValueError("Приостановить можно только запущенную кампанию.")
+                    raise UserError("Приостановить можно только запущенную кампанию.")
                 campaign.status = "paused"
                 events.emit(session, campaign.id, "campaign:paused")
             elif action == "resume":
                 if campaign.status != "paused":
-                    raise ValueError("Кампания не на паузе.")
+                    raise UserError("Кампания не на паузе.")
                 waiting = (
                     campaign.started_at is None
                     and campaign.scheduled_at is not None
@@ -573,10 +574,10 @@ class CampaignService:
                 refresh_counts(session, campaign)
             elif action == "cancel":
                 if campaign.status not in UNFINISHED:
-                    raise ValueError("Кампания уже завершена.")
+                    raise UserError("Кампания уже завершена.")
                 self._cancel(session, campaign)
             else:
-                raise ValueError("Неизвестное действие.")
+                raise UserError("Неизвестное действие.")
             return row_dict(campaign)
 
     def _cancel(self, session, campaign: OutreachCampaign) -> None:
@@ -729,7 +730,7 @@ class CampaignService:
                 .order_by(Conversation.last_outbound_at.desc())
             ).all()
             if not conversations:
-                raise ValueError("Этому лиду ещё не писали.")
+                raise UserError("Этому лиду ещё не писали.")
             conversation = conversations[0]
             conversation.status, conversation.last_inbound_at = "replied", now
             session.add(
@@ -769,7 +770,7 @@ class CampaignService:
                 select(Conversation).where(Conversation.lead_id == lead_id)
             ).all()
             if not rows:
-                raise ValueError("С этим лидом нет диалога.")
+                raise UserError("С этим лидом нет диалога.")
             for row in rows:
                 row.status = "stopped"
                 self.followups.cancel(session, row.id, "CONVERSATION_STOPPED")
@@ -780,7 +781,7 @@ class CampaignService:
         with self.sessions.begin() as session:
             lead = session.get(Lead, lead_id)
             if lead is None:
-                raise ValueError("Профиль не найден.")
+                raise UserError("Профиль не найден.")
             lead.do_not_contact = value
             if value:
                 for row in session.scalars(
@@ -856,28 +857,28 @@ class CampaignService:
     def _campaign(session, params: dict) -> OutreachCampaign:
         campaign = session.get(OutreachCampaign, int(params.get("id") or 0))
         if campaign is None:
-            raise ValueError("Кампания не найдена.")
+            raise UserError("Кампания не найдена.")
         return campaign
 
     @staticmethod
     def _lead_ids(value: object) -> list[int]:
         if not isinstance(value, list) or not value:
-            raise ValueError("Выберите хотя бы одного лида.")
+            raise UserError("Выберите хотя бы одного лида.")
         if len(value) > MAX_RECIPIENTS:
-            raise ValueError(f"В кампании не больше {MAX_RECIPIENTS} получателей.")
+            raise UserError(f"В кампании не больше {MAX_RECIPIENTS} получателей.")
         if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in value):
-            raise ValueError("Некорректный список лидов.")
+            raise UserError("Некорректный список лидов.")
         return list(dict.fromkeys(value))
 
     def _sender_ids(self, value: object) -> list[str]:
         if not isinstance(value, list) or not value:
-            raise ValueError("Выберите аккаунт-отправитель.")
+            raise UserError("Выберите аккаунт-отправитель.")
         if len(value) > MAX_SENDERS:
-            raise ValueError(f"Не больше {MAX_SENDERS} аккаунтов.")
+            raise UserError(f"Не больше {MAX_SENDERS} аккаунтов.")
         known = self.sender_names()
         ids = list(dict.fromkeys(str(item) for item in value))
         if any(item not in known for item in ids):
-            raise ValueError("Аккаунт-отправитель не найден.")
+            raise UserError("Аккаунт-отправитель не найден.")
         return ids
 
     @staticmethod
@@ -885,6 +886,6 @@ class CampaignService:
         if params.get("template_id"):
             template = session.get(OutreachTemplate, int(params["template_id"]))
             if template is None:
-                raise ValueError("Шаблон не найден.")
+                raise UserError("Шаблон не найден.")
             return template.body
         return str(params.get("body", ""))

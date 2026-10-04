@@ -1,3 +1,4 @@
+import { ErrorToast } from '../components/Toaster';
 import { useEffect, useState } from 'react';
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import {
@@ -263,9 +264,10 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
         </span>
       </label>
 
-      {(notice || error) && (
-        <p className={error ? 'error-text' : 'notice'} role={error ? 'alert' : 'status'}>
-          {error || notice}
+      <ErrorToast message={error} />
+      {notice && !error && (
+        <p className="notice" role="status">
+          {notice}
         </p>
       )}
 

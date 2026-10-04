@@ -7,6 +7,9 @@ Two protocols, kept apart:
 - v2 (`GET /v2/next`): one job per request with the campaign state; the Shortcut
   acknowledges after the text and again after every attachment was handed to Messages.
 
+A chain (a template of several messages) is one job per message; see `chain` for how
+it is laid out over launches of the original Shortcut.
+
 A job is never handed out again by itself: pending -> issued -> execution_acknowledged.
 An issued job whose ACK did not come back may still have been sent, so it becomes
 `uncertain` and waits for the user. Nothing here reports delivery: Shortcuts does not.
@@ -28,15 +31,18 @@ from urllib.parse import urlencode
 from sqlalchemy import delete, func, select
 
 from .. import secret_box
+from ..errors import UserError
 from ..models import (
     IMessageAttachment,
     IMessageCampaign,
     IMessageEvent,
     IMessageJob,
+    IMessageTemplate,
     IMessageWorkspace,
     Lead,
     LeadScoutProfile,
 )
+from .chain import MAX_FOLDER, MAX_NAME, parts_from, plan, summary
 from .network import deep_link, is_lan_address, lan_addresses, lan_rank
 from .phones import normalize_recipient
 
@@ -99,7 +105,7 @@ def naive(value: datetime | None) -> datetime | None:
 
 def recipients_from(value: object) -> list[dict]:
     if not isinstance(value, list):
-        raise ValueError("Некорректный список получателей.")
+        raise UserError("Некорректный список получателей.")
     result: dict[str, dict] = {}
     invalid = []
     for item in value:
@@ -112,27 +118,27 @@ def recipients_from(value: object) -> list[dict]:
             continue
         text = str(message or "").strip()
         if len(text) > MAX_MESSAGE_LENGTH:
-            raise ValueError(f"Текст для {normalized} длиннее {MAX_MESSAGE_LENGTH} символов.")
+            raise UserError(f"Текст для {normalized} длиннее {MAX_MESSAGE_LENGTH} символов.")
         result.setdefault(normalized, {"phone": normalized, "message": text})
     if invalid:
-        raise ValueError(
+        raise UserError(
             "Телефон в международном формате (с «+» и кодом страны) или email: "
             + ", ".join(invalid[:3])
         )
     if len(result) > MAX_RECIPIENTS:
-        raise ValueError(f"Не больше {MAX_RECIPIENTS} получателей.")
+        raise UserError(f"Не больше {MAX_RECIPIENTS} получателей.")
     return list(result.values())
 
 
 def variants_from(value: object) -> list[str]:
     if not isinstance(value, list):
-        raise ValueError("Некорректный список сообщений.")
+        raise UserError("Некорректный список сообщений.")
     result = [str(item).strip() for item in value if str(item).strip()]
     if len(result) > MAX_VARIANTS:
-        raise ValueError(f"Не больше {MAX_VARIANTS} сообщений.")
+        raise UserError(f"Не больше {MAX_VARIANTS} сообщений.")
     for index, text in enumerate(result, start=1):
         if len(text) > MAX_MESSAGE_LENGTH:
-            raise ValueError(f"Сообщение №{index} длиннее {MAX_MESSAGE_LENGTH} символов.")
+            raise UserError(f"Сообщение №{index} длиннее {MAX_MESSAGE_LENGTH} символов.")
     return list(dict.fromkeys(result))
 
 
@@ -272,16 +278,16 @@ class IMessageService:
             # Loopback with any free port (0) only for the protocol tests.
             loopback = bool(params.get("loopback")) and host == "127.0.0.1"
             if not (is_lan_address(host) or loopback):
-                raise ValueError("Выберите адрес компьютера в локальной сети (Wi-Fi или Ethernet).")
+                raise UserError("Выберите адрес компьютера в локальной сети (Wi-Fi или Ethernet).")
             if not (1024 <= port <= 65535 or (loopback and port == 0)):
-                raise ValueError("Порт от 1024 до 65535.")
+                raise UserError("Порт от 1024 до 65535.")
             if not self.token_valid(self.token):
                 self.rotate_token()
             self._stop_server()
             try:
                 self.server = BridgeServer(self, host, port).start()
             except OSError as error:
-                raise ValueError(
+                raise UserError(
                     f"Не удалось открыть порт {port} на {host}: он занят или адрес недоступен."
                 ) from error
             with self.sessions.begin() as session:
@@ -309,7 +315,7 @@ class IMessageService:
         """Leads of the base with the chosen CRM statuses: their first phone, else email."""
         statuses = [str(item) for item in params.get("statuses") or []]
         if not statuses:
-            raise ValueError("Выберите статусы CRM.")
+            raise UserError("Выберите статусы CRM.")
         with self.sessions() as session:
             rows = session.execute(
                 select(LeadScoutProfile.phones, LeadScoutProfile.emails)
@@ -340,7 +346,7 @@ class IMessageService:
             known = {item["phone"] for item in row.recipients}
             new = [value for value in dict.fromkeys(found) if value not in known]
             if len(known) + len(new) > MAX_RECIPIENTS:
-                raise ValueError(f"Не больше {MAX_RECIPIENTS} получателей.")
+                raise UserError(f"Не больше {MAX_RECIPIENTS} получателей.")
             row.recipients = [*row.recipients, *({"phone": value, "message": ""} for value in new)]
         return len(new)
 
@@ -413,20 +419,26 @@ class IMessageService:
             if "messages" in params:
                 row.messages = variants_from(params["messages"])
                 row.message = ""
+            if "sequence" in params:
+                parts = parts_from(params["sequence"], require_content=False)
+                self._check_files(session, parts)
+                old = self._part_ids(row.sequence)
+                row.sequence = parts
+                self._release(session, old - self._part_ids(parts))
             if "protocol" in params:
                 if params["protocol"] not in ("legacy", "v2"):
-                    raise ValueError("Неизвестный протокол.")
+                    raise UserError("Неизвестный протокол.")
                 self._set_protocol(session, row, params["protocol"])
             for key in ("shortcut_name", "legacy_shortcut_name"):
                 if key in params:
                     name = str(params[key] or "").strip()
                     if not SHORTCUT_NAME.match(name):
-                        raise ValueError("Имя Shortcut — от 1 до 80 символов.")
+                        raise UserError("Имя Shortcut — от 1 до 80 символов.")
                     setattr(row, key, name)
             if "delay_seconds" in params:
                 delay = int(params["delay_seconds"])
                 if not 0 <= delay <= MAX_DELAY_SECONDS:
-                    raise ValueError(f"Пауза между получателями — от 0 до {MAX_DELAY_SECONDS} с.")
+                    raise UserError(f"Пауза между получателями — от 0 до {MAX_DELAY_SECONDS} с.")
                 row.delay_seconds = delay
         return self.state()
 
@@ -456,7 +468,7 @@ class IMessageService:
                 .where((IMessageJob.issued_at.is_not(None)) | (IMessageJob.status != "pending"))
             )
             if taken:
-                raise ValueError(
+                raise UserError(
                     "iPhone уже взял задания этой рассылки. Остановите её, чтобы сменить команду."
                 )
             active.protocol = protocol
@@ -467,22 +479,68 @@ class IMessageService:
             self._event(session, "settings", f"Протокол: {label}", active.id if active else None)
         return changed
 
+    @staticmethod
+    def _attachment_dict(item: IMessageAttachment) -> dict:
+        return {"id": item.id, "filename": item.filename, "mime": item.mime, "size": item.size}
+
+    def _attachment_dicts(self, session, ids: list[str]) -> list[dict]:
+        return [
+            self._attachment_dict(item)
+            for file_id in ids
+            if (item := session.get(IMessageAttachment, file_id)) is not None
+        ]
+
+    @staticmethod
+    def _part_ids(parts: list[dict] | None) -> set[str]:
+        return {file_id for part in parts or [] for file_id in part.get("attachment_ids") or []}
+
+    def _referenced(self, session) -> set[str]:
+        """Files still in use: the list, the chain, templates and the running campaign."""
+        row = self._row(session)
+        used = set(row.attachment_ids) | self._part_ids(row.sequence)
+        for parts in session.scalars(select(IMessageTemplate.parts)):
+            used |= self._part_ids(parts)
+        active = self._active(session)
+        if active is not None:
+            used |= set(active.attachment_ids) | self._part_ids(active.steps)
+        return used
+
+    def _release(self, session, ids) -> None:
+        """Deletes the given files that nothing uses any more."""
+        ids = set(ids)
+        if not ids:
+            return
+        session.flush()
+        for file_id in ids - self._referenced(session):
+            attachment = session.get(IMessageAttachment, file_id)
+            if attachment is not None:
+                session.delete(attachment)
+            (self.files / file_id).unlink(missing_ok=True)
+
+    def _check_files(self, session, parts: list[dict]) -> None:
+        for file_id in self._part_ids(parts):
+            if session.get(IMessageAttachment, file_id) is None:
+                raise UserError("Вложение не найдено. Добавьте файл снова.")
+
     def attachment_add(self, params: dict) -> dict:
+        """Copies a file into the app folder. With `target: "file"` it is only stored and
+        returned, for a template or a chain message; otherwise it joins the list."""
+        detached = params.get("target") == "file"
         source = Path(str(params.get("path") or ""))
         mime = ATTACHMENT_TYPES.get(source.suffix.lower())
         if mime is None:
-            raise ValueError(
+            raise UserError(
                 "Поддерживаются фото, видео, аудио и PDF: " + ", ".join(ATTACHMENT_TYPES)
             )
         if not source.is_file():
-            raise ValueError("Файл не найден.")
+            raise UserError("Файл не найден.")
         size = source.stat().st_size
         if size == 0 or size > MAX_ATTACHMENT_BYTES:
-            raise ValueError(f"Размер файла — до {MAX_ATTACHMENT_BYTES // (1024 * 1024)} МБ.")
+            raise UserError(f"Размер файла — до {MAX_ATTACHMENT_BYTES // (1024 * 1024)} МБ.")
         with self.lock:
             with self.sessions() as session:
-                if len(self._row(session).attachment_ids) >= MAX_ATTACHMENTS:
-                    raise ValueError(f"Не больше {MAX_ATTACHMENTS} вложений.")
+                if not detached and len(self._row(session).attachment_ids) >= MAX_ATTACHMENTS:
+                    raise UserError(f"Не больше {MAX_ATTACHMENTS} вложений.")
             file_id = secrets.token_hex(16)
             self.files.mkdir(parents=True, exist_ok=True)
             digest = hashlib.sha256()
@@ -492,16 +550,17 @@ class IMessageService:
                     digest.update(chunk)
                     writer.write(chunk)
             with self.sessions.begin() as session:
-                session.add(
-                    IMessageAttachment(
-                        id=file_id,
-                        filename=source.name[:200],
-                        mime=mime,
-                        size=size,
-                        sha256=digest.hexdigest(),
-                        created_at=self.clock(),
-                    )
+                attachment = IMessageAttachment(
+                    id=file_id,
+                    filename=source.name[:200],
+                    mime=mime,
+                    size=size,
+                    sha256=digest.hexdigest(),
+                    created_at=self.clock(),
                 )
+                session.add(attachment)
+                if detached:
+                    return {"attachment": self._attachment_dict(attachment)}
                 row = self._row(session)
                 row.attachment_ids = [*row.attachment_ids, file_id]
         return self.state()
@@ -509,17 +568,14 @@ class IMessageService:
     def attachment_remove(self, params: dict) -> dict:
         file_id = str(params.get("id") or "")
         if not FILE_ID.match(file_id):
-            raise ValueError("Некорректное вложение.")
+            raise UserError("Некорректное вложение.")
         with self.lock, self.sessions.begin() as session:
             active = self._active(session)
             if active and file_id in active.attachment_ids:
-                raise ValueError("Вложение используется в текущей рассылке. Сначала остановите её.")
+                raise UserError("Вложение используется в текущей рассылке. Сначала остановите её.")
             row = self._row(session)
             row.attachment_ids = [item for item in row.attachment_ids if item != file_id]
-            attachment = session.get(IMessageAttachment, file_id)
-            if attachment is not None:
-                session.delete(attachment)
-            (self.files / file_id).unlink(missing_ok=True)
+            self._release(session, [file_id])
         return self.state()
 
     def attachment_file(self, file_id: str) -> tuple[Path, IMessageAttachment] | None:
@@ -529,13 +585,104 @@ class IMessageService:
         with self.sessions() as session:
             row = self._row(session)
             active = self._active(session)
-            allowed = set(row.attachment_ids) | set(active.attachment_ids if active else [])
+            allowed = set(row.attachment_ids) | self._part_ids(row.sequence)
+            if active is not None:
+                allowed |= set(active.attachment_ids) | self._part_ids(active.steps)
             attachment = session.get(IMessageAttachment, file_id)
             if file_id not in allowed or attachment is None:
                 return None
             session.expunge(attachment)
         path = self.files / file_id
         return (path, attachment) if path.is_file() else None
+
+    # ---------- templates ----------
+
+    def _template_dict(self, session, template: IMessageTemplate) -> dict:
+        return {
+            "id": template.id,
+            "name": template.name,
+            "folder": template.folder,
+            "parts": [
+                {
+                    "text": part["text"],
+                    "attachments": self._attachment_dicts(session, part["attachment_ids"]),
+                }
+                for part in template.parts
+            ],
+            "plan": summary(template.parts),
+            "updated_at": iso(template.updated_at),
+        }
+
+    def templates(self, params: dict | None = None) -> list[dict]:
+        with self.sessions() as session:
+            return [
+                self._template_dict(session, template)
+                for template in session.scalars(
+                    select(IMessageTemplate).order_by(IMessageTemplate.id)
+                )
+            ]
+
+    def template_save(self, params: dict) -> dict:
+        name = str(params.get("name") or "").strip()
+        if not 1 <= len(name) <= MAX_NAME:
+            raise UserError(f"Название — от 1 до {MAX_NAME} символов.")
+        folder = str(params.get("folder") or "").strip()
+        if len(folder) > MAX_FOLDER:
+            raise UserError(f"Папка — до {MAX_FOLDER} символов.")
+        parts = parts_from(params.get("parts"), require_content=True)
+        with self.lock, self.sessions.begin() as session:
+            self._check_files(session, parts)
+            if params.get("id"):
+                template = session.get(IMessageTemplate, int(params["id"]))
+                if template is None:
+                    raise UserError("Шаблон не найден.")
+                old = self._part_ids(template.parts)
+            else:
+                template = IMessageTemplate(created_at=self.clock())
+                session.add(template)
+                old = set()
+            template.name, template.folder, template.parts = name, folder, parts
+            template.updated_at = self.clock()
+            self._release(session, old - self._part_ids(parts))
+            session.flush()
+            return self._template_dict(session, template)
+
+    def template_delete(self, params: dict) -> dict:
+        with self.lock, self.sessions.begin() as session:
+            template = session.get(IMessageTemplate, int(params.get("id") or 0))
+            if template is None:
+                raise UserError("Шаблон не найден.")
+            ids = self._part_ids(template.parts)
+            session.delete(template)
+            self._release(session, ids)
+        return {"ok": True}
+
+    def template_use(self, params: dict) -> dict:
+        """Puts a template into the list: one message joins the variants and the files of
+        the list; several messages (or an open chain) become the chain."""
+        with self.lock, self.sessions.begin() as session:
+            template = session.get(IMessageTemplate, int(params.get("id") or 0))
+            if template is None:
+                raise UserError("Шаблон не найден.")
+            row = self._row(session)
+            parts = [
+                {"text": part["text"], "attachment_ids": list(part["attachment_ids"])}
+                for part in template.parts
+            ]
+            if len(parts) == 1 and not row.sequence:
+                text, files = parts[0]["text"], parts[0]["attachment_ids"]
+                if text:
+                    row.messages = variants_from([*variants(row), text])
+                    row.message = ""
+                ids = list(dict.fromkeys([*row.attachment_ids, *files]))
+                if len(ids) > MAX_ATTACHMENTS:
+                    raise UserError(f"Не больше {MAX_ATTACHMENTS} вложений.")
+                row.attachment_ids = ids
+            else:
+                old = self._part_ids(row.sequence)
+                row.sequence = parts
+                self._release(session, old - self._part_ids(parts))
+        return self.state()
 
     # ---------- campaigns ----------
 
@@ -561,14 +708,14 @@ class IMessageService:
         with self.lock, self.sessions.begin() as session:
             self._sweep(session)
             if self._active(session) is not None:
-                raise ValueError("Рассылка уже идёт. Остановите её или дождитесь конца.")
+                raise UserError("Рассылка уже идёт. Остановите её или дождитесь конца.")
             row = self._row(session)
             recipients = list(row.recipients)
             skipped = 0
             if test_phone:
                 phone = normalize_recipient(test_phone)
                 if phone is None:
-                    raise ValueError("Для теста — телефон с «+» и кодом страны или email.")
+                    raise UserError("Для теста — телефон с «+» и кодом страны или email.")
                 chosen = next((item for item in recipients if item["phone"] == phone), None)
                 recipients = [chosen or {"phone": phone, "message": ""}]
             else:
@@ -576,49 +723,78 @@ class IMessageService:
                 skipped = sum(item["phone"] in done for item in recipients)
                 recipients = [item for item in recipients if item["phone"] not in done]
             if not recipients:
-                raise ValueError(
+                raise UserError(
                     "Некому отправлять: все номера уже получили сообщение или ждут проверки."
                     if skipped
                     else "Добавьте получателей."
                 )
-            texts = texts_for(row, recipients)
-            missing = sum(not text for text in texts)
-            if missing:
-                raise ValueError(f"Нет текста для {missing} получателей: добавьте сообщение.")
-            for file_id in row.attachment_ids:
+            if row.sequence:
+                steps = plan(parts_from(row.sequence, require_content=False))
+                # The recipient's own text replaces the first message of the chain.
+                messages = [
+                    [
+                        render(
+                            item["message"] if index == 0 and item["message"] else step["text"],
+                            item["phone"],
+                        )
+                        for index, step in enumerate(steps)
+                    ]
+                    for item in recipients
+                ]
+                files = sorted(self._part_ids(steps))
+            else:
+                steps = []
+                messages = [[text] for text in texts_for(row, recipients)]
+                missing = sum(not texts[0] for texts in messages)
+                if missing:
+                    raise UserError(f"Нет текста для {missing} получателей: добавьте сообщение.")
+                files = list(row.attachment_ids)
+            for file_id in files:
                 if not (self.files / file_id).is_file():
-                    raise ValueError(
+                    raise UserError(
                         "Файл вложения пропал из папки приложения. Удалите его и добавьте снова."
                     )
             campaign = IMessageCampaign(
                 protocol=row.protocol,
                 status="running",
                 is_test=bool(test_phone),
-                message=(variants(row) or [""])[0],
-                attachment_ids=list(row.attachment_ids),
+                message=steps[0]["text"] if steps else (variants(row) or [""])[0],
+                attachment_ids=[] if steps else files,
+                steps=[
+                    {"attachment_ids": step["attachment_ids"], "run": step["run"]} for step in steps
+                ],
                 delay_seconds=row.delay_seconds,
-                total=len(recipients),
+                total=sum(len(texts) for texts in messages),
                 created_at=self.clock(),
             )
             session.add(campaign)
             session.flush()
-            for position, (item, text) in enumerate(zip(recipients, texts), start=1):
-                session.add(
-                    IMessageJob(
-                        campaign_id=campaign.id,
-                        key=f"{campaign.id}-{position}-{secrets.token_hex(4)}",
-                        position=position,
-                        phone=item["phone"],
-                        message=text,
-                        status="pending",
+            position = 0
+            for item, texts in zip(recipients, messages):
+                for step, text in enumerate(texts):
+                    position += 1
+                    session.add(
+                        IMessageJob(
+                            campaign_id=campaign.id,
+                            key=f"{campaign.id}-{position}-{secrets.token_hex(4)}",
+                            position=position,
+                            step=step,
+                            phone=item["phone"],
+                            message=text,
+                            status="pending",
+                        )
                     )
-                )
             kind = "тест" if test_phone else "рассылка"
             protocol = "исходный Shortcut" if row.protocol == "legacy" else "новый Shortcut"
             self._event(
                 session,
                 "campaign_started",
                 f"Запущена {kind} №{campaign.id}: {len(recipients)} получ., {protocol}"
+                + (
+                    f"; цепочка из {len(steps)} сообщ., запусков команды: {steps[-1]['run'] + 1}"
+                    if steps
+                    else ""
+                )
                 + (f"; пропущено уже отправленных: {skipped}" if skipped else ""),
                 campaign.id,
             )
@@ -631,7 +807,7 @@ class IMessageService:
         with self.lock, self.sessions.begin() as session:
             campaign = self._active(session)
             if campaign is None:
-                raise ValueError("Нет активной рассылки.")
+                raise UserError("Нет активной рассылки.")
             if action == "stop":
                 campaign.status = "stopped"
                 campaign.finished_at = self.clock()
@@ -652,7 +828,7 @@ class IMessageService:
                     campaign.id,
                 )
             elif action not in (*moves, "stop"):
-                raise ValueError("Неизвестное действие.")
+                raise UserError("Неизвестное действие.")
         return self.state()
 
     def resolve(self, params: dict) -> dict:
@@ -661,9 +837,9 @@ class IMessageService:
         with self.lock, self.sessions.begin() as session:
             job = session.get(IMessageJob, int(params.get("job_id") or 0))
             if job is None:
-                raise ValueError("Задание не найдено.")
+                raise UserError("Задание не найдено.")
             if job.status not in ("uncertain", "failed"):
-                raise ValueError("Решение нужно только для неопределённых и неудачных заданий.")
+                raise UserError("Решение нужно только для неопределённых и неудачных заданий.")
             campaign = session.get(IMessageCampaign, job.campaign_id)
             now = self.clock()
             if resolution == "sent":
@@ -675,7 +851,7 @@ class IMessageService:
                 detail = f"{job.phone}: отмечено вручную как не отправленное"
             elif resolution == "resend":
                 if campaign.status == "stopped":
-                    raise ValueError("Рассылка остановлена. Запустите новую для этого номера.")
+                    raise UserError("Рассылка остановлена. Запустите новую для этого номера.")
                 job.status, job.resolution = "pending", "requeued"
                 job.deadline_at = job.text_acked_at = None
                 if campaign.status == "finished":
@@ -683,7 +859,7 @@ class IMessageService:
                     campaign.status, campaign.finished_at = "paused", None
                 detail = f"{job.phone}: возвращено в очередь по решению пользователя"
             else:
-                raise ValueError("Неизвестное решение.")
+                raise UserError("Неизвестное решение.")
             self._event(session, "job_resolved", detail, campaign.id, job.id)
             self._finish_if_done(session, campaign)
         return self.state()
@@ -731,9 +907,20 @@ class IMessageService:
 
     # ---------- phone protocols ----------
 
-    def _attachments(self, session, campaign: IMessageCampaign) -> list[dict]:
+    @staticmethod
+    def _run_of(campaign: IMessageCampaign, job: IMessageJob) -> int:
+        return campaign.steps[job.step]["run"] if campaign.steps else 0
+
+    @staticmethod
+    def _files_of(campaign: IMessageCampaign, jobs) -> list[str]:
+        if not campaign.steps:
+            return list(campaign.attachment_ids)
+        ids = [file_id for job in jobs for file_id in campaign.steps[job.step]["attachment_ids"]]
+        return list(dict.fromkeys(ids))
+
+    def _attachments(self, session, ids: list[str]) -> list[dict]:
         result = []
-        for file_id in campaign.attachment_ids:
+        for file_id in ids:
             attachment = session.get(IMessageAttachment, file_id)
             if attachment is not None:
                 result.append(
@@ -753,13 +940,7 @@ class IMessageService:
             campaign = self._active(session)
             if campaign is None or campaign.protocol != "legacy" or campaign.status != "running":
                 return 200, empty
-            jobs = list(
-                session.scalars(
-                    select(IMessageJob)
-                    .where(IMessageJob.campaign_id == campaign.id, IMessageJob.status == "pending")
-                    .order_by(IMessageJob.position)
-                )
-            )
+            jobs = self._launch(session, campaign)
             if not jobs:
                 return 200, empty
             now = self.clock()
@@ -775,11 +956,13 @@ class IMessageService:
                         "ackUrl": self._url("/ack", jobId=job.key),
                     }
                 )
+            runs = self._runs(campaign)
+            launch = f"запуск {self._run_of(campaign, jobs[0]) + 1} из {runs}, " if runs > 1 else ""
             self._event(
                 session,
                 "jobs_issued",
-                f"Исходный Shortcut получил всю очередь: {len(jobs)} получ. Пауза и остановка "
-                "на эту выдачу уже не влияют.",
+                f"Исходный Shortcut получил очередь: {launch}{len(jobs)} сообщ. Пауза и "
+                "остановка на эту выдачу уже не влияют.",
                 campaign.id,
             )
             return 200, {
@@ -787,9 +970,60 @@ class IMessageService:
                 "contacts": contacts,
                 "attachments": [
                     {"downloadUrl": item["downloadUrl"]}
-                    for item in self._attachments(session, campaign)
+                    for item in self._attachments(session, self._files_of(campaign, jobs))
                 ],
             }
+
+    @staticmethod
+    def _runs(campaign: IMessageCampaign) -> int:
+        return campaign.steps[-1]["run"] + 1 if campaign.steps else 1
+
+    def _launch(self, session, campaign: IMessageCampaign) -> list[IMessageJob]:
+        """Pending jobs of the earliest launch. In a chain a message goes out only after
+        the ones before it were confirmed; otherwise it waits for the user's decision."""
+        jobs = list(
+            session.scalars(
+                select(IMessageJob)
+                .where(IMessageJob.campaign_id == campaign.id)
+                .order_by(IMessageJob.position)
+            )
+        )
+        if not campaign.steps:
+            return [job for job in jobs if job.status == "pending"]
+        # The previous launch is still on the phone: the Shortcut runs one list at a time.
+        if any(job.status == "issued" for job in jobs):
+            return []
+        while True:
+            pending = [job for job in jobs if job.status == "pending"]
+            if not pending:
+                return []
+            run = min(self._run_of(campaign, job) for job in pending)
+            batch = [job for job in pending if self._run_of(campaign, job) == run]
+            taken = {(job.phone, job.step) for job in batch}
+            done = {(job.phone, job.step) for job in jobs if job.status == "execution_acknowledged"}
+            ready = []
+            for job in batch:
+                earlier = {(job.phone, step) for step in range(job.step)}
+                if earlier <= done | taken:
+                    ready.append(job)
+                    continue
+                job.status, job.resolution = "failed", "chain_blocked"
+                job.note = (
+                    "Не отправлено: предыдущее сообщение цепочки не подтверждено. Решите его, "
+                    "затем «В очередь снова»."
+                )
+                self._event(
+                    session,
+                    "job_blocked",
+                    f"{job.phone}: сообщение {job.step + 1} цепочки не выдано — "
+                    "предыдущее не подтверждено",
+                    campaign.id,
+                    job.id,
+                )
+            if ready:
+                return ready
+            session.flush()
+            self._finish_if_done(session, campaign)
 
     def _state_of(self, session, campaign: IMessageCampaign | None) -> str:
         if campaign is None:
@@ -873,7 +1107,7 @@ class IMessageService:
                 "jobId": job.key,
                 "recipient": job.phone,
                 "message": job.message,
-                "attachments": self._attachments(session, campaign),
+                "attachments": self._attachments(session, self._files_of(campaign, [job])),
                 "ackUrl": self._url("/v2/ack", jobId=job.key, stage="done"),
                 "textAckUrl": self._url("/v2/ack", jobId=job.key, stage="text"),
                 "statusUrl": status_url,
@@ -954,6 +1188,7 @@ class IMessageService:
             "id": job.id,
             "key": job.key,
             "position": job.position,
+            "step": job.step,
             "phone": job.phone,
             "message": job.message,
             "status": job.status,
@@ -977,7 +1212,23 @@ class IMessageService:
             "created_at": iso(campaign.created_at),
             "finished_at": iso(campaign.finished_at),
             "counts": self._counts(session, campaign.id),
+            "messages": len(campaign.steps) or 1,
+            "runs": self._runs(campaign),
+            "next_run": self._next_run(session, campaign),
         }
+
+    def _next_run(self, session, campaign: IMessageCampaign) -> int | None:
+        """1-based launch the phone gets next, or None when nothing waits."""
+        steps = session.scalars(
+            select(IMessageJob.step).where(
+                IMessageJob.campaign_id == campaign.id, IMessageJob.status == "pending"
+            )
+        ).all()
+        if not steps:
+            return None
+        if not campaign.steps:
+            return 1
+        return min(campaign.steps[step]["run"] for step in steps) + 1
 
     def _recipient_statuses(self, session, phones: list[str]) -> dict[str, str]:
         result: dict[str, str] = {}
@@ -1050,15 +1301,16 @@ class IMessageService:
                     ],
                     "messages": variants(row),
                     "attachments": [
-                        {
-                            "id": item.id,
-                            "filename": item.filename,
-                            "mime": item.mime,
-                            "size": item.size,
-                        }
-                        for item in attachments
-                        if item is not None
+                        self._attachment_dict(item) for item in attachments if item is not None
                     ],
+                    "sequence": [
+                        {
+                            "text": part["text"],
+                            "attachments": self._attachment_dicts(session, part["attachment_ids"]),
+                        }
+                        for part in row.sequence
+                    ],
+                    "plan": summary(row.sequence) if row.sequence else None,
                     "protocol": row.protocol,
                     "shortcut_name": row.shortcut_name,
                     "legacy_shortcut_name": row.legacy_shortcut_name,
@@ -1078,10 +1330,47 @@ class IMessageService:
                 for file_id in row.attachment_ids
                 if (item := session.get(IMessageAttachment, file_id)) is not None
             ]
-            items = [
-                {"phone": item["phone"], "text": text, "individual": bool(item["message"])}
-                for item, text in zip(row.recipients, texts_for(row, row.recipients))
-            ]
+            if row.sequence:
+                try:
+                    steps = plan(parts_from(row.sequence, require_content=False))
+                except ValueError as error:
+                    raise UserError(f"Цепочку нельзя отправить: {error}") from error
+                attachments = [
+                    {"downloadUrl": f"…/attachment/{file_id}?token=•••", "name": item.filename}
+                    for file_id in steps[0]["attachment_ids"]
+                    if (item := session.get(IMessageAttachment, file_id)) is not None
+                ]
+                items = []
+                for recipient in row.recipients:
+                    texts = [
+                        render(
+                            recipient["message"]
+                            if index == 0 and recipient["message"]
+                            else step["text"],
+                            recipient["phone"],
+                        )
+                        for index, step in enumerate(steps)
+                    ]
+                    items.append(
+                        {
+                            "phone": recipient["phone"],
+                            "text": texts[0],
+                            "individual": bool(recipient["message"]),
+                            "messages": [
+                                {
+                                    "text": text,
+                                    "files": len(step["attachment_ids"]),
+                                    "launch": step["run"] + 1,
+                                }
+                                for text, step in zip(texts, steps)
+                            ],
+                        }
+                    )
+            else:
+                items = [
+                    {"phone": item["phone"], "text": text, "individual": bool(item["message"])}
+                    for item, text in zip(row.recipients, texts_for(row, row.recipients))
+                ]
             first = items[0] if items else {"phone": "+15555550123", "text": ""}
             if row.protocol == "legacy":
                 payload: dict = {
@@ -1089,10 +1378,12 @@ class IMessageService:
                     "contacts": [
                         {
                             "phone": item["phone"],
-                            "message": item["text"],
+                            "message": message["text"],
                             "ackUrl": "…/ack?token=•••&jobId=…",
                         }
                         for item in items[:3]
+                        for message in item.get("messages") or [{"text": item["text"], "launch": 1}]
+                        if message["launch"] == 1
                     ],
                     "attachments": [{"downloadUrl": item["downloadUrl"]} for item in attachments],
                 }
@@ -1149,7 +1440,11 @@ class IMessageService:
                 session.execute(delete(IMessageEvent).where(IMessageEvent.id <= cutoff))
 
     def remove_orphan_files(self) -> None:
-        """Copies left by a crash between the copy and the database row."""
+        """Copies left by a crash between the copy and the database row, and files added
+        to a template or chain that was never saved."""
+        with self.lock, self.sessions.begin() as session:
+            unused = set(session.scalars(select(IMessageAttachment.id))) - self._referenced(session)
+            self._release(session, unused)
         if not self.files.is_dir():
             return
         with self.sessions() as session:

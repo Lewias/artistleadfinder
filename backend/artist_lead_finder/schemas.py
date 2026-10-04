@@ -4,6 +4,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .errors import UserError
+
 
 class SearchConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -21,8 +23,8 @@ class SearchConfiguration(BaseModel):
     @model_validator(mode="after")
     def validate_ranges(self) -> Self:
         if self.max_followers < self.min_followers:
-            raise ValueError("Максимум подписчиков должен быть не меньше минимума.")
+            raise UserError("Максимум подписчиков должен быть не меньше минимума.")
         for values in (self.seed_accounts, self.keywords, self.hashtags, self.genres):
             if any(not value.strip() or len(value) > 240 for value in values):
-                raise ValueError("Значения поиска должны содержать от 1 до 240 символов.")
+                raise UserError("Значения поиска должны содержать от 1 до 240 символов.")
         return self

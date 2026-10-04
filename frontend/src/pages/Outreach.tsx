@@ -1,3 +1,4 @@
+import { ErrorToast } from '../components/Toaster';
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   AtSign,
@@ -326,11 +327,7 @@ export function Outreach() {
           />
         )}
 
-        {error && (
-          <p role="alert" className="error-text">
-            {error}
-          </p>
-        )}
+        <ErrorToast message={error} />
         {notice && !error && <p className="helper">{notice}</p>}
 
         <div className="board-footer">

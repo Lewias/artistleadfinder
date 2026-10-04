@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "externalBin": [],
+    "resources": {
+      "core/artist-core/": "core/"
+    }
+  }
+}

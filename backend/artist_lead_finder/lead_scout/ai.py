@@ -15,6 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..browser_sessions import protect
+from ..errors import UserError
 from .classification.model import (
     AIClassificationError,
     AIClassificationResult,
@@ -95,7 +96,7 @@ class AIKeyStore:
             self.path.unlink(missing_ok=True)
             return
         if len(key) > 300 or not re.fullmatch(r"[\x21-\x7e]+", key):
-            raise ValueError("Некорректный ключ OpenRouter.")
+            raise UserError("Некорректный ключ OpenRouter.")
         temporary = self.path.with_suffix(".tmp")
         temporary.write_bytes(protect(key.encode("utf-8")))
         temporary.replace(self.path)

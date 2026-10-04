@@ -1,4 +1,11 @@
-import type { IMessageCampaign, IMessageJob, IMessageJobStatus } from '../../services/types';
+import type {
+  IMessageCampaign,
+  IMessageJob,
+  IMessageJobStatus,
+  IMessagePart,
+  IMessagePlan,
+} from '../../services/types';
+import { plural } from '../../lib/format';
 
 const EMAIL = /^[^@\s]{1,64}@[^@\s]+\.[^@\s.]{2,}$/;
 
@@ -103,3 +110,67 @@ export function fileSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
   return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
 }
+
+export const ATTACHMENT_EXTENSIONS = [
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'heic',
+  'webp',
+  'mp4',
+  'mov',
+  'm4a',
+  'mp3',
+  'pdf',
+];
+
+/** Mirrors the core's `chain.plan`: the signed Shortcut sends text first, then the files
+ * of its list after every entry, so files join the text before them and a message with
+ * files is a launch of its own. */
+export function chainPlan(parts: IMessagePart[]): IMessagePlan {
+  const steps: { files: number }[] = [];
+  for (const [index, part] of parts.entries()) {
+    const text = part.text.trim();
+    if (text) steps.push({ files: part.attachments.length });
+    else if (part.attachments.length) {
+      if (!steps.length)
+        return {
+          messages: 0,
+          launches: 0,
+          error:
+            '«Verse iMessage» начинает каждое сообщение с текста: в первом сообщении нужен текст. Файлы без текста перед ними команда отправить не может.',
+        };
+      steps[steps.length - 1].files += part.attachments.length;
+    } else
+      return { messages: 0, launches: 0, error: `Сообщение №${index + 1} пустое: добавьте текст или файл.` };
+  }
+  if (!steps.length) return { messages: 0, launches: 0, error: 'Добавьте хотя бы одно сообщение.' };
+  let run = 0;
+  let inRun = 0;
+  for (const step of steps) {
+    if (step.files && inRun) {
+      run += 1;
+      inRun = 0;
+    }
+    inRun += 1;
+    if (step.files) {
+      run += 1;
+      inRun = 0;
+    }
+  }
+  return { messages: steps.length, launches: inRun ? run + 1 : run, error: null };
+}
+
+/** One line on how a chain goes out, for the editor and the cards. */
+export function planText(plan: IMessagePlan) {
+  if (plan.error) return plan.error;
+  const gap = plan.messages > 1 ? ', между ними 20–50 с' : '';
+  const launches =
+    plan.launches > 1 ? ` Запусков команды: ${plan.launches} — после каждого отсканируйте QR-код снова.` : '';
+  return `Каждый получатель получит ${plural(plan.messages, ['сообщение', 'сообщения', 'сообщений'])}${gap}.${launches}`;
+}
+
+/** The core's shape of a chain or template message. */
+export const partsPayload = (parts: IMessagePart[]) =>
+  parts.map(part => ({ text: part.text, attachment_ids: part.attachments.map(item => item.id) }));

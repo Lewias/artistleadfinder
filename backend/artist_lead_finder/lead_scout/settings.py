@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..errors import UserError
+
 DISCOVERY_METHODS = (
     "profiles",
     "posts",
@@ -77,5 +79,5 @@ class ScoutSettings(BaseModel):
     @model_validator(mode="after")
     def ordered_followers(self):
         if self.scout_max_followers < self.scout_min_followers:
-            raise ValueError("Максимум подписчиков меньше минимума.")
+            raise UserError("Максимум подписчиков меньше минимума.")
         return self

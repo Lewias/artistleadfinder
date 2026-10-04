@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 
+from ..errors import UserError
 from ..models import FollowUpJob, FollowUpSequence, OutreachTemplate
 
 MAX_STEPS = 5
@@ -13,16 +14,16 @@ MAX_STEPS = 5
 
 def validate_steps(session, steps: object) -> list[dict]:
     if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
-        raise ValueError(f"В цепочке должно быть от 1 до {MAX_STEPS} шагов.")
+        raise UserError(f"В цепочке должно быть от 1 до {MAX_STEPS} шагов.")
     result = []
     for step in steps:
         if not isinstance(step, dict):
-            raise ValueError("Некорректный шаг цепочки.")
+            raise UserError("Некорректный шаг цепочки.")
         delay, template_id = step.get("delay_days"), step.get("template_id")
         if isinstance(delay, bool) or not isinstance(delay, int) or not 1 <= delay <= 60:
-            raise ValueError("Задержка шага — от 1 до 60 дней.")
+            raise UserError("Задержка шага — от 1 до 60 дней.")
         if not isinstance(template_id, int) or session.get(OutreachTemplate, template_id) is None:
-            raise ValueError("Шаблон шага не найден.")
+            raise UserError("Шаблон шага не найден.")
         result.append({"delay_days": delay, "template_id": template_id})
     return result
 

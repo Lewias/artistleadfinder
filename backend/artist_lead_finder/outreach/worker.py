@@ -23,6 +23,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
+from ..errors import UserError
 from ..models import (
     BrowserQueue,
     CampaignRecipient,
@@ -499,7 +500,7 @@ class OutreachWorker:
         with self.sessions.begin() as session:
             recipient = session.get(CampaignRecipient, int(params["recipient_id"]))
             if recipient is None or not recipient.needs_review:
-                raise ValueError("Нет отправки, ожидающей проверки.")
+                raise UserError("Нет отправки, ожидающей проверки.")
             job = session.scalar(
                 select(OutboundMessageJob).where(OutboundMessageJob.recipient_id == recipient.id)
             )

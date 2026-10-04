@@ -17,6 +17,7 @@ from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
 from .crm.service import CrmService
 from .discovery import DiscoveryEngine
+from .errors import UserError
 from .imessage import shortcut as imessage_shortcut
 from .imessage.service import IMessageService
 from .jobs import DiscoveryManager
@@ -220,7 +221,7 @@ class ApplicationService:
                 raise ValueError("Unknown browser runtime method")
             if method.startswith("browser."):
                 return self.browser_sessions.call(method, params)
-            raise ValueError("Неизвестный метод приложения.")
+            raise UserError("Неизвестный метод приложения.")
         return handler(params)
 
     def _handlers(self) -> dict[str, Callable[[dict], Any]]:
@@ -295,6 +296,10 @@ class ApplicationService:
             "imessage.add_leads": self.imessage.add_leads,
             "imessage.attachment_add": self.imessage.attachment_add,
             "imessage.attachment_remove": self.imessage.attachment_remove,
+            "imessage.templates": self.imessage.templates,
+            "imessage.template_save": self.imessage.template_save,
+            "imessage.template_delete": self.imessage.template_delete,
+            "imessage.template_use": self.imessage.template_use,
             "imessage.bridge_start": self.imessage.bridge_start,
             "imessage.bridge_stop": self.imessage.bridge_stop,
             "imessage.bridge_rotate": self.imessage.rotate_token,
@@ -370,9 +375,9 @@ class ApplicationService:
         pause / disable an account for outreach."""
         status = params.get("status")
         if status not in {"active", "paused", "disabled"}:
-            raise ValueError("Неизвестное состояние аккаунта.")
+            raise UserError("Неизвестное состояние аккаунта.")
         if params.get("id") not in self._sender_names():
-            raise ValueError("Аккаунт не найден.")
+            raise UserError("Аккаунт не найден.")
         with self.sessions.begin() as session:
             set_status(session, params["id"], status, None if status == "active" else "Вручную")
         self.outreach.notified.pop(params["id"], None)
@@ -474,7 +479,7 @@ class ApplicationService:
         """Add a username to the Scout ignore list (settings system)."""
         username = normalized_username(str(params.get("username", "")))
         if not username or len(username) > 30:
-            raise ValueError("Некорректное имя профиля.")
+            raise UserError("Некорректное имя профиля.")
         ignored = list(self.settings()["scout_ignore_usernames"])
         if username not in {normalized_username(name) for name in ignored}:
             ignored.append(username)
@@ -493,7 +498,7 @@ class ApplicationService:
     def _save_settings(self, params: dict) -> Any:
         settings = {**DEFAULTS, **params}
         if set(params) - set(DEFAULTS):
-            raise ValueError("Неизвестные настройки; секреты в конфигурации запрещены.")
+            raise UserError("Неизвестные настройки; секреты в конфигурации запрещены.")
         SearchConfiguration(
             name="Defaults",
             **{
@@ -513,7 +518,7 @@ class ApplicationService:
         OutreachSettings.model_validate(settings)
         enabled = settings["enabled_providers"]
         if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
-            raise ValueError("Источник недоступен.")
+            raise UserError("Источник недоступен.")
         with self.sessions.begin() as session:
             for key, value in settings.items():
                 setting = session.get(Setting, key) or Setting(key=key)
@@ -523,7 +528,7 @@ class ApplicationService:
 
     def _start_job(self, params: dict) -> Any:
         if any(state in {"running", "paused"} for state in self.manager.states.values()):
-            raise ValueError("Сначала завершите активный поиск.")
+            raise UserError("Сначала завершите активный поиск.")
         settings = self.settings()
         self.discovery.providers = [
             provider
@@ -531,7 +536,7 @@ class ApplicationService:
             if provider.name in settings["enabled_providers"]
         ]
         if not self.discovery.providers:
-            raise ValueError("Нет включённых источников. Проверьте настройки.")
+            raise UserError("Нет включённых источников. Проверьте настройки.")
         from .scoring import LeadScorer
 
         self.pipeline.scorer = LeadScorer(ScoringWeights.model_validate(settings["weights"]))
@@ -573,7 +578,7 @@ class ApplicationService:
         with self.sessions() as session:
             job = session.get(SearchJob, int(params["id"]))
             if not job:
-                raise ValueError("Поиск не найден.")
+                raise UserError("Поиск не найден.")
             return serialize(job)
 
     def _list_leads(self, params: dict) -> Any:
@@ -621,7 +626,7 @@ class ApplicationService:
         with self.sessions() as session:
             lead = session.get(Lead, int(params["id"]))
             if not lead:
-                raise ValueError("Профиль не найден.")
+                raise UserError("Профиль не найден.")
             analysis = session.get(LeadAnalysis, lead.id)
             scout = session.get(ScoutAssessment, lead.id)
             profile = session.get(LeadScoutProfile, lead.id)
@@ -664,17 +669,17 @@ class ApplicationService:
     def _set_lead_status(self, params: dict) -> Any:
         status = params["status"]
         if status not in {"new", "reviewed", "qualified", "rejected", "contacted"}:
-            raise ValueError("Неизвестный статус.")
+            raise UserError("Неизвестный статус.")
         with self.sessions.begin() as session:
             lead = session.get(Lead, int(params["id"]))
             if not lead:
-                raise ValueError("Профиль не найден.")
+                raise UserError("Профиль не найден.")
             lead.status = status
         return {"ok": True}
 
     def _import_dataset(self, params: dict) -> Any:
         if any(state in {"running", "paused"} for state in self.manager.states.values()):
-            raise ValueError("Нельзя заменить источник во время поиска.")
+            raise UserError("Нельзя заменить источник во время поиска.")
         provider = ImportedDatasetProvider(Path(params["path"]))
         provider.profiles = [normalize(profile) for profile in provider.profiles]
         temporary = self.import_path.with_suffix(".tmp")
@@ -752,7 +757,7 @@ class ApplicationService:
     def export(self, params: dict) -> dict:
         path = Path(params["path"])
         if path.suffix.casefold() != ".csv":
-            raise ValueError("Выберите CSV-файл.")
+            raise UserError("Выберите CSV-файл.")
         query = LeadQuery.model_validate(params.get("query", {}))
         ids = params.get("ids")
         if ids is not None and (
@@ -760,7 +765,7 @@ class ApplicationService:
             or len(ids) > 100000
             or any(not isinstance(value, int) or value <= 0 for value in ids)
         ):
-            raise ValueError("Некорректный список выбранных профилей.")
+            raise UserError("Некорректный список выбранных профилей.")
         columns = [
             "username",
             "profile_url",

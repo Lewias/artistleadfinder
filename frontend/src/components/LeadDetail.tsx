@@ -1,3 +1,5 @@
+import { ErrorToast } from './Toaster';
+import { errorText } from '../lib/errors';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, ExternalLink } from 'lucide-react';
@@ -25,7 +27,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
       await api.request('scout.ignore', { username: lead.username });
       setIgnored(true);
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     }
   };
   const capture = lead?.analysis?.extracted_signals?.browser_capture;
@@ -37,7 +39,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
       resource.refresh();
       refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -51,7 +53,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
       resource.refresh();
       refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -60,7 +62,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
     try {
       await api.openProfile(address);
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     }
   };
   return (
@@ -403,11 +405,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
               </div>
             </>
           )}
-          {error && (
-            <p role="alert" className="error-text">
-              {error}
-            </p>
-          )}
+          <ErrorToast message={error} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

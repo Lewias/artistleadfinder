@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .errors import UserError
 from .models import utcnow
 
 
@@ -25,7 +26,7 @@ class PacingSettings(BaseModel):
     @model_validator(mode="after")
     def ordered_delay(self):
         if self.page_delay_max < self.page_delay_min:
-            raise ValueError("Максимальная пауза меньше минимальной.")
+            raise UserError("Максимальная пауза меньше минимальной.")
         return self
 
 

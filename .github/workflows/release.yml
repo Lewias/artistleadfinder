@@ -18,8 +18,11 @@ jobs:
         include:
           - os: windows-latest
             bundles: nsis
+            config: ''
           - os: macos-14
             bundles: app,dmg
+            # The core is a one-folder build in the app's resources, not a sidecar.
+            config: --config src-tauri/tauri.macos-core.conf.json
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -84,4 +87,15 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
-          args: --config src-tauri/tauri.production.conf.json --features custom-protocol --bundles ${{ matrix.bundles }}
+          args: --config src-tauri/tauri.production.conf.json ${{ matrix.config }} --features custom-protocol --bundles ${{ matrix.bundles }}
+
+      - name: Core inside the macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=$(find src-tauri/target -maxdepth 5 -path '*/bundle/macos/*.app' -type d | head -1)
+          core="$app/Contents/Resources/core/artist-core"
+          test -x "$core"
+          codesign --verify --verbose "$core"
+          # The bundled copy itself must answer: this is the path the app starts.
+          "$PY" scripts/smoke-sidecar.py "$core"

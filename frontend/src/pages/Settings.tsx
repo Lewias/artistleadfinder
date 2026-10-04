@@ -1,3 +1,5 @@
+import { ErrorToast } from '../components/Toaster';
+import { errorText } from '../lib/errors';
 import { useState, type FormEvent } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../services/api';
@@ -72,7 +74,7 @@ function SettingsForm({
       setMessage('Настройки сохранены. Применяются к новым поискам.');
       refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -94,7 +96,7 @@ function SettingsForm({
       );
       refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -308,7 +310,7 @@ function SettingsForm({
           <Button
             type="button"
             variant="outline"
-            onClick={() => void api.openLogs().catch(err => setError(String(err)))}
+            onClick={() => void api.openLogs().catch(err => setError(errorText(err)))}
           >
             Открыть папку журналов
           </Button>
@@ -319,11 +321,7 @@ function SettingsForm({
           {message}
         </p>
       )}
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
       <section className="panel provider-panel">
         <h2>Состояние источников</h2>
         <div className="table-container">

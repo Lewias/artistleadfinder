@@ -56,15 +56,18 @@ def main() -> None:
     else:
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
         print(f"Chromium: {bundled_chromium().name}")
-    triple = target_triple()
-    name = f"artist-core-{triple}"
+    # macOS: one folder in the app's resources (src-tauri/tauri.macos-core.conf.json).
+    # The one-file loader syncs with its child through a System V semaphore, and some
+    # Macs deny semctl ("Failed to initialize sync semaphore"): the core never starts.
+    onedir = sys.platform == "darwin"
+    name = "artist-core" if onedir else f"artist-core-{target_triple()}"
     subprocess.run(
         [
             sys.executable,
             "-m",
             "PyInstaller",
             "--noconfirm",
-            "--onefile",
+            "--onedir" if onedir else "--onefile",
             "--console",
             "--name",
             name,
@@ -75,7 +78,7 @@ def main() -> None:
             + os.pathsep
             + "artist_lead_finder/imessage",
             "--distpath",
-            "src-tauri/binaries",
+            "src-tauri/core" if onedir else "src-tauri/binaries",
             "--workpath",
             "build/freezer/work",
             "--specpath",
@@ -85,9 +88,12 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
-    executable = (
-        ROOT / "src-tauri/binaries" / (name + (".exe" if os.name == "nt" else ""))
-    )
+    if onedir:
+        executable = ROOT / "src-tauri/core" / name / name
+    else:
+        executable = (
+            ROOT / "src-tauri/binaries" / (name + (".exe" if os.name == "nt" else ""))
+        )
     subprocess.run(
         [sys.executable, str(ROOT / "scripts/smoke-sidecar.py"), str(executable)],
         check=True,

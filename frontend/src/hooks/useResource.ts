@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { errorText } from '../lib/errors';
 
 export function useResource<T>(method: string, params: object = {}, poll = 0) {
   const key = JSON.stringify(params);
@@ -20,7 +21,7 @@ export function useResource<T>(method: string, params: object = {}, poll = 0) {
           setError('');
         }
       } catch (err) {
-        if (!cancelled) setError(String(err));
+        if (!cancelled) setError(errorText(err));
       } finally {
         if (!cancelled) {
           setLoading(false);

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .discovery import DiscoveryEngine, DiscoveryRecord
+from .errors import UserError
 from .models import ProviderHealth, SearchJob, utcnow
 from .pipeline import ProcessResult
 from .schemas import SearchConfiguration
@@ -45,10 +46,10 @@ class DiscoveryManager:
 
     def start(self, config: SearchConfiguration) -> int:
         if not (config.seed_accounts or config.keywords or config.hashtags):
-            raise ValueError("Укажите хотя бы один источник поиска.")
+            raise UserError("Укажите хотя бы один источник поиска.")
         with self.condition:
             if self.closing:
-                raise ValueError("Приложение завершает работу.")
+                raise UserError("Приложение завершает работу.")
             for finished_id in [key for key, future in self.futures.items() if future.done()]:
                 self.futures.pop(finished_id)
                 self.states.pop(finished_id, None)
@@ -64,11 +65,11 @@ class DiscoveryManager:
 
     def control(self, job_id: int, action: str) -> None:
         if action not in {"pause", "resume", "cancel"}:
-            raise ValueError("Неизвестное действие.")
+            raise UserError("Неизвестное действие.")
         with self.condition:
             state = self.states.get(job_id)
             if state not in {"running", "paused"}:
-                raise ValueError("Поиск завершён либо прерван при предыдущем запуске.")
+                raise UserError("Поиск завершён либо прерван при предыдущем запуске.")
             self.states[job_id] = {"pause": "paused", "resume": "running", "cancel": "cancelled"}[
                 action
             ]

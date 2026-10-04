@@ -1,3 +1,5 @@
+import { ErrorToast } from './Toaster';
+import { errorText } from '../lib/errors';
 import { useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api } from '../services/api';
@@ -27,7 +29,7 @@ export function ExportBar({ query, selected }: { query: LeadQuery; selected: num
       });
       setMessage(`Экспортировано профилей: ${result.count}`);
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -62,11 +64,7 @@ export function ExportBar({ query, selected }: { query: LeadQuery; selected: num
           {message}
         </p>
       )}
-      {error && (
-        <p role="alert" className="error-text">
-          {error}
-        </p>
-      )}
+      <ErrorToast message={error} />
     </div>
   );
 }

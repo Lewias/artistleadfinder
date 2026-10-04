@@ -1,3 +1,5 @@
+import { ErrorToast } from './Toaster';
+import { errorText } from '../lib/errors';
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import type { BrowserProfile, CaptureQueue } from '../services/types';
@@ -20,7 +22,7 @@ export function BrowserDiscovery() {
     void api
       .browser<BrowserProfile[]>('list')
       .then(setProfiles)
-      .catch(err => setError(String(err)));
+      .catch(err => setError(errorText(err)));
   }, []);
   const active =
     queue.data && ['running', 'paused'].includes(queue.data.status) && queue.data.stage !== 'interrupted';
@@ -32,7 +34,7 @@ export function BrowserDiscovery() {
       await operation();
       queue.refresh();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -168,9 +170,10 @@ export function BrowserDiscovery() {
           {message}
         </p>
       )}
-      {(error || queue.error) && (
+      <ErrorToast message={error} />
+      {queue.error && (
         <p role="alert" className="error-text">
-          {error || queue.error}
+          {queue.error}
         </p>
       )}
       <p className="helper">

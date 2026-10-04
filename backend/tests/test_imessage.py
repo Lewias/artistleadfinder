@@ -16,9 +16,16 @@ from sqlalchemy import select
 from artist_lead_finder.database import open_database
 from artist_lead_finder.imessage import network, shortcut
 from artist_lead_finder.imessage import service as imessage
+from artist_lead_finder.imessage.chain import parts_from, plan, summary
 from artist_lead_finder.imessage.network import deep_link, is_lan_address, is_local_client
 from artist_lead_finder.imessage.phones import normalize_phone, normalize_recipient
-from artist_lead_finder.models import IMessageEvent, IMessageJob, Lead, LeadScoutProfile
+from artist_lead_finder.models import (
+    IMessageAttachment,
+    IMessageEvent,
+    IMessageJob,
+    Lead,
+    LeadScoutProfile,
+)
 
 PHONES = ["+15555550101", "+15555550102", "+15555550103"]
 
@@ -797,3 +804,215 @@ def test_restart_moves_an_untouched_campaign_to_the_signed_shortcut(bridge, tmp_
     state = service.state()
     assert state["workspace"]["protocol"] == "legacy"
     assert state["campaign"]["protocol"] == "legacy"
+
+
+# ---------- templates and chains ----------
+
+A = "a" * 32
+B = "b" * 32
+
+
+def part(text="", *files):
+    return {"text": text, "attachment_ids": list(files)}
+
+
+def upload(service, tmp_path, name="cover.png") -> str:
+    path = tmp_path / name
+    path.write_bytes(b"\x89PNG fake image " + name.encode())
+    return service.attachment_add({"path": str(path), "target": "file"})["attachment"]["id"]
+
+
+def stored(sessions) -> set[str]:
+    with sessions() as session:
+        return set(session.scalars(select(IMessageAttachment.id)))
+
+
+# ---------- layout over launches ----------
+
+
+def test_texts_go_in_one_launch():
+    steps = plan([part("Привет"), part("Как дела?")])
+    assert [(step["text"], step["run"]) for step in steps] == [("Привет", 0), ("Как дела?", 0)]
+
+
+def test_files_follow_the_text_before_them():
+    steps = plan([part("Привет"), part("", A), part("", B)])
+    assert len(steps) == 1
+    assert steps[0]["attachment_ids"] == [A, B] and steps[0]["parts"] == [1, 2, 3]
+
+
+def test_message_with_files_is_a_launch_of_its_own():
+    steps = plan([part("Привет"), part("Трек", A), part("Пока")])
+    assert [step["run"] for step in steps] == [0, 1, 2]
+    assert summary([part("Привет"), part("Трек", A), part("Пока")])["launches"] == 3
+    assert [step["run"] for step in plan([part("Трек", A), part("Пока"), part("Ещё")])] == [0, 1, 1]
+
+
+def test_files_cannot_open_the_chain():
+    with pytest.raises(ValueError, match="начинает"):
+        plan([part("", A), part("Текст")])
+    assert summary([part("", A)])["error"]
+
+
+def test_template_parts_are_checked():
+    with pytest.raises(ValueError, match="пустое"):
+        parts_from([part("Привет"), part()], require_content=True)
+    assert parts_from([part()], require_content=False) == [part()]
+    with pytest.raises(ValueError, match="вложение"):
+        parts_from([{"text": "x", "attachment_ids": ["../etc"]}], require_content=True)
+    with pytest.raises(ValueError, match="Не больше"):
+        parts_from([part("x")] * 11, require_content=True)
+
+
+# ---------- templates ----------
+
+
+def test_templates_keep_their_files(bridge):
+    service, sessions, _, tmp_path = bridge
+    file_id = upload(service, tmp_path)
+    saved = service.template_save(
+        {
+            "name": "Приветствие",
+            "folder": "Холодные",
+            "parts": [part("Привет, {Phone}!"), part("", file_id)],
+        }
+    )
+    assert saved["plan"] == {"messages": 1, "launches": 1, "error": None}
+    assert saved["parts"][1]["attachments"][0]["filename"] == "cover.png"
+    assert [item["name"] for item in service.templates()] == ["Приветствие"]
+    # A restart clears unsaved uploads, not the template's files.
+    loose = upload(service, tmp_path, "loose.png")
+    service.remove_orphan_files()
+    assert stored(sessions) == {file_id}
+    assert not (tmp_path / "imessage-attachments" / loose).exists()
+    # Dropping the file from the template deletes it.
+    service.template_save({"id": saved["id"], "name": "Приветствие", "parts": [part("Привет")]})
+    assert stored(sessions) == set()
+
+
+def test_shared_file_survives_until_the_last_user(bridge):
+    service, sessions, _, tmp_path = bridge
+    file_id = upload(service, tmp_path)
+    first = service.template_save({"name": "Один", "parts": [part("Текст", file_id)]})
+    service.template_use({"id": first["id"]})
+    assert service.state()["workspace"]["attachments"][0]["id"] == file_id
+    service.template_delete({"id": first["id"]})
+    assert stored(sessions) == {file_id}
+    service.attachment_remove({"id": file_id})
+    assert stored(sessions) == set()
+
+
+def test_one_message_template_joins_the_variants(bridge):
+    service, _, _, tmp_path = bridge
+    service.workspace_update({"messages": ["Старый"]})
+    saved = service.template_save({"name": "Короткий", "parts": [part("Новый")]})
+    state = service.template_use({"id": saved["id"]})
+    assert state["workspace"]["messages"] == ["Старый", "Новый"]
+    assert state["workspace"]["sequence"] == []
+
+
+def test_chain_template_becomes_the_chain(bridge):
+    service, _, _, tmp_path = bridge
+    saved = service.template_save({"name": "Цепочка", "parts": [part("Привет"), part("Как дела?")]})
+    state = service.template_use({"id": saved["id"]})
+    assert [item["text"] for item in state["workspace"]["sequence"]] == ["Привет", "Как дела?"]
+    assert state["workspace"]["plan"]["launches"] == 1
+
+
+# ---------- chains over /task ----------
+
+
+def chain(service, tmp_path, parts, phones=PHONES[:2]):
+    service.workspace_update(
+        {
+            "recipients": [{"phone": phone, "message": ""} for phone in phones],
+            "sequence": parts,
+            "protocol": "legacy",
+        }
+    )
+
+
+def ack_all(task):
+    for contact in task["contacts"]:
+        assert get_json(contact["ackUrl"])[0] == 200
+
+
+def test_text_chain_goes_in_one_list(bridge):
+    service, sessions, _, tmp_path = bridge
+    chain(service, tmp_path, [part("Привет, {Phone}"), part("Как дела?")])
+    state = service.start({})
+    assert state["campaign"]["total"] == 4 and state["campaign"]["runs"] == 1
+    task = get_json(service._url("/task"))[1]
+    assert [(c["phone"], c["message"]) for c in task["contacts"]] == [
+        (PHONES[0], f"Привет, {PHONES[0]}"),
+        (PHONES[0], "Как дела?"),
+        (PHONES[1], f"Привет, {PHONES[1]}"),
+        (PHONES[1], "Как дела?"),
+    ]
+    assert task["attachments"] == []
+    ack_all(task)
+    assert service.state()["campaign"]["status"] == "finished"
+
+
+def test_files_wait_for_their_own_launch(bridge):
+    service, sessions, _, tmp_path = bridge
+    file_id = upload(service, tmp_path)
+    chain(service, tmp_path, [part("Привет"), part("Вот трек", file_id)])
+    state = service.start({})
+    assert state["campaign"]["runs"] == 2 and state["campaign"]["next_run"] == 1
+    first = get_json(service._url("/task"))[1]
+    assert [c["message"] for c in first["contacts"]] == ["Привет", "Привет"]
+    assert first["attachments"] == []
+    # The phone is still on the first list: nothing else is handed out.
+    assert get_json(service._url("/task"))[1]["contacts"] == []
+    ack_all(first)
+    assert service.state()["campaign"]["next_run"] == 2
+    second = get_json(service._url("/task"))[1]
+    assert [c["message"] for c in second["contacts"]] == ["Вот трек", "Вот трек"]
+    assert len(second["attachments"]) == 1
+    status, headers, _ = get(second["attachments"][0]["downloadUrl"])
+    assert status == 200 and headers["Content-Type"] == "image/png"
+    ack_all(second)
+    assert service.state()["campaign"]["status"] == "finished"
+
+
+def test_unconfirmed_message_holds_the_rest_of_the_chain(bridge):
+    service, sessions, clock, tmp_path = bridge
+    file_id = upload(service, tmp_path)
+    chain(service, tmp_path, [part("Привет"), part("Трек", file_id)])
+    service.start({})
+    first = get_json(service._url("/task"))[1]
+    assert get_json(first["contacts"][0]["ackUrl"])[0] == 200
+    clock.advance(hours=1)  # the second ACK never comes
+    second = get_json(service._url("/task"))[1]
+    assert [c["phone"] for c in second["contacts"]] == [PHONES[0]]
+    blocked = [job for job in jobs(sessions) if job.resolution == "chain_blocked"]
+    assert [(job.phone, job.step, job.status) for job in blocked] == [(PHONES[1], 1, "failed")]
+
+
+def test_test_send_gets_the_whole_chain(bridge):
+    service, _, _, tmp_path = bridge
+    chain(service, tmp_path, [part("Раз"), part("Два")])
+    service.start({"test_phone": PHONES[2]})
+    task = get_json(service._url("/task"))[1]
+    assert [(c["phone"], c["message"]) for c in task["contacts"]] == [
+        (PHONES[2], "Раз"),
+        (PHONES[2], "Два"),
+    ]
+
+
+def test_chain_starting_with_files_is_refused(bridge):
+    service, _, _, tmp_path = bridge
+    file_id = upload(service, tmp_path)
+    chain(service, tmp_path, [part("", file_id), part("Текст")])
+    with pytest.raises(ValueError, match="начинает"):
+        service.start({})
+    assert service.state()["workspace"]["plan"]["error"]
+
+
+def test_preview_shows_every_message(bridge):
+    service, _, _, tmp_path = bridge
+    chain(service, tmp_path, [part("Раз"), part("Два")])
+    preview = service.preview()
+    assert [m["text"] for m in preview["items"][0]["messages"]] == ["Раз", "Два"]
+    assert len(preview["payload"]["contacts"]) == 4

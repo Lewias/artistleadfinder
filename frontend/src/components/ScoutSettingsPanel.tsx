@@ -1,3 +1,5 @@
+import { ErrorToast } from './Toaster';
+import { errorText } from '../lib/errors';
 import { useEffect, useState, type ReactNode } from 'react';
 import { KeyRound, Save } from 'lucide-react';
 import { api } from '../services/api';
@@ -108,7 +110,7 @@ export function ScoutSettingsPanel() {
     try {
       await operation();
     } catch (err) {
-      setError(String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -501,11 +503,7 @@ export function ScoutSettingsPanel() {
             {message}
           </span>
         )}
-        {error && (
-          <span role="alert" className="error-text">
-            {error}
-          </span>
-        )}
+        <ErrorToast message={error} />
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { ErrorToast } from './Toaster';
 import { useState, type KeyboardEvent } from 'react';
 import {
   AtSign,
@@ -293,10 +294,9 @@ export function ScoutBoard({
           </Button>
         )}
       </div>
+      <ErrorToast message={error} />
       <p className="board-status" role="status">
-        {error ? (
-          <span className="error-text">{error}</span>
-        ) : active.length ? (
+        {active.length ? (
           <span className={attention ? 'board-warning' : undefined}>
             Идёт парсинг · {scoutRunsLabel(active)}
           </span>

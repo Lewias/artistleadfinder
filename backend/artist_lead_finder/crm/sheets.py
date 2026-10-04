@@ -13,6 +13,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
+from ..errors import UserError
+
 MAX_FILE_BYTES = 20 * 1024 * 1024
 # Uncompressed size of one XLSX part: protects against zip bombs.
 MAX_PART_BYTES = 80 * 1024 * 1024
@@ -25,25 +27,25 @@ CELL = re.compile(r"([A-Z]+)(\d+)")
 def read_table(path: Path) -> list[list[str]]:
     """Rows of the first sheet (XLSX) or of the file (CSV), cells as stripped text."""
     if not path.is_file():
-        raise ValueError("Файл не найден.")
+        raise UserError("Файл не найден.")
     if path.stat().st_size > MAX_FILE_BYTES:
-        raise ValueError("Файл больше 20 МБ.")
+        raise UserError("Файл больше 20 МБ.")
     suffix = path.suffix.casefold()
     if suffix == ".xlsx":
         rows = _read_xlsx(path)
     elif suffix == ".csv":
         rows = _read_csv(path)
     else:
-        raise ValueError("Выберите файл .xlsx или .csv.")
+        raise UserError("Выберите файл .xlsx или .csv.")
     if len(rows) > MAX_ROWS:
-        raise ValueError(f"Не больше {MAX_ROWS} строк в одном файле.")
+        raise UserError(f"Не больше {MAX_ROWS} строк в одном файле.")
     return [[cell.strip() for cell in row] for row in rows if any(cell.strip() for cell in row)]
 
 
 def write_table(path: Path, header: list[str], rows: list[list[str]]) -> None:
     suffix = path.suffix.casefold()
     if suffix not in (".xlsx", ".csv"):
-        raise ValueError("Сохраните файл как .xlsx или .csv.")
+        raise UserError("Сохраните файл как .xlsx или .csv.")
     # A sibling temporary file keeps the user's file whole if writing fails.
     temporary = path.with_name(path.name + ".artist-lead-finder.tmp")
     try:
@@ -71,7 +73,7 @@ def _read_csv(path: Path) -> list[list[str]]:
         except UnicodeDecodeError:
             continue
     else:
-        raise ValueError("Не удалось прочитать кодировку CSV (нужна UTF-8 или Windows-1251).")
+        raise UserError("Не удалось прочитать кодировку CSV (нужна UTF-8 или Windows-1251).")
     sample = text[:4096]
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
@@ -105,7 +107,7 @@ def _part(archive: zipfile.ZipFile, name: str) -> bytes | None:
     except KeyError:
         return None
     if info.file_size > MAX_PART_BYTES:
-        raise ValueError("Лист XLSX слишком большой.")
+        raise UserError("Лист XLSX слишком большой.")
     return archive.read(info)
 
 
@@ -152,7 +154,7 @@ def _read_xlsx(path: Path) -> list[list[str]]:
     try:
         archive = zipfile.ZipFile(path)
     except zipfile.BadZipFile as error:
-        raise ValueError("Файл XLSX повреждён.") from error
+        raise UserError("Файл XLSX повреждён.") from error
     with archive:
         shared_xml = _part(archive, "xl/sharedStrings.xml")
         shared = (
@@ -162,7 +164,7 @@ def _read_xlsx(path: Path) -> list[list[str]]:
         )
         sheet_xml = _part(archive, _first_sheet(archive))
         if sheet_xml is None:
-            raise ValueError("В файле XLSX нет листа.")
+            raise UserError("В файле XLSX нет листа.")
         rows: list[list[str]] = []
         for row in ElementTree.fromstring(sheet_xml).iterfind("m:sheetData/m:row", NS):
             values: dict[int, str] = {}
