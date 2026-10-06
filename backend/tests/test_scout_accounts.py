@@ -57,7 +57,6 @@ def service(tmp_path):
         {
             "profiles_per_hour": 0,
             "scout_methods": ["posts"],
-            "scout_profile_api": False,
         },
     )
     yield service
@@ -235,9 +234,7 @@ def test_take_batch_round_robin():
 
 
 def test_each_source_checks_its_candidates_before_the_next_source(service):
-    service.call(
-        "settings.save", {"scout_methods": ["posts", "tagged"], "scout_profile_api": False}
-    )
+    service.call("settings.save", {"scout_methods": ["posts", "tagged"]})
     job = service.call("scout.start_internal", {"sources": [SOURCE, OTHER], "profile_id": ACCOUNT})[
         "id"
     ]

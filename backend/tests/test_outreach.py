@@ -784,8 +784,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 16
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (17, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 17
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (18, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):
@@ -897,3 +897,25 @@ def test_memory_reset_lets_the_same_lead_be_written_again(app):
     second = campaign(service, [fresh], senders[:1])
     service.call("outreach.campaign_start", {"id": second})
     assert recipients(sessions, second)["fresh"].status == "queued"
+
+
+def test_deleted_leads_leave_with_their_outreach_history(app):
+    service, sessions, clock, senders, _ = app
+    gone = add_lead(sessions, "gone_artist", "Gone Artist")
+    kept = add_lead(sessions, "kept_artist", "Kept Artist")
+    first = campaign(service, [gone, kept], senders[:1])
+    service.call("outreach.campaign_start", {"id": first})
+    with pytest.raises(ValueError, match="незавершённой рассылке"):
+        service.call("leads.delete", {"ids": [gone]})
+    drive(service, clock)
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(Message)) == 2
+    assert service.call("leads.delete", {"ids": [gone, gone, 999]}) == {"removed": 1}
+    with sessions() as session:
+        assert session.get(Lead, gone) is None and session.get(Lead, kept) is not None
+        for model in (CampaignRecipient, Conversation, Message, OutboundMessageJob):
+            rows = session.scalars(select(model)).all()
+            assert len(rows) == 1, model
+        assert session.get(LeadScoutProfile, gone) is None
+    with pytest.raises(ValueError, match="Выберите"):
+        service.call("leads.delete", {"ids": []})

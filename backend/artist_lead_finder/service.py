@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import memory_reset
+from . import lead_removal, memory_reset
 from .browser_capture import BrowserCaptureService
 from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
@@ -253,7 +253,6 @@ class ApplicationService:
                 p["id"],
                 p["script"],
                 p.get("args"),
-                fresh=bool(p.get("fresh")),
                 feed=bool(p.get("feed")),
             ),
             "scout.sources": lambda p: self.scout.sources(p.get("sources")),
@@ -354,6 +353,7 @@ class ApplicationService:
             "leads.list": self._list_leads,
             "leads.detail": self._lead_detail,
             "leads.status": self._set_lead_status,
+            "leads.delete": self._delete_leads,
             "providers.import": self._import_dataset,
             "providers.health": self._provider_health,
             "dashboard.get": lambda p: self.dashboard(),
@@ -711,6 +711,12 @@ class ApplicationService:
                 raise UserError("Профиль не найден.")
             lead.status = status
         return {"ok": True}
+
+    def _delete_leads(self, params: dict) -> Any:
+        with self.sessions.begin() as session:
+            result = lead_removal.delete_leads(session, params.get("ids") or [])
+        log.info("leads_deleted")
+        return result
 
     def _import_dataset(self, params: dict) -> Any:
         if any(state in {"running", "paused"} for state in self.manager.states.values()):

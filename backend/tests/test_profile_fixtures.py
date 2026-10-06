@@ -1,4 +1,4 @@
-"""capture.js and profile_api.js against sanitized fixtures in bundled Chromium.
+"""capture.js against sanitized fixtures in bundled Chromium.
 
 Every instagram.com request is answered locally by a route; nothing leaves the machine.
 """
@@ -14,7 +14,6 @@ from artist_lead_finder.lead_scout.profiles import InstagramProfileResolver, Pro
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures" / "instagram"
 CAPTURE = (ROOT / "src-tauri" / "src" / "capture.js").read_text(encoding="utf-8")
-PROFILE_API = (ROOT / "src-tauri" / "src" / "profile_api.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -31,18 +30,14 @@ def browser():
     manager.stop()
 
 
-def open_page(browser, url, html, api=None, seen=None):
-    """A page at `url` whose API requests are answered by `api(route)`."""
+def open_page(browser, url, html):
+    """A page at `url`; every other request is refused locally."""
     context = browser.new_context()
 
     def handle(route):
         request_url = route.request.url
-        if seen is not None and "/api/v1/" in request_url:
-            seen.append(dict(route.request.headers))
         if request_url.split("?")[0] == url:
             route.fulfill(status=200, content_type="text/html", body=html)
-        elif api is not None and "/api/v1/" in request_url:
-            api(route)
         elif "/accounts/login/" in request_url:
             route.fulfill(status=200, content_type="text/html", body="<html>login</html>")
         else:
@@ -90,7 +85,7 @@ def test_browser_provider_turns_the_snapshot_into_a_profile(browser):
     snapshot = capture(browser, "https://www.instagram.com/artist123/", "profile-page.html")
     result = InstagramProfileResolver().resolve(
         "artist123",
-        ProfileResolveContext(use_api=False, fetch=lambda step, args: snapshot),
+        ProfileResolveContext(fetch=lambda step, args: snapshot),
     )
     assert result.ok
     profile = result.profile
@@ -117,53 +112,3 @@ def test_private_and_missing_profiles(browser):
         "blocked": False,
         "unavailable": True,
     }
-
-
-def api_call(browser, respond, username="artist123", path=None, seen=None):
-    url = f"https://www.instagram.com/{username}/"
-    html = "<html><head><title>Instagram</title></head><body><main>feed</main></body></html>"
-    context, page = open_page(browser, url, html, api=respond, seen=seen)
-    try:
-        return page.evaluate(
-            PROFILE_API,
-            {
-                "username": username,
-                "url": url,
-                "endpoint": "web_profile_info",
-                "path": path or f"/api/v1/users/web_profile_info/?username={username}",
-            },
-        )
-    finally:
-        context.close()
-
-
-def test_profile_api_script_fetches_in_the_open_tab(browser):
-    body = (FIXTURES / "api" / "profile-normal.json").read_text(encoding="utf-8")
-    seen = []
-    result = api_call(
-        browser,
-        lambda route: route.fulfill(status=200, content_type="application/json", body=body),
-        seen=seen,
-    )
-    assert result["ready"] and result["url"] == "https://www.instagram.com/artist123/"
-    assert result["api"]["status"] == 200 and result["api"]["redirect"] is None
-    assert result["api"]["body"]["data"]["user"]["username"] == "Artist123"
-    # The fixed web-client headers are sent; nothing session-specific is returned.
-    assert seen and seen[0]["x-ig-app-id"] == "936619743392459"
-    assert "cookie" not in json.dumps(result).lower()
-
-
-def test_profile_api_script_reports_status_redirect_and_refuses_foreign_paths(browser):
-    limited = api_call(browser, lambda route: route.fulfill(status=429, body=""))
-    assert limited["api"]["status"] == 429 and limited["api"]["body"] is None
-    login = api_call(
-        browser,
-        lambda route: route.fulfill(
-            status=302, headers={"location": "https://www.instagram.com/accounts/login/"}
-        ),
-    )
-    assert login["api"]["redirect"] == "login"
-    refused = api_call(browser, lambda route: route.abort(), path="/graphql/query/?x=1")
-    assert refused["api"] == {"error": "bad_request"}
-    failed = api_call(browser, lambda route: route.abort())
-    assert failed["api"] == {"error": "network"}

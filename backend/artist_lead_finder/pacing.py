@@ -19,7 +19,7 @@ class PacingSettings(BaseModel):
     page_delay_min: int = Field(default=4, ge=3, le=300)
     page_delay_max: int = Field(default=10, ge=3, le=600)
     # 0 disables a limit.
-    profiles_per_hour: int = Field(default=200, ge=0, le=1000)
+    profiles_per_hour: int = Field(default=400, ge=0, le=1000)
     profiles_per_run: int = Field(default=0, ge=0, le=100000)
     rate_limit_pause_minutes: int = Field(default=10, ge=5, le=1440)
 

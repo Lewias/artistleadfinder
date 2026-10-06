@@ -121,3 +121,15 @@ def test_core_that_cannot_start_still_says_why(tmp_path, monkeypatch):
         "error": "База данных создана более новой версией Artist Lead Finder.",
     }
     assert second == {"id": 2, "result": {"ok": True}}
+
+
+def test_user_error_text_is_logged_for_support(caplog):
+    from artist_lead_finder.errors import UserError
+    from artist_lead_finder.rpc import describe_error
+
+    with caplog.at_level(logging.WARNING):
+        describe_error("scout.start_internal", UserError("Добавьте источники."))
+    record = caplog.records[-1]
+    entry = json.loads(JsonLogFormatter().format(record))
+    assert (entry["event"], entry["method"]) == ("user_error", "scout.start_internal")
+    assert entry["detail"] == "Добавьте источники."

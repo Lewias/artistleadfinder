@@ -284,7 +284,6 @@ async fn browser_action(
             include_str!("capture.js"),
             Value::Null,
             false,
-            false,
         )
         .await?;
         if snapshot["blocked"].as_bool().unwrap_or(true)
@@ -390,8 +389,6 @@ fn page_script(state: &Value) -> &'static str {
     match (state["scout"] == true, state["kind"].as_str().unwrap_or("")) {
         (true, "source" | "tagged_grid") => include_str!("grid.js"),
         (true, "followers" | "following") => include_str!("follow.js"),
-        // Profile resolver API step: one request from the open tab, no page load.
-        (true, "profile") if access(state) == Access::InPlace => include_str!("profile_api.js"),
         (true, "profile") | (false, _) => include_str!("capture.js"),
         (true, _) => include_str!("scout.js"),
     }
@@ -402,15 +399,12 @@ fn page_script(state: &Value) -> &'static str {
 enum Access {
     /// Open the step URL, then read it (default).
     Navigate,
-    /// Run the script in the tab that is already open (profile API request).
-    InPlace,
     /// Nothing to open: the core answers from its cache.
     None,
 }
 
 fn access(state: &Value) -> Access {
     match state["access"].as_str() {
-        Some("in_place") => Access::InPlace,
         Some("none") => Access::None,
         _ => Access::Navigate,
     }
@@ -459,13 +453,12 @@ async fn read_script(
     id: String,
     script: &'static str,
     args: Value,
-    fresh: bool,
     feed: bool,
 ) -> Result<Value, String> {
     let result = backend_request(
         core,
         "browser.runtime.eval".into(),
-        json!({"id":id,"script":script,"args":args,"fresh":fresh,"feed":feed}),
+        json!({"id":id,"script":script,"args":args,"feed":feed}),
     )
     .await?;
     // A page answer is small (author, caption, a grid or a follow list); refuse runaway ones.
@@ -568,7 +561,6 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             id.to_owned(),
             page_script(&state),
             state["args"].clone(),
-            step_access == Access::InPlace,
             reads_feed(&state),
         ));
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
@@ -611,18 +603,11 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
                 cooldown = Instant::now();
                 target.clear();
             }
-            // An in-tab request is not repeated every tick: the core decides on a retry.
-            _ if step_access == Access::InPlace
-                || navigated.elapsed() > Duration::from_secs(25) =>
-            {
+            _ if navigated.elapsed() > Duration::from_secs(25) => {
                 let _ = request(
                     "capture.error_internal",
                     json!({"id":job_id,"reason":"loading"}),
                 );
-                if step_access == Access::InPlace {
-                    cooldown = Instant::now();
-                    target.clear();
-                }
             }
             _ => {}
         }
@@ -785,21 +770,11 @@ mod tests {
     #[test]
     fn profile_steps_choose_page_access() {
         let profile = |access: &str| json!({"scout": true, "kind": "profile", "access": access});
-        assert_eq!(access(&profile("in_place")), Access::InPlace);
         assert_eq!(access(&profile("none")), Access::None);
         assert_eq!(access(&profile("navigate")), Access::Navigate);
         assert_eq!(access(&json!({"kind": "profile"})), Access::Navigate);
         assert_eq!(
-            page_script(&profile("in_place")),
-            include_str!("profile_api.js")
-        );
-        assert_eq!(
             page_script(&profile("navigate")),
-            include_str!("capture.js")
-        );
-        // Manual link queues never use the API script.
-        assert_eq!(
-            page_script(&json!({"kind": "profile", "access": "in_place"})),
             include_str!("capture.js")
         );
     }

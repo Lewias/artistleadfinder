@@ -62,7 +62,6 @@ def test_run_limit_state_wait_and_rate_limit_via_service(tmp_path):
             "profiles_per_run": 2,
             "profiles_per_hour": 0,
             "scout_methods": ["posts"],
-            "scout_profile_api": False,
         },
     )
     assert saved["page_delay_min"] == 4 and saved["profiles_per_run"] == 2

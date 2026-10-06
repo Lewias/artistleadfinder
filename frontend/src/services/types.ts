@@ -183,7 +183,6 @@ export interface SettingsData {
   outreach_max_attempts: number;
   outreach_rate_limit_pause_minutes: number;
   scout_ignore_usernames: string[];
-  scout_profile_api: boolean;
   scout_profile_cache_hours: number;
   scout_recent_captions: number;
 }
@@ -195,8 +194,7 @@ export interface DiscoveryMetrics {
   alreadyProcessed: number;
   failures: number;
 }
-export type ScoutMethod =
-  'profiles' | 'posts' | 'tagged' | 'followers' | 'following';
+export type ScoutMethod = 'profiles' | 'posts' | 'tagged' | 'followers' | 'following';
 export interface ScoutStats {
   discovered: number;
   resolved?: number;

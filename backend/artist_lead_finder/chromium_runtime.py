@@ -354,19 +354,14 @@ class ChromiumRuntime:
         window.rate_limited = False
         return send_direct(window.page, username, text, rate_limited=lambda: window.rate_limited)
 
-    def evaluate(
-        self, identifier: str, script: str, args=None, fresh: bool = False, feed: bool = False
-    ) -> dict:
-        """Run a page script. `fresh` starts a new request window without navigating (the
-        in-tab profile API step), so a 429 seen before it is not reported twice. `feed`
-        (grid pages) adds what the page's own data says about the collected posts."""
+    def evaluate(self, identifier: str, script: str, args=None, feed: bool = False) -> dict:
+        """Run a page script. `feed` (grid pages) adds what the page's own data says about
+        the collected posts."""
         window = self._window(identifier)
         if not window:
             raise ValueError("Browser window is closed")
         if len(script) > 50000:
             raise ValueError("Script too large")
-        if fresh:
-            window.rate_limited = False
         # Scripts written as functions receive their arguments (follow-list paging).
         result = (
             window.page.evaluate(script, args) if args is not None else window.page.evaluate(script)
@@ -374,10 +369,8 @@ class ChromiumRuntime:
         if not isinstance(result, dict):
             raise ValueError("Invalid browser result")
         # Chromium shows its own error page for HTTP 429, which page scripts cannot
-        # recognise; report it so the queue pauses and waits out the break. An in-tab API
-        # step (`fresh`) reports its own HTTP status instead: that 429 concerns the web
-        # API, not the page, and the profile resolver handles it.
-        if window.rate_limited and not fresh:
+        # recognise; report it so the queue pauses and waits out the break.
+        if window.rate_limited:
             return {**result, "ready": False, "blocked": True, "rate_limited": True}
         if feed and result.get("ready") and not result.get("blocked"):
             try:

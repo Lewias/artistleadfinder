@@ -311,7 +311,7 @@ def test_pause_during_classification_resumes_the_same_run(scout):  # noqa: F811
     service.scout.ai = PausingAI()
     service.call(
         "settings.save",
-        {**BASE, "profiles_per_hour": 0, "scout_profile_api": False, "scout_ai_mode": "always"},
+        {**BASE, "profiles_per_hour": 0, "scout_ai_mode": "always"},
     )
     service.call("scout.source_add", {"values": [SOURCE]})
     job = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]

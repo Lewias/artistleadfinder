@@ -143,10 +143,21 @@ def rewind_cursor(session, picked: list[str], done: list[str]) -> None:
         state_set(session, "source_cursor", urls.index(unfinished[0]))
 
 
+# A source with one of these statuses belongs to a run in progress (or paused) of some
+# account; parallel runs of other accounts never read it at the same time.
+IN_USE = {"queued", "scanning", "rate_limited"}
+
+
 def pick_sources(
-    session, batch: int, cooldown_hours: int, skip_recent: bool, rotate: bool = True
+    session,
+    batch: int,
+    cooldown_hours: int,
+    skip_recent: bool,
+    rotate: bool = True,
+    exclude: frozenset[str] | set[str] = frozenset(),
 ) -> tuple[list[str], list[str]]:
-    """Next `batch` enabled sources after the stored cursor, skipping ones in cooldown.
+    """Next `batch` enabled sources after the stored cursor, skipping ones in cooldown and
+    ones another run is reading (IN_USE). `exclude`: sources the asking run already has.
 
     Returns (picked urls, skipped-in-cooldown urls). The cursor advances past the
     last picked source, so consecutive runs cycle A B, C D, E F, A B...
@@ -162,6 +173,8 @@ def pick_sources(
         source = sources[index]
         if skip_recent and in_cooldown(source, cooldown_hours):
             cooling.append(source.url)
+            continue
+        if source.url in exclude or source.status in IN_USE:
             continue
         picked.append(source.url)
         last_index = index

@@ -1,5 +1,7 @@
 """Scout events and per-profile logs, polled by the interface for live progress."""
 
+import json
+import logging
 from datetime import timedelta
 
 from sqlalchemy import delete, select
@@ -44,6 +46,17 @@ LEGACY_TYPES = {
     "discovery:page": "scout:discovery-page",
 }
 RETENTION_DAYS = 30
+# Also written to the application log, so a user's log file tells why a run stopped.
+LOGGED = {
+    "scout:run-started",
+    "scout:source-completed",
+    "scout:error",
+    "scout:paused",
+    "scout:resumed",
+    "scout:cancelled",
+    "scout:completed",
+}
+log = logging.getLogger(__name__)
 
 
 def emit(session, job_id: int, event_type: str, **payload) -> None:
@@ -54,6 +67,17 @@ def emit(session, job_id: int, event_type: str, **payload) -> None:
     if missing:
         raise ValueError(f"{event_type}: missing {', '.join(missing)}")
     session.add(ScoutEvent(job_id=job_id, type=event_type, payload={"run_id": job_id, **payload}))
+    if event_type in LOGGED:
+        brief = {key: value for key, value in payload.items() if key != "log"}
+        log.log(
+            logging.WARNING if event_type == "scout:error" else logging.INFO,
+            event_type,
+            extra={
+                "job_id": job_id,
+                "reason": payload.get("reason"),
+                "detail": json.dumps(brief, ensure_ascii=False, default=str),
+            },
+        )
 
 
 def listing(session, job_id: int | None, after: int = 0, limit: int = 200) -> list[dict]:

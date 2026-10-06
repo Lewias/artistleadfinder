@@ -188,6 +188,8 @@ class IMessageService:
         return row
 
     def _event(self, session, kind: str, detail: str = "", campaign_id=None, job_id=None):
+        # The log gets the step and ids only: details carry phone numbers and addresses.
+        log.info(f"imessage_{kind}", extra={"campaign_id": campaign_id, "recipient_id": job_id})
         session.add(
             IMessageEvent(
                 campaign_id=campaign_id,

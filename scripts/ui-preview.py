@@ -137,7 +137,7 @@ SETTINGS = {"min_followers": 1000, "max_followers": 50000, "activity_days": 30, 
             "scout_max_scroll_rounds": 15, "scout_scroll_delay_ms": 1200, "scout_max_no_progress_rounds": 2,
             "scout_max_retries": 2, "scout_max_item_failures": 3,
             "scout_debug": False, "scout_ignore_usernames": [],
-            "scout_profile_api": True, "scout_profile_cache_hours": 12,
+            "scout_profile_cache_hours": 12,
             "scout_recent_captions": 3}
 LOG = """[Scout][@rapgoat.tv][@lil_nova]
 

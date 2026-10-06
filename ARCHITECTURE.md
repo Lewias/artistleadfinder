@@ -30,14 +30,11 @@ AI при необходимости → тип и уверенность → о
 журнал решений, событие и шаг очереди. Ошибка одного профиля считается и
 пропускается, ошибка страницы источника — пропуск страницы, ошибка БД, вход,
 checkpoint и 429 останавливают запуск (429 — через перерыв планировщика). Rust выбирает скрипт
-страницы по шагу (grid.js, scout.js, story.js, follow.js, capture.js,
-profile_api.js) и способ доступа: открыть страницу, выполнить скрипт в уже
-открытой вкладке (запрос профиля к web API) или ничего не открывать (профиль из кэша).
+страницы по шагу (grid.js, scout.js, follow.js, capture.js) и способ доступа:
+открыть страницу или ничего не открывать (профиль из кэша).
 
-Profile Resolver (`lead_scout/profiles/`): кэш → InstagramApiProfileProvider
-(адаптер эндпоинта web_profile_info; запрос выполняется во вкладке приложения,
-cookies добавляет браузер) → достаточно данных? → BrowserProfileProvider
-(capture.js) → mergeProfileData → нормализация (единый слой алиасов полей) →
+Profile Resolver (`lead_scout/profiles/`): кэш → BrowserProfileProvider
+(capture.js на странице профиля) → нормализация (единый слой алиасов полей) →
 ContactExtractor. Между шагами браузера состояние хранится в задаче очереди
 (ResolveStep); `resolve()` прогоняет ту же цепочку синхронно через адаптер
 загрузки. Ошибки типизированы (NOT_FOUND, PRIVATE, LOGIN_REQUIRED, CHECKPOINT,

@@ -271,11 +271,10 @@ def add_lead_source(
         )
 
 
-# How the browser queue reaches a profile step: open the page, run the API request in
-# the already open Instagram tab, or no page at all (profile served from the cache).
-# "filtered": skipped by the candidate filters before anything was opened.
+# How the browser queue reaches a profile step: open the page, or no page at all (profile
+# served from the cache). "filtered": skipped by the candidate filters before anything
+# was opened.
 ACCESS_OF_PHASE = {
-    "api": "in_place",
     "browser": "navigate",
     "cache": "none",
     "invalid": "none",
@@ -293,13 +292,12 @@ SKIP_REASON = {
     resolve_reasons.PRIVATE: PROFILE_PRIVATE,
     resolve_reasons.PARSER_ERROR: PROFILE_PARSE_FAILED,
 }
+# Profiles cached by older versions may still come from the removed web API.
 EVIDENCE_METHOD = {
     "api": "instagram_web_api",
     "browser": "browser_dom",
     "merged": "instagram_web_api+browser_dom",
 }
-# Consecutive API answers that could not be used before the run reads pages only.
-API_FAILURE_LIMIT = 3
 
 
 # Source-level pages: when one fails, the source's error counter goes up.
@@ -575,8 +573,9 @@ class ScoutService:
                 )
             if not picked:
                 raise UserError(
-                    "Нет источников для запуска: добавьте и включите источники"
-                    + (" или дождитесь конца кулдауна." if cooling else ".")
+                    "Нет свободных источников для запуска: добавьте и включите источники"
+                    + (", дождитесь конца кулдауна" if cooling else "")
+                    + " или дождитесь, пока другие аккаунты закончат свои."
                 )
         tasks, notices = [], []
         with self.sessions() as session:
@@ -879,16 +878,13 @@ class ScoutService:
 
     # ---------- Profile resolution ----------
 
-    def _profile_access(self, task: dict) -> tuple[str, dict | None]:
+    @staticmethod
+    def _profile_access(task: dict) -> tuple[str, dict | None]:
         data = task.get("resolve") or {"phase": "browser"}
-        access = ACCESS_OF_PHASE.get(data.get("phase"), "navigate")
-        if access == "in_place":
-            return access, self.resolver.request(ResolveStep.from_dict(data))
-        return access, None
+        return ACCESS_OF_PHASE.get(data.get("phase"), "navigate"), None
 
-    def _resolve_context(self, profile_id: str, stats: dict, job_id=None) -> ProfileResolveContext:
+    def _resolve_context(self, job_id=None) -> ProfileResolveContext:
         scout = self.scout_settings()
-        resolver_stats = (stats or {}).get("resolver") or {}
 
         def stopped() -> bool:
             with self.sessions() as session:
@@ -897,10 +893,6 @@ class ScoutService:
 
         return ProfileResolveContext(
             signal=AbortSignal(stopped) if job_id else AbortSignal(),
-            # Guest sessions cannot use the web API; the page is read instead.
-            use_api=scout.scout_profile_api
-            and profile_id != GUEST_ID
-            and not resolver_stats.get("api_disabled"),
             max_retries=scout.scout_max_retries,
             max_recent_captions=scout.scout_recent_captions,
             cache=self.profile_cache,
@@ -921,9 +913,7 @@ class ScoutService:
             data = {"phase": "filtered", "reason": early.reason, "details": early.details}
         else:
             username = task["url"].rstrip("/").split("/")[-1]
-            first = self.resolver.begin(
-                username, self._resolve_context(queue.profile_id, run.stats)
-            )
+            first = self.resolver.begin(username, self._resolve_context())
             if isinstance(first, ResolveStep):
                 data = first.as_dict()
             else:
@@ -938,9 +928,7 @@ class ScoutService:
         Returns the final result, None while another page step is needed, or "cancelled".
         """
         username = task["url"].rstrip("/").split("/")[-1]
-        with self.sessions() as session:
-            stats = dict(session.get(ScoutRun, job_id).stats or {})
-        ctx = self._resolve_context(state["profile_id"], stats, job_id)
+        ctx = self._resolve_context(job_id)
         data = (
             task.get("resolve") or ResolveStep("browser", username, utcnow().isoformat()).as_dict()
         )
@@ -957,27 +945,6 @@ class ScoutService:
             run = session.get(ScoutRun, job_id)
             stats = {**empty_stats([]), **(run.stats or {})}
             health = dict(stats.get("resolver") or {})
-            if before == "api" and not (pending and result.phase == "api"):
-                # A usable API answer resets the streak; answers that fell back count.
-                failed = pending and result.api is None
-                health["api_failures"] = health.get("api_failures", 0) + 1 if failed else 0
-                if failed and health["api_failures"] >= API_FAILURE_LIMIT:
-                    if not health.get("api_disabled"):
-                        run.notices = [
-                            *run.notices,
-                            "Instagram web API не отвечает: до конца запуска профили"
-                            " читаются со страницы.",
-                        ][-30:]
-                    health["api_disabled"] = True
-            if pending and result.api_limited and not health.get("api_disabled"):
-                # A 429 of the web API does not stop the run: profiles are read from their
-                # pages (with the usual pacing) and the API is not asked again this run.
-                health["api_disabled"] = True
-                run.notices = [
-                    *run.notices,
-                    "Instagram ограничил web API (429): до конца запуска профили"
-                    " читаются со страницы.",
-                ][-30:]
             if pending:
                 tasks = list(run.tasks)
                 tasks[state["cursor"]] = {**tasks[state["cursor"]], "resolve": result.as_dict()}
@@ -1568,11 +1535,15 @@ class ScoutService:
             notices.append(f"Цель достигнута: найдено {account.found} из {account.target}.")
         elif not remaining and run.backlog and not run_limited:
             remaining, run.backlog = take_batch(run.backlog, POST_BATCH)
-        elif not remaining and account:
-            notices.append(
-                "Доступные публикации источников закончились: "
-                f"найдено {account.found} из {account.target}."
-            )
+        elif not remaining and account and not run_limited:
+            remaining, more = self._more_sources(session, run, queue.profile_id)
+            if more:
+                notices.append(f"Источники пачки закончились, следующие: {', '.join(more)}.")
+            else:
+                notices.append(
+                    "Доступные публикации источников закончились: "
+                    f"найдено {account.found} из {account.target}."
+                )
         run.tasks = run.tasks[: queue.cursor + 1] + remaining
         queue.urls = [task["url"] for task in run.tasks]
         queue.cursor += 1
@@ -1580,6 +1551,8 @@ class ScoutService:
         self._prepare_profile(session, run, queue)
         if notices:
             run.notices = [*run.notices, *notices][-30:]
+            for notice in notices:
+                log.info("scout_notice", extra={"job_id": job_id, "detail": notice})
         stats = {**empty_stats([]), **(run.stats or {})}
         if goal:
             # Sources this run did not finish stay for the next one, not in cooldown.
@@ -1598,6 +1571,32 @@ class ScoutService:
             )
         else:
             job.stage = "scout_reading"
+
+    def _more_sources(self, session, run, profile_id) -> tuple[list[dict], list[str]]:
+        """A rotation run whose batch of sources ran dry takes the next batch, so it ends
+        only at the goal or when every source out of cooldown has been read."""
+        stats = {**empty_stats([]), **(run.stats or {})}
+        if not stats.get("rotation"):
+            return [], []
+        scout = self.scout_settings()
+        picked, _ = memory.pick_sources(
+            session,
+            scout.scout_sources_per_run,
+            scout.scout_source_cooldown_hours,
+            scout.scout_skip_recent_sources,
+            exclude=set(stats["sources"]),
+        )
+        fresh = [url for url in picked if url not in stats["sources"]]
+        tasks = []
+        for url in fresh:
+            added, _ = initial_tasks(url, self._context(session, scout, profile_id, url, set()))
+            tasks += added
+            row = session.get(ScoutSource, url)
+            if row is not None:
+                row.status = "queued"
+        if fresh:
+            run.stats = {**stats, "sources": [*stats["sources"], *fresh]}
+        return tasks, [source_name(url) for url in fresh]
 
     @staticmethod
     def _track_sources(session, job_id, run, stats, remaining) -> None:

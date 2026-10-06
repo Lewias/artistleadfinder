@@ -15,7 +15,7 @@ SECOND_POST = "https://www.instagram.com/p/two/"
 ARTIST = "https://www.instagram.com/new_rapper/"
 NOW = datetime(2026, 9, 22, tzinfo=timezone.utc)
 # These flows commit page snapshots of profiles; the API step has its own tests.
-BROWSER_ONLY = {"scout_methods": ["posts"], "scout_profile_api": False}
+BROWSER_ONLY = {"scout_methods": ["posts"]}
 
 
 def observation(caption, date="2026-09-21T00:00:00Z"):

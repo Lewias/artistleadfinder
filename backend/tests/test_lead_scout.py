@@ -1,11 +1,8 @@
-import json
 from datetime import timedelta
-from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 
-from artist_lead_finder.chromium_runtime import GUEST_ID
 from artist_lead_finder.database import open_database
 from artist_lead_finder.lead_scout import memory
 from artist_lead_finder.lead_scout.candidates import ScoutCandidate, clean_username
@@ -122,7 +119,7 @@ def scout(tmp_path):
 
 def run_pages(service, settings, pages, sources=(SOURCE,)):
     # Profile pages are committed as page snapshots unless a test turns the API step on.
-    service.call("settings.save", {"profiles_per_hour": 0, "scout_profile_api": False, **settings})
+    service.call("settings.save", {"profiles_per_hour": 0, **settings})
     service.call("scout.source_add", {"values": list(sources)})
     job = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
     visited = []
@@ -409,10 +406,16 @@ def test_already_processed_profiles_are_skipped_and_sources_cycle(scout):
         e["type"] == "scout:profile-skipped" and e["payload"]["reason"] == "ALREADY_PROCESSED"
         for e in events
     )
-    second = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
-    assert service.call("capture.state", {"id": second})["url"] == other
+    # The batch (one source) ran dry below the goal: the same run took the next source.
+    state = service.call("capture.state", {"id": first})
+    assert "Источники пачки закончились, следующие: beatsdaily." in state["notices"]
+    assert any("закончились: найдено" in notice for notice in state["notices"])
     rows = {row["username"]: row for row in service.call("scout.source_list", {})}
-    assert rows["rapdaily"]["status"] == "done" and rows["rapdaily"]["last_scanned_at"]
+    for name in ("rapdaily", "beatsdaily"):
+        assert rows[name]["status"] == "done" and rows[name]["last_scanned_at"]
+    # Both were read: the next run waits for the cooldown.
+    with pytest.raises(ValueError, match="кулдауна"):
+        service.call("scout.start_internal", {"profile_id": ACCOUNT})
     service.call("scout.source_update", {"url": other, "enabled": False})
     assert not {row["username"]: row for row in service.call("scout.source_list", {})}[
         "beatsdaily"
@@ -445,21 +448,10 @@ def test_pause_stop_and_rate_limit_events(scout):
     ] == "stopped"
 
 
-API_FIXTURES = Path(__file__).parent / "fixtures" / "instagram" / "api"
 POST = "https://www.instagram.com/p/P1/"
 
 
-def api_answer(state, fixture=None, status=200):
-    body = json.loads((API_FIXTURES / f"{fixture}.json").read_text("utf-8")) if fixture else None
-    return dict(
-        url=state["url"],
-        ready=True,
-        blocked=False,
-        api={"status": status, "body": body, "redirect": None},
-    )
-
-
-def start_api_run(service, author="artist123", profile_id=ACCOUNT):
+def start_profile_run(service, author="artist123", profile_id=ACCOUNT):
     service.call(
         "settings.save",
         {"profiles_per_hour": 0, "scout_methods": ["posts"], "scout_profile_type": "everyone"},
@@ -476,96 +468,48 @@ def start_api_run(service, author="artist123", profile_id=ACCOUNT):
     return job
 
 
-def test_profile_resolver_uses_the_api_without_opening_the_profile(scout):
+def test_profile_is_read_from_its_page(scout):
     service, sessions = scout
-    job = start_api_run(service)
-    state = service.call("capture.state", {"id": job})
-    assert state["kind"] == "profile" and state["access"] == "in_place"
-    assert state["args"]["path"] == "/api/v1/users/web_profile_info/?username=artist123"
-    service.call(
-        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, "profile-normal")}
-    )
-    state = service.call("capture.state", {"id": job})
-    assert state["status"] == "completed" and state["stats"]["resolver"]["api"] == 1
-    with sessions() as session:
-        lead = session.scalar(select(Lead).where(Lead.username == "artist123"))
-        details = session.get(LeadScoutProfile, lead.id)
-        assert (lead.followers, lead.external_url) == (2431, "https://linktr.ee/artist123")
-        assert details.emails == ["mgmt@artist123.com"] and details.instagram_id == "4242"
-        assert details.posts_count == 57
-    log = next(
-        e["payload"]["log"]
-        for e in service.call("scout.events", {"job_id": job})
-        if e["type"] == "scout:lead-created"
-    )
-    assert "[ProfileResolver][@artist123]" in log and "Browser fallback:\nnot required" in log
-
-
-def test_partial_api_answer_opens_the_page_and_merges(scout):
-    service, sessions = scout
-    job = start_api_run(service)
-    state = service.call("capture.state", {"id": job})
-    result = service.call(
-        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, "profile-partial")}
-    )
-    assert result == {"saved": False, "pending": True}
+    job = start_profile_run(service)
     state = service.call("capture.state", {"id": job})
     assert state["kind"] == "profile" and state["access"] == "navigate" and state["args"] is None
     page = profile_page("artist123", "Rapper. new single out now", followers=2600)
     service.call("scout.commit_internal", {"id": job, "snapshot": page})
     state = service.call("capture.state", {"id": job})
-    assert state["status"] == "completed" and state["stats"]["resolver"]["merged"] == 1
-    events = service.call("scout.events", {"job_id": job})
-    assert [e["type"] for e in events].count("scout:profile-resolving") == 1
+    assert state["status"] == "completed" and state["stats"]["resolver"]["browser"] == 1
     with sessions() as session:
         lead = session.scalar(select(Lead).where(Lead.username == "artist123"))
         assert lead.followers == 2600 and lead.bio == "Rapper. new single out now"
-
-
-def test_api_rate_limit_reads_the_page_and_turns_the_api_off(scout):
-    service, _ = scout
-    job = start_api_run(service)
-    state = service.call("capture.state", {"id": job})
-    result = service.call(
-        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, status=429)}
+    log = next(
+        e["payload"]["log"]
+        for e in service.call("scout.events", {"job_id": job})
+        if e["type"] == "scout:lead-created"
     )
-    assert result == {"saved": False, "pending": True}
-    # The run keeps going: the same profile is opened as a page, the API stays off.
-    state = service.call("capture.state", {"id": job})
-    assert state["status"] == "running" and state["access"] == "navigate"
-    assert state["stats"]["resolver"]["api_disabled"] is True
-    assert any("web API (429)" in notice for notice in state["notices"])
-    page = profile_page("artist123", "Rapper. new single out now", followers=2600)
-    service.call("scout.commit_internal", {"id": job, "snapshot": page})
-    assert service.call("capture.state", {"id": job})["status"] == "completed"
-    events = service.call("scout.events", {"job_id": job})
-    assert not [e for e in events if e["type"] == "scout:error"]
+    assert "[ProfileResolver][@artist123]" in log and "API" not in log
 
 
 def test_not_found_is_skipped_with_its_reason(scout):
     service, sessions = scout
-    job = start_api_run(service, author="gone_user")
-    state = service.call("capture.state", {"id": job})
-    service.call("scout.commit_internal", {"id": job, "snapshot": api_answer(state, status=404)})
+    job = start_profile_run(service, author="gone_user")
+    gone = dict(url="https://www.instagram.com/gone_user/", ready=True, unavailable=True)
+    service.call("scout.commit_internal", {"id": job, "snapshot": gone})
     assert service.call("capture.state", {"id": job})["status"] == "completed"
     with sessions() as session:
         assert session.get(ScoutProcessedProfile, "gone_user").reason == "PROFILE_NOT_FOUND"
 
 
-def test_cached_profile_needs_no_page_and_guest_reads_the_page(scout):
+def test_cached_profile_needs_no_page(scout):
     service, sessions = scout
-    job = start_api_run(service)
-    state = service.call("capture.state", {"id": job})
-    service.call(
-        "scout.commit_internal", {"id": job, "snapshot": api_answer(state, "profile-normal")}
-    )
+    job = start_profile_run(service)
+    page = profile_page("artist123", "Rapper. new single out now", followers=2600)
+    service.call("scout.commit_internal", {"id": job, "snapshot": page})
     with sessions.begin() as session:
         session.delete(session.get(ScoutProcessedProfile, "artist123"))
         session.get(ScoutSource, SOURCE).last_scanned_at = None
     with sessions.begin() as session:
         for row in session.scalars(select(ScoutProcessedPost)):
             session.delete(row)
-    job = start_api_run(service)
+    job = start_profile_run(service)
     state = service.call("capture.state", {"id": job})
     assert state["access"] == "none" and state["wait_seconds"] == 0
     service.call(
@@ -573,19 +517,57 @@ def test_cached_profile_needs_no_page_and_guest_reads_the_page(scout):
     )
     state = service.call("capture.state", {"id": job})
     assert state["status"] == "completed" and state["stats"]["resolver"]["cache"] == 1
-    # A guest session has no API access: the profile page is read directly.
-    service.call("settings.save", {"scout_profile_cache_hours": 0, "scout_methods": ["posts"]})
-    with sessions.begin() as session:
-        for row in session.scalars(select(ScoutProcessedPost)):
-            session.delete(row)
-        session.get(ScoutSource, SOURCE).last_scanned_at = None
-    job = service.call("scout.start_internal", {"profile_id": GUEST_ID, "sources": [SOURCE]})["id"]
+
+
+def test_next_batches_never_repeat_a_source_of_the_same_run(scout):
+    service, _ = scout
+    sources = [f"https://www.instagram.com/source_{n}/" for n in range(3)]
     service.call(
-        "scout.commit_internal", {"id": job, "snapshot": dict(url=SOURCE, ready=True, posts=[POST])}
+        "settings.save",
+        {
+            "scout_sources_per_run": 2,
+            "scout_skip_recent_sources": False,
+            "scout_methods": ["posts"],
+            "profiles_per_hour": 0,
+        },
     )
+    service.call("scout.source_add", {"values": sources})
+    job = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
+    opened = []
+    while (state := service.call("capture.state", {"id": job}))["status"] == "running":
+        opened.append(state["url"])
+        service.call(
+            "scout.commit_internal", {"id": job, "snapshot": dict(url=state["url"], ready=True)}
+        )
+    # Without a cooldown the rotation wraps around; each source is still read once.
+    assert opened == sources
+    assert state["status"] == "completed"
+
+
+def test_parallel_accounts_never_read_the_same_source(scout):
+    service, _ = scout
+    sources = [f"https://www.instagram.com/source_{n}/" for n in range(3)]
     service.call(
-        "scout.commit_internal",
-        {"id": job, "snapshot": dict(url=POST, ready=True, author="new_face", collaborators=[])},
+        "settings.save",
+        {"scout_sources_per_run": 1, "scout_methods": ["posts"], "profiles_per_hour": 0},
     )
-    state = service.call("capture.state", {"id": job})
-    assert state["kind"] == "profile" and state["access"] == "navigate"
+    service.call("scout.source_add", {"values": sources})
+    first = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
+    second = service.call("scout.start_internal", {"profile_id": "b" * 32})["id"]
+    opened = {first: [], second: []}
+
+    def step(job):
+        state = service.call("capture.state", {"id": job})
+        if state["status"] != "running":
+            return False
+        opened[job].append(state["url"])
+        service.call(
+            "scout.commit_internal", {"id": job, "snapshot": dict(url=state["url"], ready=True)}
+        )
+        return True
+
+    # The second account still reads source_1 when the first runs out of its batch.
+    assert step(first)
+    while step(second) | step(first):
+        pass
+    assert opened[first] == [sources[0], sources[2]] and opened[second] == [sources[1]]

@@ -49,9 +49,7 @@ class ScoutSettings(BaseModel):
     scout_max_retries: int = Field(default=2, ge=0, le=5)
     scout_max_item_failures: int = Field(default=3, ge=1, le=10)
     scout_debug: bool = False
-    # Profile resolver: in-tab web API first (browser page only as a fallback),
-    # persistent cache of resolved profiles, recent captions taken from the API answer.
-    scout_profile_api: bool = True
+    # Profile resolver: profiles are read from their pages; resolved profiles are cached.
     scout_profile_cache_hours: int = Field(default=12, ge=0, le=24 * 7)
     scout_recent_captions: int = Field(default=3, ge=0, le=12)
     scout_ignore_usernames: list[str] = Field(default_factory=list, max_length=500)

@@ -153,10 +153,6 @@ class ProfileResolveError(Exception):
         self.retryable = reason in RETRYABLE
 
 
-class ProviderUnavailable(Exception):
-    """A provider cannot answer (no Instagram tab, changed endpoint); try the next one."""
-
-
 class ResolveCancelled(Exception):
     """The run was stopped; the profile must not be recorded as failed."""
 

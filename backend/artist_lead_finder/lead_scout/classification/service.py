@@ -131,7 +131,9 @@ class ClassificationService:
                     text, local, model=settings.model, timeout=settings.timeout_seconds
                 )
         except AIClassificationError as error:
-            log.warning("scout_ai_failed", extra={"error_type": type(error).__name__})
+            log.warning(
+                "scout_ai_failed", extra={"error_type": type(error).__name__, "detail": str(error)}
+            )
             final.ai_note = f"failed: {error}"
             if error.transient and self.pending is not None:
                 self.pending.add(key, text, context or {}, str(error))

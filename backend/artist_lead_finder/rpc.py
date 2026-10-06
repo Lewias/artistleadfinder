@@ -51,8 +51,15 @@ class JsonLogFormatter(logging.Formatter):
                 "reason": getattr(record, "reason", None),
                 # Code shown to the user next to a generic error, to find this line.
                 "ref": getattr(record, "ref", None),
+                # What went wrong in the app's own words: user-facing error texts, run
+                # notices, stop reasons. Never cookies, tokens, message texts or numbers.
+                "detail": _bounded(getattr(record, "detail", None)),
             }
         )
+
+
+def _bounded(value):
+    return None if value is None else str(value)[:300]
 
 
 def failure_context(method: str | None, error: BaseException) -> dict:
@@ -65,18 +72,28 @@ def failure_context(method: str | None, error: BaseException) -> dict:
 def describe_error(method: str | None, error: BaseException) -> str:
     """Text for the UI. A UserError is shown as written; anything else may carry paths or
     parser output, so it becomes a plain explanation with a code that is also logged."""
-    if isinstance(error, UserError):
-        return str(error)
-    if isinstance(error, BrowserLaunchError):
+    if isinstance(error, (UserError, BrowserLaunchError)):
+        logging.warning(
+            "user_error",
+            extra={**failure_context(method, error), "detail": str(error)},
+        )
         return str(error)
     if isinstance(error, ValidationError):
         details = error.errors()
         for item in details:
             cause = (item.get("ctx") or {}).get("error")
             if isinstance(cause, UserError):
+                logging.warning(
+                    "user_error",
+                    extra={"method": method, "error_type": "UserError", "detail": str(cause)},
+                )
                 return str(cause)
         field = ".".join(str(part) for part in details[0]["loc"]) if details else ""
         suffix = f" (поле {field})" if field else ""
+        logging.warning(
+            "invalid_request",
+            extra={"method": method, "error_type": "ValidationError", "detail": field or None},
+        )
         return f"Проверьте формат и диапазоны полей{suffix}."
     ref = secrets.token_hex(3)
     context = {**failure_context(method, error), "ref": ref}

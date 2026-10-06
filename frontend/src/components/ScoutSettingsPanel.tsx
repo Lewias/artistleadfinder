@@ -383,20 +383,6 @@ export function ScoutSettingsPanel() {
           </section>
           <section>
             <h3>Профили</h3>
-            <div className="check-list">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.scout_profile_api}
-                  disabled={busy}
-                  onChange={event => update('scout_profile_api', event.target.checked)}
-                />
-                Сначала Instagram web API
-                <small>
-                  Один запрос из открытой вкладки; страница профиля открывается, только если данных мало.
-                </small>
-              </label>
-            </div>
             <div className="field-row">
               {numberField('scout_profile_cache_hours', 'Кэш профиля, ч (0 — выкл.)', 0, 168)}
               {numberField('scout_recent_captions', 'Подписей к постам', 0, 12)}

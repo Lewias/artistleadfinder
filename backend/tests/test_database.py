@@ -44,6 +44,20 @@ def test_schema_16_speeds_up_the_default_pace_only(tmp_path):
     engine.dispose()
 
 
+def test_schema_17_raises_the_default_hourly_cap_only(tmp_path):
+    for chosen, expected in ((200, 400), (150, 150)):
+        path = tmp_path / f"cap-{chosen}.sqlite3"
+        engine, sessions = open_database(path)
+        with sessions.begin() as session:
+            session.execute(text("DELETE FROM schema_migrations WHERE version = 17"))
+            session.add(Setting(key="profiles_per_hour", value=chosen))
+        engine.dispose()
+        engine, sessions = open_database(path)
+        with sessions() as session:
+            assert session.get(Setting, "profiles_per_hour").value == expected
+        engine.dispose()
+
+
 def test_identity_unique_and_foreign_keys(tmp_path):
     engine, sessions = open_database(tmp_path / "test.db")
     with sessions.begin() as session:

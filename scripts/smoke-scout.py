@@ -34,7 +34,7 @@ def page_html(title, description, body):
 def main():
     scripts = {
         name: (ROOT / "src-tauri" / "src" / f"{name}.js").read_text(encoding="utf-8")
-        for name in ("scout", "capture", "grid", "follow", "profile_api")
+        for name in ("scout", "capture", "grid", "follow")
     }
     if len(sys.argv) > 1:
         executable = Path(sys.argv[1]).read_bytes()
@@ -101,13 +101,10 @@ def main():
                             snapshot = {"url": state["url"], "ready": True, "blocked": False}
                             service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
                             continue
-                        if state.get("access") != "in_place":
-                            page.goto(state["url"], wait_until="load")
+                        page.goto(state["url"], wait_until="load")
                         name = {"profile": "capture", "source": "grid", "tagged_grid": "grid",
                                 "followers": "follow",
                                 "following": "follow"}.get(state["kind"], "scout")
-                        if state["kind"] == "profile" and state.get("access") == "in_place":
-                            name = "profile_api"
                         args = state.get("args")
                         snapshot = (page.evaluate(scripts[name], args) if args is not None
                                     else page.evaluate(scripts[name]))

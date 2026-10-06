@@ -1,12 +1,11 @@
-"""Profile resolver units: counts, aliases, contacts, merge, fallback chain, retries, cache.
+"""Profile resolver units: counts, aliases, contacts, page reading, retries, cache.
 
-Nothing here reaches Instagram: API answers come from JSON fixtures and page snapshots
-are plain dicts shaped like the page scripts' output.
+Nothing here reaches Instagram: page snapshots are plain dicts shaped like the page
+scripts' output.
 """
 
 import json
 from datetime import timedelta
-from pathlib import Path
 
 import pytest
 
@@ -21,38 +20,22 @@ from artist_lead_finder.lead_scout.contacts import (
 )
 from artist_lead_finder.lead_scout.profiles import (
     AbortSignal,
-    InstagramApiProfileProvider,
     InstagramProfileResolver,
     PartialProfile,
     ProfileResolveContext,
-    ProfileResolveError,
     ResolveCancelled,
     ResolveStep,
     SqlProfileCache,
-    is_profile_data_sufficient,
-    merge_profile_data,
     normalize_external_url,
     parse_instagram_count,
-    parse_instagram_profile_api_response,
     profile_from_fields,
     resolve_instagram_user_id,
 )
-from artist_lead_finder.lead_scout.profiles.model import ProviderUnavailable
 from artist_lead_finder.lead_scout.profiles.normalize import (
     dedupe_links,
     normalize_instagram_username,
 )
 from artist_lead_finder.models import ScoutProfileCache, utcnow
-
-API_FIXTURES = Path(__file__).parent / "fixtures" / "instagram" / "api"
-
-
-def api_body(name: str) -> dict:
-    return json.loads((API_FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
-
-
-def api_snapshot(body=None, status=200, **extra) -> dict:
-    return {"ready": True, "api": {"status": status, "body": body, "redirect": None, **extra}}
 
 
 def browser_snapshot(name="artist123", bio="rapper | new single out now", followers="2,431"):
@@ -138,114 +121,22 @@ def test_external_url_unwraps_instagram_redirects_without_opening_them():
     assert links == ["https://linktr.ee/artist/"]
 
 
-# ---------- Aliases and the API parser ----------
-
-
-def test_api_parser_normal_profile_fixture():
-    profile = parse_instagram_profile_api_response(api_snapshot(api_body("profile-normal"))["api"])
-    assert (profile.username, profile.id, profile.full_name) == ("artist123", "4242", "Artist One")
-    assert (profile.followers_count, profile.following_count, profile.posts_count) == (
-        2431,
-        310,
-        57,
-    )
-    assert profile.external_url == "https://linktr.ee/artist123"
-    # The linktree duplicate and the lynx wrapper are folded into one link.
-    assert profile.bio_links == [
-        "https://open.spotify.com/artist/abc123",
-        "https://artist123.bandcamp.com/",
-    ]
-    assert profile.category_name == "" and profile.is_business is False
-    assert profile.recent_captions == [
-        "New single out now!",
-        "Studio night with @producer_two",
-        "Tour dates soon",
-    ]
-
-
-def test_field_aliases_of_business_fixture():
-    profile = parse_instagram_profile_api_response(
-        api_snapshot(api_body("profile-business"))["api"]
-    )
-    assert (profile.id, profile.full_name) == ("90001", "Beat Maker")
-    assert (profile.followers_count, profile.following_count, profile.posts_count) == (
-        12400,
-        88,
-        301,
-    )
-    assert profile.category_name == "Music Producer" and profile.is_business is True
-    assert profile.external_url == "https://www.beatstars.com/beatmaker"
-    assert profile.bio_links == ["https://soundcloud.com/beatmaker"]
-    assert profile.emails == ["Beats@Maker.pro", "beats@maker.pro"]
-    assert profile.phones == ["4045550199", "+1 404-555-0199"]
-    assert profile.phone_country_code == "1"
+# ---------- Field aliases ----------
 
 
 def test_aliases_are_resolved_in_one_place():
     for followers in ({"followers_count": 5}, {"follower_count": 5}, {"followers": "5"}):
-        assert profile_from_fields({"username": "a_b", **followers}, "api").followers_count == 5
-    assert profile_from_fields({"username": "a_b", "posts_count": 3}, "api").posts_count == 3
-    assert profile_from_fields({"username": "a_b", "fullName": "X"}, "api").full_name == "X"
-    assert profile_from_fields({"username": "a_b", "is_business": 1}, "api").is_business is True
-    missing = profile_from_fields({"username": "a_b"}, "api")
+        assert profile_from_fields({"username": "a_b", **followers}, "browser").followers_count == 5
+    assert profile_from_fields({"username": "a_b", "posts_count": 3}, "browser").posts_count == 3
+    assert profile_from_fields({"username": "a_b", "fullName": "X"}, "browser").full_name == "X"
+    assert profile_from_fields({"username": "a_b", "is_business": 1}, "browser").is_business
+    missing = profile_from_fields({"username": "a_b"}, "browser")
     # Absent keys stay unknown (None); a present null means "the source said: none".
     assert missing.biography is None and missing.external_url is None
     stated = profile_from_fields(
-        {"username": "a_b", "biography": None, "external_url": None}, "api"
+        {"username": "a_b", "biography": None, "external_url": None}, "browser"
     )
     assert stated.biography == "" and stated.external_url == ""
-
-
-def test_private_and_partial_fixtures():
-    private = parse_instagram_profile_api_response(api_snapshot(api_body("profile-private"))["api"])
-    assert private.is_private is True and private.followers_count == 800
-    assert private.biography == "singer · private page"
-    partial = parse_instagram_profile_api_response(api_snapshot(api_body("profile-partial"))["api"])
-    assert partial.followers_count is None and partial.biography is None
-    assert not is_profile_data_sufficient(partial)
-
-
-@pytest.mark.parametrize(
-    ("response", "reason"),
-    [
-        ({"status": 429, "body": None}, "RATE_LIMITED"),
-        (
-            {"status": 401, "body": {"message": "Please wait a few minutes before you try again."}},
-            "RATE_LIMITED",
-        ),
-        ({"status": 400, "body": {"message": "checkpoint_required"}}, "CHECKPOINT"),
-        ({"status": 200, "redirect": "challenge", "body": None}, "CHECKPOINT"),
-        ({"status": 200, "redirect": "login", "body": None}, "LOGIN_REQUIRED"),
-        ({"status": 401, "body": {"message": "login_required"}}, "LOGIN_REQUIRED"),
-        ({"status": 404, "body": None}, "NOT_FOUND"),
-        ({"status": 200, "body": {"data": {"user": None}, "status": "ok"}}, "NOT_FOUND"),
-        ({"status": 502, "body": None}, "NETWORK_ERROR"),
-        ({"error": "timeout"}, "NETWORK_ERROR"),
-        ({"status": 200, "body": None}, "PARSER_ERROR"),
-        ({"status": 200, "body": {"status": "ok"}}, "PARSER_ERROR"),
-    ],
-)
-def test_api_errors_are_typed(response, reason):
-    with pytest.raises(ProfileResolveError) as caught:
-        parse_instagram_profile_api_response({"redirect": None, **response})
-    assert caught.value.reason == reason
-    assert caught.value.retryable == (reason == "NETWORK_ERROR")
-
-
-def test_api_that_cannot_be_asked_hands_over_to_the_browser():
-    for response in ({"error": "no_instagram_tab"}, None, {"status": 400, "body": {}}):
-        with pytest.raises(ProviderUnavailable):
-            parse_instagram_profile_api_response(response)
-
-
-def test_api_provider_rejects_an_answer_for_another_account():
-    provider = InstagramApiProfileProvider()
-    with pytest.raises(ProfileResolveError) as caught:
-        provider.get_profile("someone_else", api_snapshot(api_body("profile-normal")))
-    assert caught.value.reason == "PARSER_ERROR"
-    request = provider.request("artist123", "https://www.instagram.com/artist123/")
-    assert request["path"] == "/api/v1/users/web_profile_info/?username=artist123"
-    assert request["endpoint"] == "web_profile_info"
 
 
 # ---------- Contacts ----------
@@ -287,61 +178,7 @@ def test_contact_extractor_reads_only_the_profile_contact_surface():
     assert "Rapper" in text and "Call +44" in text
 
 
-# ---------- Sufficiency and merge ----------
-
-
-def test_is_profile_data_sufficient():
-    full = PartialProfile(
-        "api", "a_b", followers_count=10, biography="x", external_url="", category_name=""
-    )
-    assert is_profile_data_sufficient(full)
-    one_gap = PartialProfile("api", "a_b", followers_count=10, biography="x", external_url="")
-    assert is_profile_data_sufficient(one_gap)
-    two_gaps = PartialProfile("api", "a_b", followers_count=10, biography="x")
-    assert not is_profile_data_sufficient(two_gaps)
-    no_followers = PartialProfile("api", "a_b", biography="x", external_url="", category_name="")
-    assert not is_profile_data_sufficient(no_followers)
-    assert not is_profile_data_sufficient(None)
-
-
-def test_merge_keeps_api_numbers_and_fills_gaps_from_the_browser():
-    api = PartialProfile(
-        "api",
-        "artist123",
-        id="4242",
-        followers_count=12400,
-        biography=None,
-        bio_links=["https://open.spotify.com/a"],
-        emails=["a@b.co"],
-    )
-    browser = PartialProfile(
-        "browser",
-        "artist123",
-        id="9999",
-        followers_count=12000,
-        biography="rapper | new single out now",
-        category_name="Musician/band",
-        bio_links=["https://open.spotify.com/a", "https://soundcloud.com/a"],
-        emails=["A@b.co"],
-        strategies={"biography": "header_heading"},
-    )
-    merged = merge_profile_data(api, browser)
-    assert merged.source == "merged"
-    assert merged.profile.followers_count == 12400
-    assert merged.profile.biography == "rapper | new single out now"
-    assert merged.profile.category_name == "Musician/band"
-    assert merged.profile.bio_links == ["https://open.spotify.com/a", "https://soundcloud.com/a"]
-    assert merged.profile.emails == ["a@b.co"]
-    assert merged.profile.id == "4242"
-    assert merged.anomalies == ["id differs: api=4242 browser=9999"]
-    # A good value is never replaced by an empty one.
-    empty = PartialProfile("browser", "artist123", biography="")
-    assert (
-        merge_profile_data(
-            PartialProfile("api", "artist123", biography="bio"), empty
-        ).profile.biography
-        == "bio"
-    )
+# ---------- User id ----------
 
 
 def test_user_id_fallback_order_never_guesses():
@@ -363,15 +200,15 @@ def test_user_id_fallback_order_never_guesses():
 
 
 class Fetcher:
-    """Scripted page answers per phase; records what the resolver asked for."""
+    """Scripted page answers; records what the resolver asked for."""
 
-    def __init__(self, api=None, browser=None):
-        self.answers = {"api": list(api or []), "browser": list(browser or [])}
+    def __init__(self, browser=None):
+        self.answers = list(browser or [])
         self.calls = []
 
     def __call__(self, step, args):
         self.calls.append((step.phase, args))
-        answer = self.answers[step.phase].pop(0)
+        answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -381,100 +218,37 @@ def context(fetch, **extra):
     return ProfileResolveContext(fetch=fetch, **extra)
 
 
-def test_api_success_skips_the_browser():
-    fetch = Fetcher(api=[api_snapshot(api_body("profile-normal"))])
+def test_profile_is_read_from_its_page():
+    fetch = Fetcher([browser_snapshot()])
     result = InstagramProfileResolver().resolve("@Artist123", context(fetch))
-    assert result.ok and result.profile.source == "api"
-    assert [phase for phase, _ in fetch.calls] == ["api"]
-    assert fetch.calls[0][1]["path"].endswith("username=artist123")
-    profile = result.profile
-    assert profile.emails == ["mgmt@artist123.com"] and profile.phones == []
-    log = "\n".join(result.log)
-    assert "[ProfileResolver][@artist123]" in log and "not required" in log
-    assert "followers: 2431" in log and "emails: 1" in log and "Resolved in" in log
-
-
-def test_api_partial_falls_back_to_the_browser_and_merges():
-    fetch = Fetcher(api=[api_snapshot(api_body("profile-partial"))], browser=[browser_snapshot()])
-    result = InstagramProfileResolver().resolve("artist123", context(fetch))
-    assert result.ok and result.profile.source == "merged"
-    assert [phase for phase, _ in fetch.calls] == ["api", "browser"]
+    assert result.ok and result.profile.source == "browser"
+    assert fetch.calls == [("browser", None)]
     profile = result.profile
     assert profile.followers_count == 12400 and profile.following_count == 310
     assert profile.biography == "rapper | new single out now"
     assert profile.category_name == "Musician/band"
     assert profile.emails == ["booking@artist123.com"]
-    assert "partial: missing bio, followers, external link, category" in result.log
-    assert "Merged profile created." in result.log
-
-
-def test_unavailable_api_falls_back_and_guest_skips_it():
-    fetch = Fetcher(api=[api_snapshot(error="no_instagram_tab")], browser=[browser_snapshot()])
-    result = InstagramProfileResolver().resolve("artist123", context(fetch))
-    assert result.ok and result.profile.source == "browser"
-    fetch = Fetcher(browser=[browser_snapshot()])
-    result = InstagramProfileResolver().resolve("artist123", context(fetch, use_api=False))
-    assert result.ok and [phase for phase, _ in fetch.calls] == ["browser"]
-
-
-@pytest.mark.parametrize(
-    ("snapshot", "reason"),
-    [
-        (api_snapshot(status=404), "NOT_FOUND"),
-        (api_snapshot(redirect="challenge"), "CHECKPOINT"),
-        (api_snapshot(redirect="login"), "LOGIN_REQUIRED"),
-    ],
-)
-def test_final_api_errors_stop_without_retry_or_browser(snapshot, reason):
-    fetch = Fetcher(api=[snapshot])
-    result = InstagramProfileResolver().resolve("artist123", context(fetch, max_retries=3))
-    assert not result.ok and result.reason == reason and not result.retryable
-    assert result.stops_run == (reason != "NOT_FOUND")
-    assert len(fetch.calls) == 1
-
-
-def test_api_rate_limit_falls_back_to_the_page_without_retry():
-    fetch = Fetcher(api=[api_snapshot(status=429)], browser=[browser_snapshot()])
-    result = InstagramProfileResolver().resolve("artist123", context(fetch, max_retries=3))
-    assert result.ok and result.profile.source == "browser"
-    assert [phase for phase, _ in fetch.calls] == ["api", "browser"]
-    assert "rate limited (HTTP 429); API paused" in result.log
+    log = "\n".join(result.log)
+    assert "[ProfileResolver][@artist123]" in log and "API" not in log
+    assert "emails: 1" in log and "Resolved in" in log
 
 
 def test_transient_errors_are_retried_within_the_limit():
-    fetch = Fetcher(
-        api=[
-            TimeoutError(),
-            api_snapshot(error="network"),
-            api_snapshot(api_body("profile-normal")),
-        ]
-    )
+    fetch = Fetcher([TimeoutError(), browser_snapshot()])
     result = InstagramProfileResolver().resolve("artist123", context(fetch, max_retries=2))
-    assert result.ok and [phase for phase, _ in fetch.calls] == ["api", "api", "api"]
-    # Browser timeouts beyond the limit give NETWORK_ERROR (retryable for the scheduler).
-    fetch = Fetcher(browser=[TimeoutError(), TimeoutError()])
-    result = InstagramProfileResolver().resolve(
-        "artist123", context(fetch, use_api=False, max_retries=1)
-    )
+    assert result.ok and len(fetch.calls) == 2
+    # Timeouts beyond the limit give NETWORK_ERROR (retryable for the scheduler).
+    fetch = Fetcher([TimeoutError(), TimeoutError()])
+    result = InstagramProfileResolver().resolve("artist123", context(fetch, max_retries=1))
     assert not result.ok and result.reason == "NETWORK_ERROR" and result.retryable
 
 
-def test_private_profile_keeps_public_header_data():
-    fetch = Fetcher(api=[api_snapshot(api_body("profile-private"))])
-    result = InstagramProfileResolver().resolve("secret.singer", context(fetch))
-    assert result.ok and result.profile.is_private is True
-    assert result.profile.followers_count == 800 and result.profile.biography
-
-
 def test_browser_not_found_and_parser_errors_are_typed():
-    fetch = Fetcher(
-        browser=[{"url": "https://www.instagram.com/gone/", "ready": True, "unavailable": True}]
-    )
-    result = InstagramProfileResolver().resolve("gone", context(fetch, use_api=False))
+    gone = {"url": "https://www.instagram.com/gone/", "ready": True, "unavailable": True}
+    result = InstagramProfileResolver().resolve("gone", context(Fetcher([gone])))
     assert result.reason == "NOT_FOUND"
     broken = {**browser_snapshot(), "title": "Instagram", "header": ""}
-    fetch = Fetcher(browser=[broken])
-    result = InstagramProfileResolver().resolve("artist123", context(fetch, use_api=False))
+    result = InstagramProfileResolver().resolve("artist123", context(Fetcher([broken])))
     assert result.reason == "PARSER_ERROR"
 
 
@@ -484,8 +258,8 @@ def test_cancellation_is_checked_between_steps_and_saves_nothing(tmp_path):
     state = {"stopped": False}
 
     def fetch(step, args):
-        state["stopped"] = True  # The user presses Stop while the request is running.
-        return api_snapshot(api_body("profile-partial"))
+        state["stopped"] = True  # The user presses Stop while the page is read.
+        return browser_snapshot()
 
     ctx = ProfileResolveContext(
         fetch=fetch, cache=cache, signal=AbortSignal(lambda: state["stopped"])
@@ -499,13 +273,13 @@ def test_cancellation_is_checked_between_steps_and_saves_nothing(tmp_path):
 def test_persistent_cache_serves_repeated_resolves_within_the_ttl(tmp_path):
     engine, sessions = open_database(tmp_path / "cache.db")
     cache = SqlProfileCache(sessions)
-    fetch = Fetcher(api=[api_snapshot(api_body("profile-normal"))])
+    fetch = Fetcher([browser_snapshot()])
     resolver = InstagramProfileResolver()
     first = resolver.resolve("artist123", context(fetch, cache=cache, cache_ttl_hours=12))
     again = resolver.resolve("artist123", context(fetch, cache=cache, cache_ttl_hours=12))
     assert first.ok and again.ok and len(fetch.calls) == 1
     assert again.profile.as_dict() == first.profile.as_dict()
-    assert any(line.startswith("hit (api") for line in again.log)
+    assert any(line.startswith("hit (browser") for line in again.log)
     # Outside the TTL the profile is resolved again.
     with sessions.begin() as session:
         row = session.get(ScoutProfileCache, "artist123")
@@ -518,14 +292,17 @@ def test_persistent_cache_serves_repeated_resolves_within_the_ttl(tmp_path):
 
 
 def test_resolve_step_survives_serialization():
-    step = ResolveStep("browser", "artist123", utcnow().isoformat(), api={"source": "api"})
+    step = ResolveStep("browser", "artist123", utcnow().isoformat(), attempts=1, log=["x"])
     assert ResolveStep.from_dict(json.loads(json.dumps(step.as_dict()))) == step
+    # A step saved before the web API was removed still loads.
+    old = {**step.as_dict(), "phase": "api", "api": None, "api_limited": True}
+    assert ResolveStep.from_dict(old).username == "artist123"
 
 
 def test_logs_never_carry_session_secrets():
-    snapshot = api_snapshot(api_body("profile-normal"))
-    snapshot["api"]["request_headers"] = {"cookie": "sessionid=SECRET", "x-csrftoken": "TOKEN"}
-    result = InstagramProfileResolver().resolve("artist123", context(Fetcher(api=[snapshot])))
+    snapshot = browser_snapshot()
+    snapshot["request_headers"] = {"cookie": "sessionid=SECRET", "x-csrftoken": "TOKEN"}
+    result = InstagramProfileResolver().resolve("artist123", context(Fetcher([snapshot])))
     text = "\n".join(result.log) + json.dumps(result.profile.as_dict())
     assert "SECRET" not in text and "TOKEN" not in text and "cookie" not in text.lower()
 

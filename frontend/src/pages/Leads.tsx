@@ -1,6 +1,6 @@
 import { ErrorToast } from '../components/Toaster';
 import { useState } from 'react';
-import { FilterX, RefreshCw, Search, Send, SlidersHorizontal } from 'lucide-react';
+import { FilterX, RefreshCw, Search, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type { DashboardData, Lead, LeadQuery } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
@@ -11,6 +11,9 @@ import { LeadDetail } from '../components/LeadDetail';
 import { Button } from '../components/ui/button';
 import { ExportBar } from '../components/ExportBar';
 import { categoryLabels, methodLabel } from '../components/scoutStatus';
+import { Modal } from '../components/Modal';
+import { api } from '../services/api';
+import { errorText } from '../lib/errors';
 
 export function Leads({
   jobId,
@@ -23,6 +26,9 @@ export function Leads({
   const [selected, setSelected] = useState<number[]>([]);
   const [detail, setDetail] = useState<number>();
   const [outreachError, setOutreachError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   // Polled so that leads saved by a running Scout appear without a manual refresh.
   const resource = useResource<{ items: Lead[]; total: number }>('leads.list', query, 5000);
   const update = <K extends keyof LeadQuery>(key: K, value: LeadQuery[K]) =>
@@ -30,6 +36,20 @@ export function Leads({
   const toggle = (id: number) =>
     setSelected(current => (current.includes(id) ? current.filter(value => value !== id) : [...current, id]));
   const items = resource.data?.items || [];
+  const remove = async () => {
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api.request('leads.delete', { ids: selected });
+      setSelected([]);
+      setConfirmDelete(false);
+      resource.refresh();
+    } catch (err) {
+      setDeleteError(errorText(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
   const reset = () => {
     setQuery({ ...defaultQuery, ...(jobId ? { job_id: jobId } : {}) });
     setSelected([]);
@@ -55,6 +75,17 @@ export function Leads({
           <Send size={15} /> В рассылку
         </Button>
       )}
+      <Button
+        variant="outline"
+        disabled={!selected.length}
+        onClick={() => {
+          setDeleteError('');
+          setConfirmDelete(true);
+        }}
+        title="Удалить выбранных артистов из базы"
+      >
+        <Trash2 size={15} /> Удалить
+      </Button>
       <ErrorToast message={outreachError} />
     </>
   );
@@ -322,6 +353,30 @@ export function Leads({
             </div>
           </div>
         </>
+      )}
+      {confirmDelete && (
+        <Modal
+          title={`Удалить из базы: ${selected.length}?`}
+          onClose={() => !deleting && setConfirmDelete(false)}
+        >
+          <p className="helper">
+            Вместе с артистами удалятся их источники, анализ, переписки и история рассылки. Контакты в CRM
+            останутся.
+          </p>
+          <p className="helper">
+            Парсер помнит этих артистов и не добавит их снова, пока не сброшена его память. Отменить удаление
+            нельзя.
+          </p>
+          <ErrorToast message={deleteError} />
+          <div className="actions">
+            <Button variant="danger" disabled={deleting} onClick={() => void remove()}>
+              <Trash2 size={15} /> Удалить
+            </Button>
+            <Button variant="outline" disabled={deleting} onClick={() => setConfirmDelete(false)}>
+              Отмена
+            </Button>
+          </div>
+        </Modal>
       )}
       {detail && <LeadDetail id={detail} close={() => setDetail(undefined)} refresh={resource.refresh} />}
     </>

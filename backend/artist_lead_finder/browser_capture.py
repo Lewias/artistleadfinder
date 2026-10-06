@@ -1,5 +1,6 @@
 """Parse bounded page observations and persist browser queues; no network access."""
 
+import logging
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -13,6 +14,8 @@ from .pipeline import CandidatePipeline
 from .providers import Candidate
 from .schemas import SearchConfiguration
 from .scoring import LeadScorer, ScoringWeights
+
+log = logging.getLogger(__name__)
 
 RESERVED = {
     "accounts",
@@ -265,6 +268,10 @@ class BrowserCaptureService:
             if job.status not in {"running", "paused"}:
                 return
             queue.last_error = messages.get(message, messages["loading"])
+            log.warning(
+                "queue_paused",
+                extra={"job_id": job_id, "reason": message, "detail": queue.last_error},
+            )
             job.status = "paused"
             job.stage = "browser_attention"
             job.errors = [

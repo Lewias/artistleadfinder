@@ -23,6 +23,8 @@ PACE_DEFAULTS_16 = (
     ("page_delay_max", 20, 10),
     ("profiles_per_hour", 60, 200),
 )
+# Schema 17: the hourly profile cap on its old default goes from 200 to 400.
+HOURLY_CAP_17 = ("profiles_per_hour", 200, 400)
 
 
 def application_data_dir() -> Path:
@@ -50,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 16 for version in versions):
+        if any(version > 17 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -206,4 +208,10 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
                 if setting is not None and setting.value == before:
                     setting.value = after
             session.add(SchemaMigration(version=16))
+        if session.get(SchemaMigration, 17) is None:
+            key, before, after = HOURLY_CAP_17
+            setting = session.get(Setting, key)
+            if setting is not None and setting.value == before:
+                setting.value = after
+            session.add(SchemaMigration(version=17))
     return engine, factory
