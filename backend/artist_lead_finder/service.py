@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from . import memory_reset
 from .browser_capture import BrowserCaptureService
 from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
@@ -157,10 +158,23 @@ DEFAULTS = {
 }
 
 
+def system_info(data_dir: Path, log_dir: Path) -> dict:
+    return {
+        "version": "0.9.9",
+        "data_dir": str(data_dir),
+        "log_dir": str(log_dir),
+        "transport": "stdio",
+    }
+
+
 class ApplicationService:
-    def __init__(self, sessions: sessionmaker[Session], data_dir: Path) -> None:
+    def __init__(
+        self, sessions: sessionmaker[Session], data_dir: Path, log_dir: Path | None = None
+    ) -> None:
         self.sessions = sessions
         self.data_dir = data_dir
+        # The core writes one log for every account (rpc.run).
+        self.log_dir = log_dir or data_dir / "logs"
         self.providers = [MockProvider()]
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.browser_sessions = BrowserSessions(data_dir)
@@ -236,7 +250,11 @@ class ApplicationService:
                 p["id"], str(p["username"]), str(p["text"])
             ),
             "browser.runtime.eval": lambda p: chromium.evaluate(
-                p["id"], p["script"], p.get("args"), fresh=bool(p.get("fresh"))
+                p["id"],
+                p["script"],
+                p.get("args"),
+                fresh=bool(p.get("fresh")),
+                feed=bool(p.get("feed")),
             ),
             "scout.sources": lambda p: self.scout.sources(p.get("sources")),
             "scout.start_internal": lambda p: self.scout.start(p, self.settings()),
@@ -245,6 +263,9 @@ class ApplicationService:
             "scout.skip": lambda p: self.scout.skip(int(p["id"])),
             "scout.accounts": self._scout_accounts,
             "scout.source_list": self.scout.source_rows,
+            "scout.reset_memory": self._reset_scout_memory,
+            "outreach.reset_memory": self._reset_outreach_memory,
+            "imessage.reset_memory": self._reset_imessage_memory,
             "scout.source_add": self.scout.add_sources,
             "scout.source_update": self.scout.update_source,
             "scout.source_remove": self.scout.remove_source,
@@ -488,12 +509,7 @@ class ApplicationService:
         return {"scout_ignore_usernames": ignored}
 
     def _system_info(self, params: dict) -> dict:
-        return {
-            "version": "0.9.1",
-            "data_dir": str(self.data_dir),
-            "log_dir": str(self.data_dir / "logs"),
-            "transport": "stdio",
-        }
+        return system_info(self.data_dir, self.log_dir)
 
     def _save_settings(self, params: dict) -> Any:
         settings = {**DEFAULTS, **params}
@@ -563,6 +579,25 @@ class ApplicationService:
                     .limit(200)
                 )
             ]
+
+    def _reset_scout_memory(self, params: dict) -> dict:
+        with self.sessions.begin() as session:
+            result = memory_reset.reset_scout(session)
+        log.info("scout_memory_reset")
+        return result
+
+    def _reset_outreach_memory(self, params: dict) -> dict:
+        with self.sessions.begin() as session:
+            result = memory_reset.reset_outreach(session)
+        self.outreach.notified.clear()
+        log.info("outreach_memory_reset")
+        return result
+
+    def _reset_imessage_memory(self, params: dict) -> dict:
+        with self.imessage.lock, self.sessions.begin() as session:
+            result = memory_reset.reset_imessage(session)
+        log.info("imessage_memory_reset")
+        return result
 
     def _clear_job_history(self, params: dict) -> Any:
         """Hide finished searches from the history; active ones and all leads stay."""

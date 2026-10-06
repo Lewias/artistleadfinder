@@ -174,10 +174,6 @@ export interface SettingsData {
   scout_max_scroll_rounds: number;
   scout_scroll_delay_ms: number;
   scout_max_no_progress_rounds: number;
-  scout_max_stories_per_source: number;
-  scout_story_delay_ms: number;
-  scout_story_confidence: number;
-  scout_story_ttl_hours: number;
   scout_max_retries: number;
   scout_max_item_failures: number;
   scout_debug: boolean;
@@ -200,7 +196,7 @@ export interface DiscoveryMetrics {
   failures: number;
 }
 export type ScoutMethod =
-  'profiles' | 'posts' | 'comments' | 'tagged' | 'stories' | 'followers' | 'following';
+  'profiles' | 'posts' | 'tagged' | 'followers' | 'following';
 export interface ScoutStats {
   discovered: number;
   resolved?: number;
@@ -638,6 +634,10 @@ export interface CrmStatus {
 }
 export interface CrmContact {
   id: number;
+  /** Shared CRM: whose contact it is; `mine` is false only in an admin's view of others. */
+  owner_id: string | null;
+  owner_name: string;
+  mine: boolean;
   name: string;
   statuses: string[];
   channels: CrmChannel[];
@@ -667,6 +667,8 @@ export interface CrmList {
   totals: { earned: number; potential: number };
   statuses: CrmStatus[];
   labels: string[];
+  /** Owners in an admin's copy, for the owner filter; empty for a user. */
+  owners: { id: string; name: string; count: number; mine: boolean }[];
 }
 export interface CrmSource {
   id: 'leads' | CrmId;
@@ -676,4 +678,46 @@ export interface CrmImportResult {
   added: number;
   merged: number;
   skipped: number;
+}
+
+/** The signed-in account (core `account.state`); `configured` is false without a server. */
+export interface AccountState {
+  configured: boolean;
+  signed_in: boolean;
+  licensed: boolean;
+  online: boolean;
+  ready: boolean;
+  user: { id: string; email: string; display_name: string; role: Role } | null;
+  role: Role | null;
+  reason: string | null;
+}
+
+/** admin: everything; moderator: every CRM; user: own CRM. */
+export type Role = 'user' | 'moderator' | 'admin';
+export type KeyRole = 'user' | 'moderator';
+export interface AdminUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: Role;
+  blocked: boolean;
+  created_at: string;
+}
+export interface AdminKey {
+  id: string;
+  key_hint: string;
+  user_id: string | null;
+  bound: boolean;
+  note: string;
+  /** The role the key grants on activation. */
+  role: KeyRole;
+  created_at: string | null;
+  activated_at: string | null;
+  revoked_at: string | null;
+}
+export interface AdminOverview {
+  me: string;
+  users: AdminUser[];
+  keys: AdminKey[];
+  key?: string;
 }

@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
@@ -13,6 +13,8 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 from .browser_sessions import BrowserSessions
 from .database import application_data_dir
 from .direct_message import send_direct
+from .lead_scout import feed as grid_feed
+from .lead_scout.candidates import parse_instagram_post_url
 
 # Windows: Chromium is frozen into the core (Playwright's "0" location). macOS: PyInstaller
 # cannot re-sign Chromium's app bundle, so it is downloaded once into the app data folder,
@@ -40,6 +42,8 @@ class Window:
     page: Page
     # Set when Instagram answered HTTP 429 since the last navigation.
     rate_limited: bool = False
+    # Instagram data answers since the last navigation (a grid's posts arrive this way).
+    data_responses: list = field(default_factory=list)
 
 
 def watch_rate_limits(window: Window) -> None:
@@ -54,6 +58,65 @@ def watch_rate_limits(window: Window) -> None:
             window.rate_limited = True
 
     window.context.on("response", on_response)
+
+
+MAX_DATA_RESPONSES = 200
+MAX_DATA_BYTES = 8_000_000
+DATA_PATHS = ("/graphql", "/api/v1/")
+# Posts the page got with its HTML (relay preloads) before any request was made.
+PRELOADED_DATA = """() => [...document.querySelectorAll('script[type="application/json"]')]
+  .map(script => script.textContent || '')
+  .filter(text => text.includes('"code"') && text.length < 4000000)
+  .slice(0, 60)"""
+
+
+def watch_data(window: Window) -> None:
+    """Keep Instagram's own data answers (not their bodies yet) for the grid reader."""
+
+    def on_response(response) -> None:
+        try:
+            parsed = urlparse(response.url)
+        except ValueError:
+            return
+        host = (parsed.hostname or "").lower()
+        if not (host == "instagram.com" or host.endswith(".instagram.com")):
+            return
+        if not any(part in parsed.path for part in DATA_PATHS):
+            return
+        if len(window.data_responses) < MAX_DATA_RESPONSES:
+            window.data_responses.append(response)
+
+    window.context.on("response", on_response)
+
+
+def grid_facts(window: Window, posts: list) -> dict:
+    """Author and collaborators of the grid's publications, from data the
+    page already received. Makes no requests; unreadable answers are skipped."""
+    wanted = {
+        parsed.shortcode
+        for parsed in (parse_instagram_post_url(str(url)) for url in posts or [])
+        if parsed
+    }
+    if not wanted:
+        return {}
+    texts, size = [], 0
+    for response in list(window.data_responses):
+        try:
+            if response.status != 200:
+                continue
+            body = response.body()
+        except Exception:  # noqa: BLE001 - a body evicted by the browser is just skipped
+            continue
+        size += len(body)
+        if len(body) > MAX_DATA_BYTES or size > MAX_DATA_BYTES * 4:
+            continue
+        texts.append(body.decode("utf-8", "replace"))
+    try:
+        texts += [str(text) for text in window.page.evaluate(PRELOADED_DATA)]
+    except Exception:  # noqa: BLE001 - the page may be navigating; the grid still works
+        pass
+    facts = grid_feed.collect_texts(texts)
+    return {code: item.as_dict() for code, item in facts.items() if code in wanted}
 
 
 def install_chromium() -> bool:
@@ -222,6 +285,7 @@ class ChromiumRuntime:
             page = context.new_page()
             window = Window(browser, context, page)
             watch_rate_limits(window)
+            watch_data(window)
             self.windows[identifier] = window
             try:
                 page.goto(
@@ -274,6 +338,7 @@ class ChromiumRuntime:
         if parsed.scheme != "https" or host not in {"instagram.com", "www.instagram.com"}:
             raise ValueError("Only Instagram profile pages are supported")
         window.rate_limited = False
+        window.data_responses.clear()
         try:
             window.page.goto(url, wait_until="domcontentloaded", timeout=12000)
         except Exception:
@@ -289,9 +354,12 @@ class ChromiumRuntime:
         window.rate_limited = False
         return send_direct(window.page, username, text, rate_limited=lambda: window.rate_limited)
 
-    def evaluate(self, identifier: str, script: str, args=None, fresh: bool = False) -> dict:
+    def evaluate(
+        self, identifier: str, script: str, args=None, fresh: bool = False, feed: bool = False
+    ) -> dict:
         """Run a page script. `fresh` starts a new request window without navigating (the
-        in-tab profile API step), so a 429 seen before it is not reported twice."""
+        in-tab profile API step), so a 429 seen before it is not reported twice. `feed`
+        (grid pages) adds what the page's own data says about the collected posts."""
         window = self._window(identifier)
         if not window:
             raise ValueError("Browser window is closed")
@@ -311,6 +379,11 @@ class ChromiumRuntime:
         # API, not the page, and the profile resolver handles it.
         if window.rate_limited and not fresh:
             return {**result, "ready": False, "blocked": True, "rate_limited": True}
+        if feed and result.get("ready") and not result.get("blocked"):
+            try:
+                result["feed"] = grid_facts(window, result.get("posts") or [])
+            except Exception:  # noqa: BLE001 - publications are then opened as before
+                log.warning("grid_feed_failed")
         return result
 
     def shutdown(self) -> None:

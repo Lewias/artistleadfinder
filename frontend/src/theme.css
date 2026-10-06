@@ -974,12 +974,6 @@ progress::-webkit-progress-value {
 }
 
 /* ---------- Scout results ---------- */
-.scout-limits {
-  padding: 14px 18px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--panel);
-}
 .scout-empty {
   display: grid;
   justify-items: center;
@@ -4391,4 +4385,235 @@ button:active:not(:disabled) {
     right: 16px;
     bottom: 16px;
   }
+}
+
+/* ---------- Sign-in, access key, no server ---------- */
+.gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px 16px;
+  background: radial-gradient(circle at 50% 0%, var(--violet-bg), transparent 55%), var(--bg);
+}
+.gate-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 30px 28px 26px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, var(--panel-top), var(--panel));
+  box-shadow: var(--shadow);
+  text-align: center;
+  animation: blockReveal 0.4s var(--motion-enter-ease) both;
+}
+.gate-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.gate-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-top: 10px;
+  border-radius: 14px;
+  background: var(--violet-bg);
+  color: var(--violet);
+}
+.gate-card h1 {
+  font-size: 22px;
+}
+.gate-card .helper {
+  margin: 0;
+}
+.gate-form {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+  text-align: left;
+}
+.gate-form .button {
+  width: 100%;
+  margin-top: 4px;
+}
+.gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.gate-note {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.gate-switch {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--violet);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gate-switch:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.gate-error {
+  color: var(--red);
+  font-size: 11.5px;
+}
+.account-menu {
+  position: relative;
+}
+.account-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 240px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.account-button:hover {
+  background: var(--raised);
+}
+.account-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-button em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--violet-bg);
+  color: var(--violet);
+  font-size: 10.5px;
+  font-style: normal;
+}
+.account-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 4px;
+  min-width: 230px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-top);
+  box-shadow: var(--shadow);
+  animation: selectReveal var(--motion-fast) var(--motion-enter-ease);
+}
+.account-dropdown strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.account-dropdown span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-dropdown .account-role {
+  margin-bottom: 6px;
+  color: var(--violet);
+}
+.account-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.account-dropdown button:hover {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+/* ---------- Admin and the shared CRM ---------- */
+/* Whose CRM, first in the toolbar of «CRM пользователей»: as tall as the buttons beside it. */
+.crm-owner-filter {
+  flex: 0 1 300px;
+  width: 300px;
+  min-width: 220px;
+  align-self: stretch;
+}
+.crm-owner {
+  display: inline-block;
+  margin-left: 40px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--violet-bg);
+  color: var(--violet);
+  font-size: 11px;
+}
+.admin-blocked td {
+  opacity: 0.6;
+}
+.admin-key {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.admin-key.good {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.admin-key.bad {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.admin-form {
+  display: grid;
+  gap: 12px;
+}
+.admin-issued {
+  display: block;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--violet-line);
+  background: var(--violet-bg);
+  color: var(--ink);
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  user-select: all;
+}
+
+.memory-reset {
+  display: grid;
+  gap: 10px;
+}
+.memory-reset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.memory-reset-row > div {
+  display: grid;
+  gap: 2px;
 }

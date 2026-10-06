@@ -784,8 +784,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 14
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (15, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 16
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (17, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):
@@ -878,3 +878,22 @@ def test_workspace_adds_leads_from_crm(app):
     assert added["added"] == 1
     names = [item["username"] for item in service.call("outreach.workspace", {})["usernames"]]
     assert names == ["second_one", "first_one"]
+
+
+def test_memory_reset_lets_the_same_lead_be_written_again(app):
+    service, sessions, clock, senders, _ = app
+    fresh = add_lead(sessions, "fresh", "Fresh One")
+    first = campaign(service, [fresh], senders[:1])
+    service.call("outreach.campaign_start", {"id": first})
+    with pytest.raises(ValueError, match="Остановите рассылку"):
+        service.call("outreach.reset_memory", {})
+    drive(service, clock)
+    assert service.call("outreach.reset_memory", {}) == {"leads_reopened": 1}
+    with sessions() as session:
+        lead = session.get(Lead, fresh)
+        assert (lead.status, lead.last_contacted_at) == ("new", None)
+        assert session.scalar(select(func.count()).select_from(OutboundMessageJob)) == 0
+    # Templates stay; the lead is no longer «already contacted».
+    second = campaign(service, [fresh], senders[:1])
+    service.call("outreach.campaign_start", {"id": second})
+    assert recipients(sessions, second)["fresh"].status == "queued"

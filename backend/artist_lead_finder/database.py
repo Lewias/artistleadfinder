@@ -1,5 +1,6 @@
 """SQLite lifecycle and explicit initial schema version."""
 
+import os
 from pathlib import Path
 
 from platformdirs import user_data_path
@@ -7,10 +8,27 @@ from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, SchemaMigration
+from .models import Base, SchemaMigration, Setting
+
+
+class NewerDatabaseError(RuntimeError):
+    """The database was migrated by a newer version; opening it here could damage it."""
+
+
+# A separate data folder for build checks, so they never touch the real account and leads.
+DATA_DIR_ENV = "ARTIST_LEAD_FINDER_DATA"
+# (setting, old default, new default) of schema 16.
+PACE_DEFAULTS_16 = (
+    ("page_delay_min", 8, 4),
+    ("page_delay_max", 20, 10),
+    ("profiles_per_hour", 60, 200),
+)
 
 
 def application_data_dir() -> Path:
+    override = os.environ.get(DATA_DIR_ENV)
+    if override:
+        return Path(override)
     return user_data_path("ArtistLeadFinder", appauthor=False, roaming=False)
 
 
@@ -32,9 +50,12 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 14 for version in versions):
+        if any(version > 16 for version in versions):
             engine.dispose()
-            raise RuntimeError("База создана более новой версией приложения.")
+            raise NewerDatabaseError(
+                "База данных создана более новой версией Artist Lead Finder. Установите "
+                "последнюю версию приложения — лиды, CRM и аккаунты сохранятся."
+            )
     Base.metadata.create_all(engine)
     # Schemas 4 and 5 add columns to existing tables, which create_all does not do.
     added = {
@@ -61,11 +82,6 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "attempts": "INTEGER NOT NULL DEFAULT 1",
             "last_error": "VARCHAR(200)",
         },
-        "scout_processed_stories": {
-            "status": "VARCHAR(20) NOT NULL DEFAULT 'processed'",
-            "attempts": "INTEGER NOT NULL DEFAULT 1",
-            "last_error": "VARCHAR(200)",
-        },
         "lead_scout_profiles": {
             "profile_decided_by": "VARCHAR(10) NOT NULL DEFAULT 'local'",
             "category_name": "VARCHAR(120)",
@@ -82,6 +98,12 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         },
         "imessage_campaigns": {"steps": "JSON NOT NULL DEFAULT '[]'"},
         "imessage_jobs": {"step": "INTEGER NOT NULL DEFAULT 0"},
+        "crm_contacts": {
+            "remote_id": "VARCHAR(36)",
+            "owner_id": "VARCHAR(36)",
+            "owner_name": "VARCHAR(160) NOT NULL DEFAULT ''",
+            "dirty": "BOOLEAN NOT NULL DEFAULT 1",
+        },
         "scout_sources": {
             "last_scanned_at": "DATETIME",
             "status": "VARCHAR(40) NOT NULL DEFAULT 'new'",
@@ -105,6 +127,8 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # Schema 8 replaces the username-keyed AI cache (no classifier version) with
         # scout_ai_classifications; the old rows are only a cache.
         connection.execute(text("DROP TABLE IF EXISTS scout_ai_cache"))
+        # Stories were removed from the scout in 0.10 with their memory of processed frames.
+        connection.execute(text("DROP TABLE IF EXISTS scout_processed_stories"))
         # Schema 9: run history order for runs created before the column existed.
         connection.execute(
             text(
@@ -115,6 +139,16 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_scout_runs_started_at ON scout_runs (started_at)")
+        )
+        # Schema 15: indexes of the columns added to crm_contacts above.
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_crm_contacts_remote"
+                " ON crm_contacts (remote_id)"
+            )
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_crm_contacts_dirty ON crm_contacts (dirty)")
         )
     with factory.begin() as session:
         if session.get(SchemaMigration, 1) is None:
@@ -161,4 +195,15 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # (workspace.sequence, campaigns.steps, jobs.step).
         if session.get(SchemaMigration, 14) is None:
             session.add(SchemaMigration(version=14))
+        # Schema 15: the shared CRM (crm_contacts remote id, owner, dirty; crm_tombstones).
+        if session.get(SchemaMigration, 15) is None:
+            session.add(SchemaMigration(version=15))
+        # Schema 16: a faster scout pace (pauses and the hourly cap still on the old defaults
+        # take the new ones; values someone chose themselves stay).
+        if session.get(SchemaMigration, 16) is None:
+            for key, before, after in PACE_DEFAULTS_16:
+                setting = session.get(Setting, key)
+                if setting is not None and setting.value == before:
+                    setting.value = after
+            session.add(SchemaMigration(version=16))
     return engine, factory

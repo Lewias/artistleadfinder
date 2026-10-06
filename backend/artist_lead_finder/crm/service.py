@@ -4,6 +4,10 @@ The Instagram and the iMessage CRM are separate (`crm` column). Contacts move be
 them, and from the parsing base, only through an import; a repeated import merges into
 the contacts that share a channel (Instagram username, email or phone) or the lead.
 Dates of next actions are calendar days in the user's local time.
+
+With accounts on, the tables are the working copy of the shared CRM (crm/sync.py). An
+admin's copy holds every user's contacts: the list can show all or one owner, while
+imports, «Написать» and statuses always work on the admin's own CRM.
 """
 
 import re
@@ -11,7 +15,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 
 from ..errors import UserError
 from ..imessage.phones import EMAIL, normalize_phone
@@ -19,6 +23,7 @@ from ..models import (
     Conversation,
     CrmContact,
     CrmStatus,
+    CrmTombstone,
     IMessageCampaign,
     IMessageJob,
     Lead,
@@ -26,6 +31,7 @@ from ..models import (
     Setting,
 )
 from . import sheets
+from . import sync as _sync  # noqa: F401 - registers the change marker
 
 CRMS = ("instagram", "imessage")
 KINDS = ("instagram", "email", "phone")
@@ -216,6 +222,23 @@ class CrmService:
         self.add_usernames = add_usernames
         self.add_recipients = add_recipients
         self.today = today
+        # (user id, is admin) of the signed-in account; (None, False) without accounts.
+        self.viewer: Callable[[], tuple[str | None, bool]] = lambda: (None, False)
+
+    def _own(self, query):
+        """Only the viewer's own contacts (rows from before sign-in have no owner yet)."""
+        me, admin = self.viewer()
+        if not admin:
+            return query
+        return query.where(or_(CrmContact.owner_id.is_(None), CrmContact.owner_id == me))
+
+    def _owned_by(self, query, owner: str | None):
+        """Own contacts by default; `all` or an owner's id in an admin's or moderator's copy."""
+        if owner in (None, "", "mine"):
+            return self._own(query)
+        if owner == "all":
+            return query
+        return query.where(CrmContact.owner_id == str(owner)[:36])
 
     # ---------- statuses ----------
 
@@ -258,7 +281,8 @@ class CrmService:
             for position, (label, color) in enumerate(wanted):
                 session.add(CrmStatus(crm=crm, label=label, color=color, position=position))
             if removed:
-                for contact in session.scalars(select(CrmContact).where(CrmContact.crm == crm)):
+                own = self._own(select(CrmContact).where(CrmContact.crm == crm))
+                for contact in session.scalars(own):
                     if removed & set(contact.statuses or []):
                         contact.statuses = [s for s in contact.statuses if s not in removed]
         return self.contacts({"crm": crm, "page_size": 1})
@@ -310,7 +334,11 @@ class CrmService:
 
     def _dict(self, contact: CrmContact, derived: datetime | None) -> dict:
         last = max((value for value in (contact.last_contact_at, derived) if value), default=None)
+        me, _ = self.viewer()
         return {
+            "owner_id": contact.owner_id,
+            "owner_name": contact.owner_name,
+            "mine": contact.owner_id in (None, me),
             "id": contact.id,
             "name": contact.name,
             "statuses": contact.statuses or [],
@@ -344,14 +372,13 @@ class CrmService:
         filters = params.get("filters") or {}
         page = max(1, int(params.get("page") or 1))
         size = min(MAX_PAGE_SIZE, max(1, int(params.get("page_size") or PAGE_SIZE)))
+        owner = params.get("owner")
         with self.sessions.begin() as session:
             statuses = self._statuses(session, crm)
-            contacts = list(
-                session.scalars(
-                    select(CrmContact).where(CrmContact.crm == crm).order_by(CrmContact.id)
-                )
-            )
+            query = self._owned_by(select(CrmContact).where(CrmContact.crm == crm), owner)
+            contacts = list(session.scalars(query.order_by(CrmContact.id)))
             derived = self._last_contacts(session, crm, contacts)
+            owners = self._owners(session, crm)
         live = [contact for contact in contacts if contact.deleted_at is None]
         counts = {
             "all": len(live),
@@ -385,7 +412,28 @@ class CrmService:
             "totals": totals,
             "statuses": [{"label": row.label, "color": row.color} for row in statuses],
             "labels": in_use,
+            "owners": owners,
         }
+
+    def _owners(self, session, crm: str) -> list[dict]:
+        """Other owners in an admin's copy, for the owner filter; empty for a user."""
+        me, admin = self.viewer()
+        if not admin:
+            return []
+        rows = session.execute(
+            select(CrmContact.owner_id, CrmContact.owner_name, func.count())
+            .where(CrmContact.crm == crm, CrmContact.deleted_at.is_(None))
+            .group_by(CrmContact.owner_id, CrmContact.owner_name)
+        )
+        found: dict[str, dict] = {}
+        for owner_id, name, count in rows:
+            key = me if owner_id in (None, me) else owner_id
+            item = found.setdefault(
+                key, {"id": key, "name": name or "", "count": 0, "mine": key == me}
+            )
+            item["count"] += count
+            item["name"] = item["name"] or name or ""
+        return sorted(found.values(), key=lambda item: (not item["mine"], item["name"].casefold()))
 
     def _matches(self, contact: CrmContact, search: str, filters: dict, derived) -> bool:
         if search:
@@ -487,10 +535,11 @@ class CrmService:
                     raise UserError("Контакт не найден.")
             else:
                 keys = {(item["kind"], item["value"]) for item in channels}
-                for other in session.scalars(select(CrmContact).where(CrmContact.crm == crm)):
+                own = self._own(select(CrmContact).where(CrmContact.crm == crm))
+                for other in session.scalars(own):
                     if keys & _keys(other):
                         raise UserError(f"Такой контакт уже есть: {other.name}.")
-                contact = CrmContact(crm=crm)
+                contact = CrmContact(crm=crm, owner_id=self.viewer()[0])
                 session.add(contact)
             for key, value in values.items():
                 setattr(contact, key, value)
@@ -530,11 +579,24 @@ class CrmService:
     def purge(self, params: dict) -> dict:
         """Deletes for good: the given contacts of the trash, or the whole trash."""
         crm = _crm(params)
-        query = delete(CrmContact).where(CrmContact.crm == crm, CrmContact.deleted_at.is_not(None))
+        where = [CrmContact.crm == crm, CrmContact.deleted_at.is_not(None)]
         if params.get("ids") is not None:
-            query = query.where(CrmContact.id.in_(_ids(params)))
+            where.append(CrmContact.id.in_(_ids(params)))
         with self.sessions.begin() as session:
-            removed = session.execute(query).rowcount
+            # Emptying the whole trash empties the admin's own trash only.
+            chosen = select(CrmContact.id, CrmContact.remote_id).where(*where)
+            if params.get("ids") is None:
+                chosen = self._own(chosen)
+            rows = session.execute(chosen).all()
+            for _, remote_id in rows:
+                if remote_id:
+                    session.merge(CrmTombstone(remote_id=remote_id))
+            ids = [row_id for row_id, _ in rows]
+            removed = 0
+            for start in range(0, len(ids), 500):
+                removed += session.execute(
+                    delete(CrmContact).where(CrmContact.id.in_(ids[start : start + 500]))
+                ).rowcount
         return {"removed": removed}
 
     def label(self, params: dict) -> dict:
@@ -564,10 +626,12 @@ class CrmService:
                 contact
                 for start in range(0, len(ids), 500)
                 for contact in session.scalars(
-                    select(CrmContact).where(
-                        CrmContact.crm == crm,
-                        CrmContact.id.in_(ids[start : start + 500]),
-                        CrmContact.deleted_at.is_(None),
+                    self._own(
+                        select(CrmContact).where(
+                            CrmContact.crm == crm,
+                            CrmContact.id.in_(ids[start : start + 500]),
+                            CrmContact.deleted_at.is_(None),
+                        )
                     )
                 )
             ]
@@ -604,13 +668,14 @@ class CrmService:
                 result.append({"id": source, "count": count})
         return result
 
-    @staticmethod
-    def _crm_rows(session, source: str) -> list[CrmContact]:
+    def _crm_rows(self, session, source: str) -> list[CrmContact]:
         return list(
             session.scalars(
-                select(CrmContact)
-                .where(CrmContact.crm == source, CrmContact.deleted_at.is_(None))
-                .order_by(CrmContact.id)
+                self._own(
+                    select(CrmContact).where(
+                        CrmContact.crm == source, CrmContact.deleted_at.is_(None)
+                    )
+                ).order_by(CrmContact.id)
             )
         )
 
@@ -682,7 +747,8 @@ class CrmService:
     def _merge_all(self, session, crm: str, incoming: list[dict]) -> dict:
         """Adds new contacts and merges the rest into the contact sharing a channel/lead."""
         index: dict[tuple[str, str], CrmContact] = {}
-        for contact in session.scalars(select(CrmContact).where(CrmContact.crm == crm)):
+        own = self._own(select(CrmContact).where(CrmContact.crm == crm))
+        for contact in session.scalars(own):
             for key in _keys(contact):
                 index.setdefault(key, contact)
         added = merged = skipped = 0
@@ -709,6 +775,7 @@ class CrmService:
             if contact is None:
                 contact = CrmContact(
                     crm=crm,
+                    owner_id=self.viewer()[0],
                     name=name,
                     channels=channels,
                     statuses=statuses,
@@ -802,7 +869,10 @@ class CrmService:
         path = Path(str(params.get("path") or ""))
         ids = set(_ids(params)) if params.get("ids") is not None else None
         with self.sessions() as session:
-            query = select(CrmContact).where(CrmContact.crm == crm, CrmContact.deleted_at.is_(None))
+            query = self._owned_by(
+                select(CrmContact).where(CrmContact.crm == crm, CrmContact.deleted_at.is_(None)),
+                params.get("owner"),
+            )
             contacts = [
                 contact
                 for contact in session.scalars(query.order_by(CrmContact.id))

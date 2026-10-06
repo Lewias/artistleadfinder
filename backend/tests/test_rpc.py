@@ -40,7 +40,7 @@ def test_user_errors_reach_the_ui_and_other_errors_stay_generic(tmp_path, monkey
             pass
 
     monkeypatch.setattr(rpc, "application_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(rpc, "open_database", lambda: open_database(tmp_path / "db.sqlite3"))
+    monkeypatch.setattr(rpc, "open_database", lambda *_: open_database(tmp_path / "db.sqlite3"))
     monkeypatch.setattr(rpc, "ApplicationService", Service)
     requests = b"".join(
         json.dumps({"id": n, "method": m, "params": {}}).encode() + b"\n"
@@ -93,3 +93,31 @@ def test_generic_errors_get_a_plain_reason_and_a_logged_code(caplog):
         Form()
     except Exception as error:
         assert describe_error("x", error) == "Проверьте формат и диапазоны полей (поле name)."
+
+
+def test_core_that_cannot_start_still_says_why(tmp_path, monkeypatch):
+    import io
+    import sys
+
+    from artist_lead_finder import rpc
+    from artist_lead_finder.database import NewerDatabaseError
+
+    def newer(*_):
+        raise NewerDatabaseError("База данных создана более новой версией Artist Lead Finder.")
+
+    monkeypatch.setattr(rpc, "application_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(rpc, "open_database", newer)
+    requests = b"".join(
+        json.dumps({"id": n, "method": m, "params": {}}).encode() + b"\n"
+        for n, m in ((1, "system.info"), (2, "system.shutdown"))
+    )
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(requests)))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+    rpc.run()
+    first, second = (json.loads(line) for line in output.getvalue().splitlines())
+    assert first == {
+        "id": 1,
+        "error": "База данных создана более новой версией Artist Lead Finder.",
+    }
+    assert second == {"id": 2, "result": {"ok": True}}

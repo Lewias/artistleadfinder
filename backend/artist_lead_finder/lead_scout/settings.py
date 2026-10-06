@@ -2,27 +2,19 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..errors import UserError
 
-DISCOVERY_METHODS = (
-    "profiles",
-    "posts",
-    "comments",
-    "tagged",
-    "stories",
-    "followers",
-    "following",
-)
+DISCOVERY_METHODS = ("profiles", "posts", "tagged", "followers", "following")
 
 
 class ScoutSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # "profiles": every source is checked as a lead itself; nothing else is read from it.
-    scout_methods: list[
-        Literal["profiles", "posts", "comments", "tagged", "stories", "followers", "following"]
-    ] = Field(default_factory=lambda: ["posts", "comments", "tagged"])
+    scout_methods: list[Literal["profiles", "posts", "tagged", "followers", "following"]] = Field(
+        default_factory=lambda: ["posts", "tagged"]
+    )
     scout_profile_type: Literal["artists", "artists_producers", "everyone"] = "artists"
     # Off: the followers range below is not applied.
     scout_use_followers_range: bool = True
@@ -53,11 +45,6 @@ class ScoutSettings(BaseModel):
     scout_max_scroll_rounds: int = Field(default=15, ge=0, le=40)
     scout_scroll_delay_ms: int = Field(default=1200, ge=300, le=5000)
     scout_max_no_progress_rounds: int = Field(default=2, ge=1, le=10)
-    # Stories: frames per source, pause between frames, confidence threshold, reuse window.
-    scout_max_stories_per_source: int = Field(default=20, ge=1, le=100)
-    scout_story_delay_ms: int = Field(default=1500, ge=500, le=5000)
-    scout_story_confidence: float = Field(default=0.8, ge=0.5, le=1.0)
-    scout_story_ttl_hours: int = Field(default=48, ge=1, le=24 * 30)
     # Transient navigation failures are retried; a publication failing this often is skipped.
     scout_max_retries: int = Field(default=2, ge=0, le=5)
     scout_max_item_failures: int = Field(default=3, ge=1, le=10)
@@ -75,6 +62,15 @@ class ScoutSettings(BaseModel):
     scout_ai_timeout_seconds: int = Field(default=15, ge=5, le=60)
     scout_ai_concurrency: int = Field(default=2, ge=1, le=5)
     scout_ai_min_confidence: int = Field(default=55, ge=0, le=100)
+
+    @field_validator("scout_methods", mode="before")
+    @classmethod
+    def known_methods(cls, value):
+        # Comments and stories were removed in 0.10; settings saved before that still list them.
+        if isinstance(value, list):
+            kept = [item for item in value if item in DISCOVERY_METHODS]
+            return kept or ["posts", "tagged"]
+        return value
 
     @model_validator(mode="after")
     def ordered_followers(self):

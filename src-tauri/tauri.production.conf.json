@@ -1,8 +1,8 @@
 {
   "bundle": {
-    "externalBin": [
-      "binaries/artist-core"
-    ],
+    "resources": {
+      "core/artist-core/": "core/"
+    },
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon.ico",
@@ -19,7 +19,8 @@
           "Russian",
           "English"
         ],
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerHooks": "installer-hooks.nsh"
       }
     },
     "macOS": {

@@ -17,7 +17,6 @@ from artist_lead_finder.models import (
     LeadScoutProfile,
     ScoutProcessedPost,
     ScoutProcessedProfile,
-    ScoutProcessedStory,
     ScoutSource,
     utcnow,
 )
@@ -150,10 +149,7 @@ def test_full_flow_posts_tagged_followers_to_leads(scout):
         "fan_one": profile_page(
             "fan_one", "Rapper and songwriter · new album out now", category="Musician/band"
         ),
-        "story_artist": profile_page("story_artist", "Singer · new single out now"),
-        "reel_author": profile_page("reel_author", "Rap artist, new album out now"),
     }
-    shared_reel = "https://www.instagram.com/reel/SR1/"
 
     def pages(state):
         kind, url = state["kind"], state["url"]
@@ -169,8 +165,7 @@ def test_full_flow_posts_tagged_followers_to_leads(scout):
                 url=url,
                 ready=True,
                 author="rapdaily",
-                collaborators=["rapdaily"],
-                comments=[dict(profile_url="https://www.instagram.com/too_big/", text="fire")],
+                collaborators=["rapdaily", "too_big"],
             )
         if kind == "post":
             return dict(
@@ -178,75 +173,31 @@ def test_full_flow_posts_tagged_followers_to_leads(scout):
                 ready=True,
                 author="rapdaily",
                 collaborators=["rapdaily", "artist_one"],
-                comments=[],
             )
         if kind == "tagged_post":
-            return dict(url=url, ready=True, author="producer_two", collaborators=[], comments=[])
-        if kind == "stories":
-            assert state["args"]["source"] == "rapdaily" and state["args"]["maxStories"] == 20
-            story = "https://www.instagram.com/stories/rapdaily/3001/"
-            return dict(
-                url=url,
-                ready=True,
-                end_reason="end_of_stories",
-                stories=[
-                    dict(
-                        id="3001",
-                        url=story,
-                        candidates=[
-                            dict(
-                                username="story_artist",
-                                evidenceType="mention_sticker",
-                                confidence=1,
-                            ),
-                            dict(
-                                username="maybe_text", evidenceType="text_mention", confidence=0.6
-                            ),
-                            dict(username="rapdaily", evidenceType="profile_link", confidence=0.9),
-                        ],
-                        shared_media=[dict(url=shared_reel, kind="reel")],
-                    )
-                ],
-            )
-        if kind == "story_media":
-            assert state["args"] == {"comments": False, "debug": False}
-            return dict(url=url, ready=True, author="reel_author", collaborators=[])
+            return dict(url=url, ready=True, author="producer_two", collaborators=[])
         return profiles[url.rstrip("/").split("/")[-1]]
 
     job, state, visited = run_pages(
         service,
         {
-            "scout_methods": ["posts", "comments", "tagged", "followers", "stories"],
+            "scout_methods": ["posts", "tagged", "followers"],
             "scout_profile_type": "artists_producers",
             "scout_max_followers": 1_000_000,
         },
         pages,
     )
     kinds = [kind for kind, _ in visited]
-    assert kinds[:4] == ["source", "tagged_grid", "stories", "followers"]
-    assert "story_media" in kinds
+    assert kinds[:3] == ["source", "tagged_grid", "followers"]
     assert state["status"] == "completed"
     stats = state["stats"]
-    assert (stats["leads"], stats["discovered"]) == (5, 7)
+    assert (stats["leads"], stats["discovered"]) == (3, 5)
     metrics = stats["providers"]["rapdaily"]
-    assert metrics["posts"]["itemsProcessed"] == 2 and metrics["posts"]["candidatesFound"] == 1
+    assert metrics["posts"]["itemsProcessed"] == 2 and metrics["posts"]["candidatesFound"] == 2
     assert metrics["tagged"]["candidatesFound"] == 1
-    assert metrics["stories"]["itemsSeen"] == 1 and metrics["stories"]["candidatesFound"] == 2
     with sessions() as session:
         leads = {row.username: row for row in session.scalars(select(Lead))}
-        assert set(leads) == {
-            "artist_one",
-            "producer_two",
-            "fan_one",
-            "story_artist",
-            "reel_author",
-        }
-        story_lead = session.get(LeadScoutProfile, leads["story_artist"].id)
-        assert (story_lead.discovery_method, story_lead.origin_url) == (
-            "story",
-            "https://www.instagram.com/stories/rapdaily/3001/",
-        )
-        assert session.get(LeadScoutProfile, leads["reel_author"].id).origin_url == shared_reel
+        assert set(leads) == {"artist_one", "producer_two", "fan_one"}
         details = session.get(LeadScoutProfile, leads["artist_one"].id)
         assert details.profile_type == "artist" and details.discovery_method == "post"
         assert details.source_username == "rapdaily" and details.origin_url == collab
@@ -265,9 +216,8 @@ def test_full_flow_posts_tagged_followers_to_leads(scout):
         assert session.get(ScoutProcessedPost, "C1").status == "processed"
         # Tagged publications live in their own namespace.
         assert session.get(ScoutProcessedPost, "tagged:rapdaily:T1").kind == "tagged_post"
-        assert session.get(ScoutProcessedStory, "story:rapdaily:3001").status == "processed"
         source = session.get(ScoutSource, SOURCE)
-        assert (source.status, source.leads_found) == ("done", 5) and source.last_scanned_at
+        assert (source.status, source.leads_found) == ("done", 3) and source.last_scanned_at
     events = service.call("scout.events", {"job_id": job})
     types = [event["type"] for event in events]
     for expected in (
@@ -335,16 +285,14 @@ def test_ai_uncertain_mode_and_contacts_filter(scout):
                 url=post,
                 ready=True,
                 author="rapdaily",
-                comments=[
-                    dict(profile_url=f"https://www.instagram.com/{n}/", text="hi") for n in profiles
-                ],
+                collaborators=list(profiles),
             )
         return profiles[state["url"].rstrip("/").split("/")[-1]]
 
     job, state, _ = run_pages(
         service,
         {
-            "scout_methods": ["posts", "comments"],
+            "scout_methods": ["posts"],
             "scout_only_contacts": True,
             "scout_ai_mode": "uncertain",
         },
@@ -392,17 +340,14 @@ def test_transient_ai_failure_is_retried_and_the_profile_comes_back(scout):
         if state["kind"] == "source":
             return dict(url=state["url"], ready=True, posts=[post])
         if state["kind"] == "post":
-            comments = [
-                dict(profile_url=f"https://www.instagram.com/{n}/", text="hi") for n in profiles
-            ]
-            return dict(url=post, ready=True, author="rapdaily", comments=comments)
+            return dict(url=post, ready=True, author="rapdaily", collaborators=list(profiles))
         name = state["url"].rstrip("/").split("/")[-1]
         if FlakyAI.calls:
             clock[0] += timedelta(minutes=10)  # the pending retry is due at the next step
         return profiles[name]
 
     job, state, visited = run_pages(
-        service, {"scout_methods": ["posts", "comments"], "scout_ai_mode": "uncertain"}, pages
+        service, {"scout_methods": ["posts"], "scout_ai_mode": "uncertain"}, pages
     )
     # AI down: local result stands (skipped), the retry answers, the profile is re-checked
     # from the AI cache without another AI call.
@@ -427,7 +372,7 @@ def test_already_processed_profiles_are_skipped_and_sources_cycle(scout):
     service, sessions = scout
     other = "https://www.instagram.com/beatsdaily/"
     with sessions.begin() as session:
-        memory.mark_profile(session, "known_artist", "rapdaily", "comment", "lead")
+        memory.mark_profile(session, "known_artist", "rapdaily", "post", "lead")
 
     def pages(state):
         if state["kind"] == "source":
@@ -442,7 +387,7 @@ def test_already_processed_profiles_are_skipped_and_sources_cycle(scout):
                 url=state["url"],
                 ready=True,
                 author=source,
-                comments=[dict(profile_url="https://www.instagram.com/known_artist/", text="hi")],
+                collaborators=["known_artist"],
             )
         raise AssertionError("no profile should be opened")
 
@@ -450,7 +395,7 @@ def test_already_processed_profiles_are_skipped_and_sources_cycle(scout):
         "settings.save",
         {
             "scout_sources_per_run": 1,
-            "scout_methods": ["posts", "comments"],
+            "scout_methods": ["posts"],
             "profiles_per_hour": 0,
         },
     )

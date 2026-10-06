@@ -11,8 +11,8 @@ from artist_lead_finder.lead_scout.candidates import (
 from artist_lead_finder.lead_scout.discovery import (
     DiscoveryContext,
     PostDiscoveryProvider,
-    StoryDiscoveryProvider,
     TaggedDiscoveryProvider,
+    initial_tasks,
 )
 from artist_lead_finder.lead_scout.errors import (
     InstagramAuthRequiredError,
@@ -193,40 +193,19 @@ def test_tagged_provider_yields_the_original_author():
     assert result.posts == [("T1", "tagged_post", "processed", None)]
 
 
-def test_story_provider_threshold_source_filter_and_shared_media():
-    provider, ctx = StoryDiscoveryProvider(), context(scout_methods=["stories"])
-    [step] = provider.start(SOURCE, ctx)
-    assert step["url"] == "https://www.instagram.com/stories/rapdaily/"
-    snapshot = {
-        "stories": [
-            {"id": "1", "skipped": True},
-            {
-                "id": "2",
-                "url": "https://www.instagram.com/stories/rapdaily/2/",
-                "candidates": [
-                    {"username": "artist1", "evidenceType": "mention_sticker", "confidence": 1},
-                    {"username": "artist2", "evidenceType": "mention_sticker", "confidence": 1},
-                    {"username": "rapdaily", "evidenceType": "profile_link", "confidence": 0.9},
-                    {"username": "maybe", "evidenceType": "text_mention", "confidence": 0.6},
-                ],
-                "shared_media": [{"url": "https://www.instagram.com/reel/SR1/", "kind": "reel"}],
-            },
-        ]
-    }
-    result = provider.handle(step, snapshot, ctx)
-    assert [c.username for c, _ in result.candidates] == ["artist1", "artist2"]
-    assert result.candidates[0][0].evidence_type == "mention_sticker"
-    assert result.metrics["alreadyProcessed"] == 1 and result.metrics["itemsProcessed"] == 1
-    assert [s["kind"] for s in result.steps] == ["story_media"]
-    media = provider.handle(result.steps[0], {"author": "reel_owner"}, ctx)
-    [(candidate, _)] = media.candidates
-    assert (candidate.username, candidate.method, candidate.evidence_type) == (
-        "reel_owner",
-        "story",
-        "shared_reel_author",
+def test_settings_saved_with_comments_and_stories_keep_the_other_methods():
+    settings = ScoutSettings.model_validate(
+        {"scout_methods": ["posts", "comments", "tagged", "stories"]}
     )
-    guest = DiscoveryContext(ScoutSettings(), True, CandidateGate("rapdaily"), lambda s, k: [])
-    assert provider.start(SOURCE, guest) == []
+    assert settings.scout_methods == ["posts", "tagged"]
+    # Only removed methods: the defaults.
+    assert ScoutSettings.model_validate({"scout_methods": ["stories"]}).scout_methods == [
+        "posts",
+        "tagged",
+    ]
+    ctx = DiscoveryContext(settings, False, CandidateGate("rapdaily"), lambda s, k: [])
+    tasks, notices = initial_tasks(SOURCE, ctx)
+    assert [t["kind"] for t in tasks] == ["source", "tagged_grid"] and notices == []
 
 
 @pytest.fixture

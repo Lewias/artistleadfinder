@@ -12,18 +12,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def target_triple() -> str:
-    """Rust host triple, the suffix Tauri expects on externalBin files."""
-    output = subprocess.run(
-        ["rustc", "-vV"], capture_output=True, text=True, check=True
-    ).stdout
-    return next(
-        line.split(": ", 1)[1]
-        for line in output.splitlines()
-        if line.startswith("host:")
-    )
-
-
 def local_browsers() -> list[Path]:
     return [
         path
@@ -56,18 +44,18 @@ def main() -> None:
     else:
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
         print(f"Chromium: {bundled_chromium().name}")
-    # macOS: one folder in the app's resources (src-tauri/tauri.macos-core.conf.json).
-    # The one-file loader syncs with its child through a System V semaphore, and some
-    # Macs deny semctl ("Failed to initialize sync semaphore"): the core never starts.
-    onedir = sys.platform == "darwin"
-    name = "artist-core" if onedir else f"artist-core-{target_triple()}"
+    # One folder in the app's resources (bundle.resources, tauri.production.conf.json).
+    # A one-file core unpacks itself (~250 MB with Chromium) into temp on every start,
+    # about 5 s before the app answers; on macOS the one-file loader also needs a System V
+    # semaphore that some Macs deny ("Failed to initialize sync semaphore").
+    name = "artist-core"
     subprocess.run(
         [
             sys.executable,
             "-m",
             "PyInstaller",
             "--noconfirm",
-            "--onedir" if onedir else "--onefile",
+            "--onedir",
             "--console",
             "--name",
             name,
@@ -78,7 +66,7 @@ def main() -> None:
             + os.pathsep
             + "artist_lead_finder/imessage",
             "--distpath",
-            "src-tauri/core" if onedir else "src-tauri/binaries",
+            "src-tauri/core",
             "--workpath",
             "build/freezer/work",
             "--specpath",
@@ -88,12 +76,9 @@ def main() -> None:
         cwd=ROOT,
         check=True,
     )
-    if onedir:
-        executable = ROOT / "src-tauri/core" / name / name
-    else:
-        executable = (
-            ROOT / "src-tauri/binaries" / (name + (".exe" if os.name == "nt" else ""))
-        )
+    executable = (
+        ROOT / "src-tauri/core" / name / (name + (".exe" if os.name == "nt" else ""))
+    )
     subprocess.run(
         [sys.executable, str(ROOT / "scripts/smoke-sidecar.py"), str(executable)],
         check=True,

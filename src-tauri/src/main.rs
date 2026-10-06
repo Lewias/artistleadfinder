@@ -56,7 +56,7 @@ fn core_executable() -> Result<std::path::PathBuf, String> {
             .ok_or("Нет каталога приложения")?
             .join("Resources/core/artist-core")
     } else if cfg!(windows) {
-        dir.join("artist-core.exe")
+        dir.join("core").join("artist-core.exe")
     } else {
         dir.join("artist-core")
     })
@@ -284,6 +284,7 @@ async fn browser_action(
             include_str!("capture.js"),
             Value::Null,
             false,
+            false,
         )
         .await?;
         if snapshot["blocked"].as_bool().unwrap_or(true)
@@ -388,7 +389,6 @@ type BrowserClosing = Arc<std::sync::atomic::AtomicBool>;
 fn page_script(state: &Value) -> &'static str {
     match (state["scout"] == true, state["kind"].as_str().unwrap_or("")) {
         (true, "source" | "tagged_grid") => include_str!("grid.js"),
-        (true, "stories") => include_str!("story.js"),
         (true, "followers" | "following") => include_str!("follow.js"),
         // Profile resolver API step: one request from the open tab, no page load.
         (true, "profile") if access(state) == Access::InPlace => include_str!("profile_api.js"),
@@ -449,20 +449,26 @@ fn watch_window(core: Core, id: String, relays: ProxyRelays, closing: BrowserClo
     }
 }
 
+/// Grid pages: the core also reads what the page's own data says about the posts.
+fn reads_feed(state: &Value) -> bool {
+    state["scout"] == true && matches!(state["kind"].as_str(), Some("source" | "tagged_grid"))
+}
+
 async fn read_script(
     core: Core,
     id: String,
     script: &'static str,
     args: Value,
     fresh: bool,
+    feed: bool,
 ) -> Result<Value, String> {
     let result = backend_request(
         core,
         "browser.runtime.eval".into(),
-        json!({"id":id,"script":script,"args":args,"fresh":fresh}),
+        json!({"id":id,"script":script,"args":args,"fresh":fresh,"feed":feed}),
     )
     .await?;
-    // Up to 200 comments of 1500 characters; Cyrillic takes two bytes per character.
+    // A page answer is small (author, caption, a grid or a follow list); refuse runaway ones.
     if result.to_string().len() > 1_000_000 {
         return Err("Слишком большой ответ страницы".into());
     }
@@ -563,6 +569,7 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             page_script(&state),
             state["args"].clone(),
             step_access == Access::InPlace,
+            reads_feed(&state),
         ));
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
             break;
@@ -746,10 +753,11 @@ mod tests {
         assert_eq!(page_script(&scout("following")), include_str!("follow.js"));
         assert_eq!(page_script(&scout("source")), include_str!("grid.js"));
         assert_eq!(page_script(&scout("tagged_grid")), include_str!("grid.js"));
-        assert_eq!(page_script(&scout("stories")), include_str!("story.js"));
         assert_eq!(page_script(&scout("post")), include_str!("scout.js"));
         assert_eq!(page_script(&scout("tagged_post")), include_str!("scout.js"));
-        assert_eq!(page_script(&scout("story_media")), include_str!("scout.js"));
+        // Only grids hand their posts' data to the core.
+        assert!(reads_feed(&scout("source")) && reads_feed(&scout("tagged_grid")));
+        assert!(!reads_feed(&scout("post")) && !reads_feed(&json!({"kind": "source"})));
         assert_eq!(
             block_reason(&json!({"block_reason": "checkpoint"})),
             "checkpoint"

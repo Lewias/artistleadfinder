@@ -123,10 +123,6 @@ def assess(candidate, observations, now=None):
                 in [m.lower().rstrip(".") for m in re.findall(MENTION, s)]
                 and len(set(m.lower().rstrip(".") for m in re.findall(MENTION, s))) == 1
             ]
-            if obs.get("kind") == "comment":
-                scoped = (
-                    sentences if obs.get("author", "").lower() == candidate.username.lower() else []
-                )
             try:
                 date = datetime.fromisoformat(obs["published_at"].replace("Z", "+00:00"))
                 if date.tzinfo is None:
@@ -199,17 +195,40 @@ def assess(candidate, observations, now=None):
 MAX_NEW_CANDIDATES_PER_POST = 30
 POST_BATCH = 12
 PAGE_KINDS_WITH_QUOTA = {"post", "tagged_post"}
-PUBLICATION_KINDS = {"post", "tagged_post", "story_media"}
+PUBLICATION_KINDS = {"post", "tagged_post"}
+# Story pages of runs paused before stories were removed: passed over without a page.
+REMOVED_KINDS = {"stories", "story_media"}
 GROUP_OF_KIND = {
     "source": "posts",
     "post": "posts",
     "tagged_grid": "tagged",
     "tagged_post": "tagged",
-    "stories": "stories",
-    "story_media": "stories",
     "followers": "followers",
     "following": "following",
 }
+
+
+def by_source(
+    current: str | None, tasks: list[dict], backlog: list[dict], pull: bool = True
+) -> tuple[list[dict], list[dict]]:
+    """One source at a time: its pages, its candidates' profiles, then its publications in
+    batches (each batch's profiles before the next batch), then the next source.
+
+    Leads come from the first source on, and a stopped run loses at most the candidates of
+    one batch (read publications are remembered and not read again). Within a source the
+    pages still go first, so a candidate seen on several of them is checked once.
+    """
+    rank: dict = {current: 0}
+    for task in tasks:
+        rank.setdefault(task.get("source"), len(rank))
+    if pull and current is not None and not any(t.get("source") == current for t in tasks):
+        mine = [item for item in backlog if item.get("source") == current]
+        if mine:
+            tasks = mine[:POST_BATCH] + tasks
+            batch = {id(item) for item in mine[:POST_BATCH]}
+            backlog = [item for item in backlog if id(item) not in batch]
+    tasks = sorted(tasks, key=lambda task: (rank[task.get("source")], task["kind"] == "profile"))
+    return tasks, backlog
 
 
 def take_batch(backlog: list[dict], size: int) -> tuple[list[dict], list[dict]]:
@@ -224,38 +243,6 @@ def take_batch(backlog: list[dict], size: int) -> tuple[list[dict], list[dict]]:
                 batch.append(items.pop(0))
     rest = [item for items in queues.values() for item in items]
     return batch, rest
-
-
-def add_evidence(session, candidate_url, observation, job_id) -> None:
-    """Attach a new comment to an already assessed lead without revisiting the profile."""
-    username = candidate_url.split("/")[-2]
-    lead = session.scalar(
-        select(Lead).where(Lead.platform == "instagram", Lead.username == username)
-    )
-    row = session.get(ScoutAssessment, lead.id) if lead else None
-    if row is None:
-        return
-    evidence = {
-        (e["url"], e.get("author"), e["caption"]): e
-        for e in row.details.get("evidence", [])
-        if e.get("kind") == "comment"
-    }
-    evidence[(observation["url"], observation["author"], observation["caption"])] = observation
-    updated = assess(
-        Candidate(
-            platform="instagram",
-            username=lead.username,
-            bio=lead.bio,
-            profile_url=lead.profile_url,
-            external_url=lead.external_url,
-        ),
-        list(evidence.values())[-30:],
-    )
-    updated["profile_checked_at"] = row.details.get(
-        "profile_checked_at", row.details["evaluated_at"]
-    )
-    row.details, row.priority = updated, updated["priority"]
-    add_lead_source(session, lead.id, job_id, "comment", observation["url"])
 
 
 def add_lead_source(
@@ -316,7 +303,7 @@ API_FAILURE_LIMIT = 3
 
 
 # Source-level pages: when one fails, the source's error counter goes up.
-SOURCE_PAGE_KINDS = {"source", "tagged_grid", "stories", "followers", "following"}
+SOURCE_PAGE_KINDS = {"source", "tagged_grid", "followers", "following"}
 
 
 def is_fatal(error: Exception) -> bool:
@@ -329,7 +316,7 @@ def candidate_ref(task: dict) -> CandidateRef:
     return CandidateRef(
         username=task["url"].rstrip("/").split("/")[-1],
         source_username=source_name(task.get("source") or ""),
-        method=task.get("method") or "comment",
+        method=task.get("method") or "post",
         origin_url=task.get("origin_url"),
     )
 
@@ -657,6 +644,8 @@ class ScoutService:
                 access, args = "navigate", task.get("args")
                 if task["kind"] == "profile":
                     access, args = self._profile_access(task)
+                elif task["kind"] in REMOVED_KINDS:
+                    access, args = "none", None
                 result.update(
                     scout=True,
                     kind=task["kind"],
@@ -688,6 +677,9 @@ class ScoutService:
             task = session.get(ScoutRun, job_id).tasks[state["cursor"]]
         if task["kind"] == "profile":
             return self._analyze(job_id, task, snapshot, state)
+        if task["kind"] in REMOVED_KINDS:
+            self.advance(job_id, [], [])
+            return {"saved": True}
         actual = snapshot.get("url", "")
         if task["kind"] in PUBLICATION_KINDS:
             matches = post_url(actual) == task["url"]
@@ -710,6 +702,15 @@ class ScoutService:
             ctx = self._context(session, scout, queue.profile_id, task["source"], yielded)
             result = provider.handle(task, snapshot, ctx)
             notices += result.notices
+            if result.source_unavailable:
+                # Its tagged and follow pages would be unavailable as well.
+                done = run.tasks[: queue.cursor + 1]
+                run.tasks = done + [
+                    t
+                    for t in run.tasks[queue.cursor + 1 :]
+                    if t["kind"] == "profile" or t.get("source") != task["source"]
+                ]
+                queue.urls = [t["url"] for t in run.tasks]
             known = {t["url"] for t in run.tasks} | {item["url"] for item in run.backlog}
             run.backlog = [
                 *run.backlog,
@@ -723,17 +724,12 @@ class ScoutService:
             additions, summary = self.process_candidates(
                 session, job_id, run, observations, known, stats, result.candidates, quota, scout
             )
-            additions = [*result.steps, *additions]
             if summary:
                 notices.append(summary)
-            # Publications and stories count as processed only after extraction finished.
+            # Publications count as processed only after extraction finished.
             for code, kind, status, error in result.posts:
                 memory.mark_post(
                     session, memory.post_key(kind, source, code), source, kind, status, error
-                )
-            for story_id, status, error in result.stories:
-                memory.mark_story(
-                    session, memory.story_key(source, story_id), source, status, error
                 )
             if result.log:
                 events.emit(
@@ -764,10 +760,6 @@ class ScoutService:
         source = source_name(source_url)
 
         def skip(name: str, kind: str) -> list[str]:
-            if kind == "story":
-                return memory.story_skip_list(
-                    session, name, scout.scout_story_ttl_hours, scout.scout_max_item_failures
-                )
             return memory.skip_list(session, name, kind, scout.scout_max_item_failures)
 
         return DiscoveryContext(
@@ -827,8 +819,6 @@ class ScoutService:
                             details="analyzed in an earlier run",
                         )
                 if processed and url not in known:
-                    if observation:
-                        add_evidence(session, url, observation, job_id)
                     if processed.result == "lead":
                         self._seen_again(session, job_id, stats, candidate, processed)
                 continue
@@ -1558,18 +1548,22 @@ class ScoutService:
             run.found += 1
             if account:
                 account.found += 1
-        # Process source pages and publications before candidates, so all evidence is available.
-        remaining = run.tasks[queue.cursor + 1 :] + (additions or [])
-        remaining.sort(key=lambda task: task["kind"] == "profile")
         notices = list(notices_in)
         limit = pacing.profiles_per_run
         checked = sum(t["kind"] == "profile" for t in run.tasks[: queue.cursor + 1])
         run_limited = bool(limit and checked >= limit)
+        remaining, run.backlog = by_source(
+            done.get("source"),
+            run.tasks[queue.cursor + 1 :] + (additions or []),
+            run.backlog,
+            pull=not run_limited,
+        )
         if run_limited and any(t["kind"] == "profile" for t in remaining):
             skipped = sum(t["kind"] == "profile" for t in remaining)
             remaining = [t for t in remaining if t["kind"] != "profile"]
             notices.append(f"Достигнут лимит {limit} профилей за запуск; не проверено: {skipped}.")
-        if account and account.found >= account.target:
+        goal = bool(account and account.found >= account.target)
+        if goal:
             remaining = []
             notices.append(f"Цель достигнута: найдено {account.found} из {account.target}.")
         elif not remaining and run.backlog and not run_limited:
@@ -1587,7 +1581,11 @@ class ScoutService:
         if notices:
             run.notices = [*run.notices, *notices][-30:]
         stats = {**empty_stats([]), **(run.stats or {})}
-        self._track_sources(session, job_id, run, stats, remaining)
+        if goal:
+            # Sources this run did not finish stay for the next one, not in cooldown.
+            self._stop_sources(session, stats, "stopped")
+        else:
+            self._track_sources(session, job_id, run, stats, remaining)
         run.stats = stats
         if queue.cursor >= len(queue.urls):
             job.status, job.stage, job.completed_at = "completed", "completed", utcnow()

@@ -11,10 +11,15 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
-from .chromium_runtime import BrowserLaunchError
-from .database import application_data_dir, open_database
+from .account import project
+from .account.client import SupabaseClient
+from .account.runtime import Runtime
+from .account.session import AccountService
+from .browser_sessions import BrowserSessions
+from .chromium_runtime import BrowserLaunchError, ChromiumRuntime
+from .database import NewerDatabaseError, application_data_dir, open_database
 from .errors import UserError
-from .service import ApplicationService
+from .service import ApplicationService, system_info
 
 
 class Request(BaseModel):
@@ -99,6 +104,55 @@ def describe_error(method: str | None, error: BaseException) -> str:
     return f"Внутренняя ошибка приложения (код {ref}). Подробности в журнале."
 
 
+def serve_failure(message: str) -> None:
+    """The core could not start: it still answers, so the window shows why instead of
+    "connection lost" after the process exits."""
+    for line in iter(lambda: sys.stdin.buffer.readline(2_000_001), b""):
+        try:
+            request = json.loads(line)
+            request_id, method = request.get("id"), request.get("method")
+        except (ValueError, AttributeError):
+            request_id, method = None, None
+        if method == "system.shutdown":
+            sys.stdout.write(json.dumps({"id": request_id, "result": {"ok": True}}) + "\n")
+            sys.stdout.flush()
+            break
+        sys.stdout.write(json.dumps({"id": request_id, "error": message}, ensure_ascii=True) + "\n")
+        sys.stdout.flush()
+
+
+def open_service(folder: Path, log_dir: Path):
+    """The local app of one account (or of the whole install without accounts)."""
+    engine, sessions = open_database(folder / "artist-leads.sqlite3")
+    try:
+        service = ApplicationService(sessions, folder, log_dir)
+        service.chromium.prepare()
+    except Exception:
+        engine.dispose()
+        raise
+
+    def close() -> None:
+        try:
+            service.shutdown()
+        finally:
+            engine.dispose()
+
+    return service, close
+
+
+def build_runtime(data_dir: Path, log_dir: Path) -> Runtime:
+    url, key = project.SUPABASE_URL, project.SUPABASE_ANON_KEY
+    client = SupabaseClient(url, key) if url and key else None
+    account = AccountService(data_dir, client)
+    return Runtime(
+        data_dir,
+        account,
+        lambda folder: open_service(folder, log_dir),
+        lambda: system_info(data_dir, log_dir),
+        lambda: ChromiumRuntime(BrowserSessions(data_dir / "probe")),
+    )
+
+
 def run() -> None:
     data_dir = application_data_dir()
     log_dir = data_dir / "logs"
@@ -109,9 +163,19 @@ def run() -> None:
     handler.setFormatter(JsonLogFormatter())
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
     logging.info("application_startup")
-    engine, sessions = open_database()
-    service = ApplicationService(sessions, data_dir)
-    service.chromium.prepare()
+    runtime = build_runtime(data_dir, log_dir)
+    try:
+        runtime.start()
+    except Exception as error:
+        if isinstance(error, NewerDatabaseError):
+            logging.error("startup_failed", extra=failure_context("startup", error))
+            message = str(error)
+        else:
+            message = describe_error("startup", error).replace(
+                "Внутренняя ошибка приложения", "Ядро не смогло запуститься"
+            )
+        serve_failure(message)
+        return
     try:
         while True:
             line = sys.stdin.buffer.readline(2_000_001)
@@ -126,18 +190,17 @@ def run() -> None:
                 request_id = request.id
                 method = request.method
                 if request.method == "system.shutdown":
-                    service.shutdown()
+                    runtime.shutdown()
                     response = {"id": request_id, "result": {"ok": True}}
                     sys.stdout.write(json.dumps(response) + "\n")
                     sys.stdout.flush()
                     break
-                result = service.call(request.method, request.params)
+                result = runtime.call(request.method, request.params)
                 response = {"id": request_id, "result": result}
             except Exception as error:
                 response = {"id": request_id, "error": describe_error(method, error)}
             sys.stdout.write(json.dumps(response, ensure_ascii=True) + "\n")
             sys.stdout.flush()
     finally:
-        service.shutdown()
-        engine.dispose()
+        runtime.shutdown()
         logging.info("application_shutdown")

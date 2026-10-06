@@ -1,10 +1,16 @@
 import sqlite3
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from artist_lead_finder.database import open_database
-from artist_lead_finder.models import ScoutAccount, ScoutRun
+from artist_lead_finder.models import (
+    ScoutAccount,
+    ScoutProcessedPost,
+    ScoutProcessedProfile,
+    ScoutRun,
+    ScoutSource,
+)
 from artist_lead_finder.scouting import take_batch
 from artist_lead_finder.service import ApplicationService
 
@@ -33,12 +39,12 @@ def profile_snapshot(url, bio="Independent rapper. New single out now"):
     )
 
 
-def post_snapshot(url, commenters, author="music_news"):
+def post_snapshot(url, coauthors, author="music_news"):
     return dict(
         url=url,
         ready=True,
         author=author,
-        comments=[dict(profile_url=c, text="New single out now") for c in commenters],
+        collaborators=[c.rstrip("/").split("/")[-1] for c in coauthors],
     )
 
 
@@ -50,7 +56,7 @@ def service(tmp_path):
         "settings.save",
         {
             "profiles_per_hour": 0,
-            "scout_methods": ["posts", "comments"],
+            "scout_methods": ["posts"],
             "scout_profile_api": False,
         },
     )
@@ -101,7 +107,7 @@ def test_account_goal_stops_run_and_continue_needs_a_higher_goal(service):
     }
 
 
-def test_backlog_is_queued_in_batches_until_publications_run_out(service):
+def test_sources_go_one_at_a_time_with_publications_in_batches(service):
     service.call("scout.account_target", {"profile_id": ACCOUNT, "target": 50})
     job = service.call("scout.start_internal", {"sources": [SOURCE, OTHER], "profile_id": ACCOUNT})[
         "id"
@@ -111,23 +117,46 @@ def test_backlog_is_queued_in_batches_until_publications_run_out(service):
 
     def pages(url):
         if url in grid:
+            seen.append(url)
             return dict(url=url, ready=True, posts=grid[url])
+        if "/p/" not in url:
+            return profile_snapshot(url)
         seen.append(url)
-        author = "music_news" if int(url.split("post")[1].strip("/")) < 100 else "beats_daily"
-        return post_snapshot(url, [], author=author)
+        number = int(url.split("post")[1].strip("/"))
+        author = "music_news" if number < 100 else "beats_daily"
+        return post_snapshot(url, [artist(f"artist_{number}")], author=author)
 
     service.call("scout.commit_internal", {"id": job, "snapshot": pages(SOURCE)})
-    service.call("scout.commit_internal", {"id": job, "snapshot": pages(OTHER)})
     state = service.call("capture.state", {"id": job})
-    # Only the first batch is queued; it alternates between sources.
-    assert state["kind"] == "post" and state["backlog"] == 30 - 12
-    assert state["url"] == post(0)
-    with service.scout.sessions() as session:
-        queued = [t["url"] for t in session.get(ScoutRun, job).tasks if t["kind"] == "post"]
-    assert queued[:4] == [post(0), post(100), post(1), post(101)]
+    # The first source's publications come before the next source, one batch at a time.
+    assert state["kind"] == "post" and state["url"] == post(0) and state["backlog"] == 20 - 12
     state = drive(service, job, pages)
-    assert state["status"] == "completed" and len(seen) == 30
+    assert state["status"] == "completed"
+    assert seen == [
+        SOURCE,
+        *[post(n) for n in range(20)],
+        OTHER,
+        *[post(100 + n) for n in range(10)],
+    ]
     assert any("Доступные публикации источников закончились" in n for n in state["notices"])
+
+
+def test_a_batch_is_checked_before_the_next_one_is_read(service):
+    service.call("scout.account_target", {"profile_id": ACCOUNT, "target": 50})
+    job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": ACCOUNT})["id"]
+    order = []
+
+    def pages(url):
+        order.append("grid" if url == SOURCE else "post" if "/p/" in url else "profile")
+        if url == SOURCE:
+            return dict(url=SOURCE, ready=True, posts=[post(n) for n in range(15)])
+        if "/p/" in url:
+            return post_snapshot(url, [artist(f"artist_{url.split('/')[-2]}")])
+        return profile_snapshot(url)
+
+    drive(service, job, pages)
+    # 12 publications, their 12 profiles, then the other 3 publications and their profiles.
+    assert order == ["grid", *["post"] * 12, *["profile"] * 12, *["post"] * 3, *["profile"] * 3]
 
 
 def test_accounts_run_in_parallel_without_checking_the_same_candidate(service):
@@ -203,3 +232,107 @@ def test_take_batch_round_robin():
     batch, rest = take_batch(backlog, 3)
     assert [item["url"] for item in batch] == ["a0", "b0", "a1"]
     assert [item["url"] for item in rest] == ["a2"]
+
+
+def test_each_source_checks_its_candidates_before_the_next_source(service):
+    service.call(
+        "settings.save", {"scout_methods": ["posts", "tagged"], "scout_profile_api": False}
+    )
+    job = service.call("scout.start_internal", {"sources": [SOURCE, OTHER], "profile_id": ACCOUNT})[
+        "id"
+    ]
+    order = []
+
+    def pages(url):
+        # Grid data names every author, so no publication is opened.
+        source = OTHER if url.startswith(OTHER) else SOURCE
+        if url in (SOURCE, OTHER, SOURCE + "tagged/", OTHER + "tagged/"):
+            tab = "tagged" if url.endswith("tagged/") else "grid"
+            order.append(f"{tab}:{source.split('/')[-2]}")
+            code = f"{tab[0].upper()}{len(order)}"
+            author = f"artist_{code.lower()}"
+            return dict(
+                url=url,
+                ready=True,
+                posts=[f"https://www.instagram.com/p/{code}/"],
+                feed={code: {"author": author, "collaborators": []}},
+            )
+        order.append("profile")
+        return profile_snapshot(url)
+
+    drive(service, job, pages)
+    assert order == [
+        "grid:music_news",
+        "tagged:music_news",
+        "profile",
+        "profile",
+        "grid:beats_daily",
+        "tagged:beats_daily",
+        "profile",
+        "profile",
+    ]
+
+
+def test_goal_reached_leaves_unscanned_sources_for_the_next_run(service):
+    service.call("scout.account_target", {"profile_id": ACCOUNT, "target": 1})
+    job = service.call("scout.start_internal", {"sources": [SOURCE, OTHER], "profile_id": ACCOUNT})[
+        "id"
+    ]
+
+    def pages(url):
+        if url == SOURCE:
+            return dict(url=SOURCE, ready=True, posts=[post(1)])
+        if "/p/" in url:
+            return post_snapshot(url, [artist("first_artist")])
+        return profile_snapshot(url)
+
+    state = drive(service, job, pages)
+    assert state["status"] == "completed" and state["found"] == 1
+    with service.scout.sessions() as session:
+        other = session.get(ScoutSource, OTHER)
+        assert other.last_scanned_at is None and other.status == "stopped"
+
+
+def test_closed_window_pauses_instead_of_skipping_sources(service):
+    job = service.call("scout.start_internal", {"sources": [SOURCE, OTHER], "profile_id": ACCOUNT})[
+        "id"
+    ]
+    service.call("capture.error_internal", {"id": job, "reason": "closed"})
+    state = service.call("capture.state", {"id": job})
+    assert state["status"] == "paused" and state["url"] == SOURCE
+    assert "Окно браузера закрыто" in state["error"]
+    with service.scout.sessions() as session:
+        assert session.get(ScoutSource, SOURCE).last_scanned_at is None
+
+
+def test_memory_reset_keeps_leads_and_forgets_the_rest(service):
+    service.call("scout.account_target", {"profile_id": ACCOUNT, "target": 1})
+    job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": ACCOUNT})["id"]
+
+    def pages(url):
+        if url == SOURCE:
+            return dict(url=SOURCE, ready=True, posts=[post(1)])
+        if "/p/" in url:
+            return post_snapshot(url, [artist("kept_artist")])
+        return profile_snapshot(url)
+
+    drive(service, job, pages)
+    empty = service.call("scout.start_internal", {"sources": [OTHER], "profile_id": SECOND})["id"]
+    with pytest.raises(ValueError, match="Остановите парсинг"):
+        service.call("scout.reset_memory", {})
+    service.call("jobs.control", {"id": empty, "action": "cancel"})
+    # The search without leads goes; the one that found the lead stays but is hidden.
+    assert service.call("scout.reset_memory", {}) == {"searches_removed": 1}
+    assert [lead["username"] for lead in service.call("scout.results", {})] == ["kept_artist"]
+    assert service.call("jobs.list", {}) == []
+    with service.scout.sessions() as session:
+        for model in (ScoutRun, ScoutProcessedProfile, ScoutProcessedPost):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+        source = session.get(ScoutSource, SOURCE)
+        assert (source.last_scanned_at, source.status, source.leads_found) == (None, "new", 0)
+        assert session.get(ScoutAccount, ACCOUNT).found == 0
+    # The same publication is read again by the next run.
+    service.call("scout.account_target", {"profile_id": ACCOUNT, "target": 5})
+    job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": ACCOUNT})["id"]
+    service.call("scout.commit_internal", {"id": job, "snapshot": pages(SOURCE)})
+    assert service.call("capture.state", {"id": job})["url"] == post(1)

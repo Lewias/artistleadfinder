@@ -15,7 +15,7 @@ SECOND_POST = "https://www.instagram.com/p/two/"
 ARTIST = "https://www.instagram.com/new_rapper/"
 NOW = datetime(2026, 9, 22, tzinfo=timezone.utc)
 # These flows commit page snapshots of profiles; the API step has its own tests.
-BROWSER_ONLY = {"scout_methods": ["posts", "comments"], "scout_profile_api": False}
+BROWSER_ONLY = {"scout_methods": ["posts"], "scout_profile_api": False}
 
 
 def observation(caption, date="2026-09-21T00:00:00Z"):
@@ -94,10 +94,7 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
             ready=True,
             author="music_news",
             caption=caption,
-            comments=[
-                dict(profile_url=ARTIST, text="New single out now"),
-                dict(profile_url="https://www.instagram.com/not_artist/", text="Nice"),
-            ],
+            collaborators=["new_rapper", "not_artist"],
             published_at="2026-09-21T00:00:00Z",
         )
     )
@@ -108,7 +105,6 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
     leads = service.call("scout.results", {})
     assert len(leads) == 1 and leads[0]["username"] == "new_rapper"
     assert leads[0]["contacts"] == ["bookings@example.com"]
-    assert leads[0]["evidence"][0]["url"] == POST
     with sessions() as session:
         assert session.scalar(select(func.count()).select_from(Lead)) == 1
         assert session.scalar(select(func.count()).select_from(ScoutPost)) == 1
@@ -128,12 +124,10 @@ def test_source_to_posts_to_leads_incremental_restart_and_crm(tmp_path):
             url=SECOND_POST,
             ready=True,
             author="music_news",
-            comments=[dict(profile_url=ARTIST, text="New comment")],
+            collaborators=["new_rapper"],
         )
     )
-    with sessions() as session:
-        assert len(session.get(ScoutRun, job).observations[ARTIST]) == 1
-    # Already processed: evidence is attached, the profile is not queued again.
+    # Already processed: the profile is not queued again.
     assert service.call("capture.state", {"id": job})["status"] == "completed"
     assert service.call("scout.results", {}) == []
     service.shutdown()
@@ -184,44 +178,26 @@ def test_source_mismatch_pause_skip_and_cancel(tmp_path):
     engine.dispose()
 
 
-def test_service_scores_age_without_new_browser_visit(tmp_path, monkeypatch):
-    import artist_lead_finder.scouting as scouting
-
-    monkeypatch.setattr(scouting, "utcnow", lambda: NOW)
-    engine, sessions = open_database(tmp_path / "aging.db")
+def test_unavailable_source_skips_its_other_pages(tmp_path):
+    engine, sessions = open_database(tmp_path / "scout.db")
     service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", BROWSER_ONLY)
+    service.call("settings.save", {**BROWSER_ONLY, "scout_methods": ["posts", "tagged"]})
+    other = "https://www.instagram.com/other_source/"
     job = service.call(
-        "scout.start_internal",
-        {
-            "sources": [SOURCE],
-            "profile_id": "0" * 32,
-        },
+        "scout.start_internal", {"sources": [SOURCE, other], "profile_id": "0" * 32}
     )["id"]
-    for snapshot in [
-        dict(url=SOURCE, ready=True, posts=[POST]),
-        dict(
-            url=POST,
-            ready=True,
-            author="music_news",
-            caption="Rapper @new_rapper needs beats",
-            comments=[
-                dict(profile_url=ARTIST, text="I need beats", published_at="2026-09-21T00:00:00Z")
-            ],
-            published_at="2026-09-21T00:00:00Z",
-        ),
-        profile(),
-    ]:
-        service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
-    assert service.call("scout.results", {})[0]["services"]["beats"]["score"] == 90
-    monkeypatch.setattr(scouting, "utcnow", lambda: datetime(2027, 9, 22, tzinfo=timezone.utc))
-    assert service.call("scout.results", {})[0]["services"]["beats"]["score"] == 40
+    service.call(
+        "scout.commit_internal",
+        {"id": job, "snapshot": dict(url=SOURCE, ready=True, unavailable=True)},
+    )
+    # Not the tagged tab of the missing source: the next source's grid.
+    assert service.call("capture.state", {"id": job})["url"] == other
     service.shutdown()
     engine.dispose()
 
 
-def test_only_comment_authors_are_checked_and_private_profiles_rejected(tmp_path):
-    engine, sessions = open_database(tmp_path / "comments.db")
+def test_coauthors_are_checked_and_private_profiles_rejected(tmp_path):
+    engine, sessions = open_database(tmp_path / "coauthors.db")
     service = ApplicationService(sessions, tmp_path)
     service.call("settings.save", BROWSER_ONLY)
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
@@ -235,39 +211,16 @@ def test_only_comment_authors_are_checked_and_private_profiles_rejected(tmp_path
             url=POST,
             ready=True,
             author="music_news",
+            # Caption tags are never candidates; the source itself is not one either.
             caption="Rapper @caption_only new album",
-            comments=[
-                dict(profile_url=ARTIST, text="Nice! @tagged_artist"),
-                dict(profile_url=ARTIST, text="Another comment"),
-                dict(profile_url=SOURCE, text="Thanks"),
-                dict(profile_url="https://evil.test/artist/", text="spam"),
-            ],
+            collaborators=["new_rapper", "new_rapper", "music_news"],
         )
     )
     state = service.call("capture.state", {"id": job})
     assert state["url"] == ARTIST and state["candidates"] == 1
-    with sessions() as session:
-        assert len(session.get(ScoutRun, job).observations[ARTIST]) == 2
     commit({**profile(), "private": True})
     assert service.call("capture.state", {"id": job})["status"] == "completed"
     assert service.call("scout.results", {}) == []
-    service.shutdown()
-    engine.dispose()
-
-
-def test_empty_comments_do_not_fall_back_to_caption(tmp_path):
-    engine, sessions = open_database(tmp_path / "empty.db")
-    service = ApplicationService(sessions, tmp_path)
-    service.call("settings.save", BROWSER_ONLY)
-    job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
-    for snapshot in [
-        dict(url=SOURCE, ready=True, posts=[POST]),
-        dict(url=POST, ready=True, author="music_news", caption="Rapper @new_rapper", comments=[]),
-    ]:
-        service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
-    state = service.call("capture.state", {"id": job})
-    assert state["status"] == "completed" and state["candidates"] == 0
-    assert state["notices"]
     service.shutdown()
     engine.dispose()
 
@@ -279,11 +232,8 @@ def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
     params = {"sources": [SOURCE], "profile_id": "0" * 32}
     posts = [f"https://www.instagram.com/p/post{n}/" for n in range(5)]
 
-    def commenters(post, count):
-        return [
-            dict(profile_url=f"https://www.instagram.com/fan_{post}_{i}/", text="fire")
-            for i in range(count)
-        ]
+    def fans(post, count):
+        return [f"fan_{post}_{i}" for i in range(count)]
 
     job = service.call("scout.start_internal", params)["id"]
 
@@ -291,17 +241,13 @@ def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
         return service.call("scout.commit_internal", {"id": job, "snapshot": snapshot})
 
     commit(dict(url=SOURCE, ready=True, posts=posts))
-    # Post 0: the artist, 40 other unique commenters and a repeated comment from the artist.
+    # Post 0: the artist and 40 other unique co-authors.
     commit(
         dict(
             url=posts[0],
             ready=True,
             author="music_news",
-            comments=[
-                dict(profile_url=ARTIST, text="I need beats"),
-                *commenters(0, 40),
-                dict(profile_url=ARTIST, text="Still need beats"),
-            ],
+            collaborators=["new_rapper", *fans(0, 40)],
         )
     )
     # Posts 1-4 repeat the artist; duplicates must not use the 30-candidate quota.
@@ -311,7 +257,7 @@ def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
                 url=posts[n],
                 ready=True,
                 author="music_news",
-                comments=[dict(profile_url=ARTIST, text=f"beats {n}"), *commenters(n, 35)],
+                collaborators=["new_rapper", *fans(n, 35)],
             )
         )
     state = service.call("capture.state", {"id": job})
@@ -321,16 +267,16 @@ def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
         profiles = [t["url"] for t in run.tasks if t["kind"] == "profile"]
     assert len(profiles) == len(set(profiles)) == 150
     assert ARTIST in profiles
-    assert any("новых кандидатов 30, повторов 1; достигнут лимит 30" in n for n in state["notices"])
+    # The artist repeated on posts 1-4 is dropped before the quota is counted.
+    assert any("новых кандидатов 30" in n and "достигнут лимит 30" in n for n in state["notices"])
 
     while (state := service.call("capture.state", {"id": job}))["status"] == "running":
         url = state["url"]
         commit(profile() if url == ARTIST else profile(url.split("/")[-2], "Just a fan"))
     [lead] = service.call("scout.results", {})
     assert lead["username"] == "new_rapper"
-    evidence_before = len(lead["evidence"])
 
-    # A later run treats the already checked artist as a duplicate and only adds evidence.
+    # A later run treats the already checked artist as a duplicate.
     job = service.call("scout.start_internal", params)["id"]
     fresh_post = "https://www.instagram.com/p/fresh/"
     commit(dict(url=SOURCE, ready=True, posts=[posts[0], fresh_post]))
@@ -339,14 +285,12 @@ def test_thirty_new_candidates_per_post_no_run_cap_and_no_revisits(tmp_path):
             url=fresh_post,
             ready=True,
             author="music_news",
-            comments=[dict(profile_url=ARTIST, text="Need a mix for my new track")],
+            collaborators=["new_rapper"],
         )
     )
     state = service.call("capture.state", {"id": job})
     assert state["status"] == "completed"  # no profile revisit was queued
     assert any("новых кандидатов 0, повторов 1" in n for n in state["notices"])
-    [lead] = service.call("scout.results", {})
-    assert len(lead["evidence"]) == min(evidence_before + 1, 5)
-    assert lead["evidence"][-1]["caption"] == "Need a mix for my new track"
+    assert len(service.call("scout.results", {})) == 1
     service.shutdown()
     engine.dispose()

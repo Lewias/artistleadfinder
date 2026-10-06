@@ -10,6 +10,7 @@ import { DataState } from '../components/DataState';
 import { Button } from '../components/ui/button';
 import { PageHeader } from '../components/PageHeader';
 import { UpdatesPanel } from '../components/UpdateNotice';
+import { MemoryReset } from '../components/MemoryReset';
 import type { useUpdater } from '../hooks/useUpdater';
 
 type Updater = ReturnType<typeof useUpdater> & { version?: string };
@@ -322,6 +323,7 @@ function SettingsForm({
         </p>
       )}
       <ErrorToast message={error} />
+      <MemoryReset />
       <section className="panel provider-panel">
         <h2>Состояние источников</h2>
         <div className="table-container">

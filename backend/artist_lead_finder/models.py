@@ -245,18 +245,6 @@ class ScoutProcessedPost(Base):
     last_error: Mapped[str | None] = mapped_column(String(200))
 
 
-class ScoutProcessedStory(Base):
-    """Story memory keyed story:<source>:<media id>; reused only within the TTL."""
-
-    __tablename__ = "scout_processed_stories"
-    story_id: Mapped[str] = mapped_column(String(120), primary_key=True)
-    source_username: Mapped[str] = mapped_column(String(40))
-    processed_at: Mapped[datetime] = mapped_column(default=utcnow)
-    status: Mapped[str] = mapped_column(String(20), default="processed")
-    attempts: Mapped[int] = mapped_column(default=1)
-    last_error: Mapped[str | None] = mapped_column(String(200))
-
-
 class ScoutAIClassification(Base):
     """Schema 8: AI answers keyed by a hash of the classified profile fields; answers of
     another classifier version are ignored."""
@@ -787,6 +775,8 @@ class CrmContact(Base):
         CheckConstraint("crm IN ('instagram','imessage')"),
         Index("ix_crm_contacts_crm", "crm", "deleted_at", "id"),
         Index("ix_crm_contacts_lead", "lead_id"),
+        Index("ix_crm_contacts_remote", "remote_id", unique=True),
+        Index("ix_crm_contacts_dirty", "dirty"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     crm: Mapped[str] = mapped_column(String(12))
@@ -804,8 +794,22 @@ class CrmContact(Base):
     lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # In the trash since; null for live contacts.
     deleted_at: Mapped[datetime | None]
+    # Schema 15, the shared CRM: the server's id, the owner's account, and whether the
+    # row has changes the server has not received yet (set on every local change).
+    remote_id: Mapped[str | None] = mapped_column(String(36))
+    owner_id: Mapped[str | None] = mapped_column(String(36))
+    owner_name: Mapped[str] = mapped_column(String(160), default="")
+    dirty: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class CrmTombstone(Base):
+    """Schema 15: a contact deleted for good here, until the server learns about it."""
+
+    __tablename__ = "crm_tombstones"
+    remote_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class CrmStatus(Base):

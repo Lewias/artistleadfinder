@@ -1,6 +1,6 @@
 [package]
 name = "artist-lead-finder"
-version = "0.9.1"
+version = "0.9.9"
 description = "Local independent artist discovery workspace"
 edition = "2021"
 

@@ -13,7 +13,6 @@ const methods: { id: ScoutMethod; title: string; text: string; experimental?: bo
     title: 'Проверить профили',
     text: 'Каждый username из списка проверяется как конечный профиль. Посты и связи источника не обходятся.',
   },
-  { id: 'stories', title: 'Сторис', text: 'Репосты в сторис и кнопки перехода к постам.' },
   { id: 'posts', title: 'Посты', text: 'Последние посты/рилсы, авторы и соавторы.' },
   { id: 'tagged', title: 'Отметки', text: 'Проверяет посты, где источник отмечен.' },
   {
@@ -345,20 +344,11 @@ export function ScoutSettingsPanel() {
       </Block>
 
       <details className="scout-advanced">
-        <summary>Дополнительно: источники, профили, прокрутка, stories, повторы, отладка</summary>
+        <summary>Дополнительно: источники, профили, прокрутка, повторы, отладка</summary>
         <div className="scout-settings-grid">
           <section>
             <h3>Источники и лиды</h3>
             <div className="check-list">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={has('comments')}
-                  disabled={busy}
-                  onChange={event => toggleMethod('comments', event.target.checked)}
-                />
-                Авторы комментариев к постам
-              </label>
               <label>
                 <input
                   type="checkbox"
@@ -433,15 +423,6 @@ export function ScoutSettingsPanel() {
             <div className="field-row">
               {numberField('scout_follow_page_size', 'Строк на страницу', 5, 50)}
               {numberField('scout_follow_delay_seconds', 'Пауза между страницами, с', 1, 10)}
-            </div>
-          </section>
-          <section>
-            <h3>Stories</h3>
-            <div className="field-row">
-              {numberField('scout_max_stories_per_source', 'Историй на источник', 1, 100)}
-              {numberField('scout_story_delay_ms', 'Пауза между кадрами, мс', 500, 5000)}
-              {numberField('scout_story_confidence', 'Порог уверенности', 0.5, 1, { step: 0.05 })}
-              {numberField('scout_story_ttl_hours', 'Не повторять, ч', 1, 720)}
             </div>
           </section>
           <section>

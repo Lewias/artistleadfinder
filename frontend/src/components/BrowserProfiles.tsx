@@ -127,6 +127,46 @@ export function BrowserProfiles() {
     }
     void run(profile, () => api.request('scout.account_target', { profile_id: profile.id, target: value }));
   };
+  // Header buttons: every ticked account at once, like «Парсинг» and «Рассылка» on the boards.
+  const chosenRows = selected.flatMap(id => scoutRows.get(id) ?? []);
+  const parsingAll = chosenRows.some(scoutActive);
+  const runAll = async (operation: () => Promise<unknown>) => {
+    setBusy('all');
+    setMessage('');
+    try {
+      await operation();
+    } catch (err) {
+      setMessage(errorText(err));
+    } finally {
+      setBusy(null);
+      scout.refresh();
+      workspaceResource.refresh();
+      void refresh().catch(() => undefined);
+    }
+  };
+  const outreachAll = () =>
+    void runAll(async () => {
+      if (workspace?.running) {
+        setWorkspace(await api.request<OutreachWorkspace>('outreach.workspace_stop'));
+        return;
+      }
+      if (!selected.length) throw new Error('Отметьте аккаунты для рассылки.');
+      // Like the board: the sender windows open (an open one is just focused) before the queue.
+      for (const id of selected) await api.browser('open', { id });
+      setWorkspace(await api.request<OutreachWorkspace>('outreach.workspace_start'));
+    });
+  const parseAll = () =>
+    void runAll(async () => {
+      if (parsingAll) {
+        for (const row of chosenRows.filter(scoutActive)) await controlScout(row, 'cancel');
+        return;
+      }
+      if (!selected.length) throw new Error('Отметьте аккаунты для парсинга.');
+      if (chosenRows.length < selected.length) {
+        throw new Error('Данные парсера ещё загружаются, повторите через секунду.');
+      }
+      for (const row of chosenRows) await startScout(row);
+    });
   const pickCookies = (profile: BrowserProfile) =>
     void run(profile, async () => {
       const path = await open({
@@ -187,9 +227,35 @@ export function BrowserProfiles() {
           <span title="Всего профилей / с сохранённой сессией">{`${profiles.length} / ${withSession}`}</span>
         }
         actions={
-          <Button onClick={() => openDialog({ kind: 'create' })}>
-            <Plus size={16} /> Новый профиль
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              disabled={busy !== null || (!workspace?.running && !selected.length)}
+              title={
+                workspace?.running ? 'Остановить рассылку' : 'Запустить рассылку со всех отмеченных аккаунтов'
+              }
+              onClick={outreachAll}
+            >
+              {workspace?.running ? <Square size={13} /> : <Play size={14} />}
+              {workspace?.running ? 'Стоп рассылки' : 'Рассылка'}
+            </Button>
+            <Button
+              variant={parsingAll ? 'danger' : 'green'}
+              disabled={busy !== null || (!parsingAll && !selected.length)}
+              title={
+                parsingAll
+                  ? 'Остановить парсинг на отмеченных аккаунтах'
+                  : 'Запустить парсинг на всех отмеченных аккаунтах'
+              }
+              onClick={parseAll}
+            >
+              {parsingAll ? <Square size={13} /> : <Radar size={15} />}
+              {parsingAll ? 'Стоп парсинга' : 'Парсинг'}
+            </Button>
+            <Button onClick={() => openDialog({ kind: 'create' })}>
+              <Plus size={16} /> Новый профиль
+            </Button>
+          </>
         }
       >
         <div className="stat-pills">

@@ -1,4 +1,4 @@
-"""Instagram candidate discovery providers (posts/reels, tagged, stories, follow lists).
+"""Instagram candidate discovery providers (posts/reels, tagged, follow lists).
 
 The browser is driven step by step by the desktop queue (it opens a page, a page script
 reads it, the snapshot comes back here), so a provider is a resumable generator split
@@ -15,6 +15,7 @@ calls AI or saves leads; ScoutService.process_candidates takes it from there.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from . import feed as grid_feed
 from .candidates import (
     CandidateGate,
     ScoutCandidate,
@@ -24,7 +25,6 @@ from .candidates import (
 from .settings import ScoutSettings
 
 GUEST_POSTS_PER_SOURCE = 12
-MAX_COMMENTS_PER_POST = 200
 METRIC_KEYS = (
     "itemsSeen",
     "itemsProcessed",
@@ -37,9 +37,7 @@ METRIC_KEYS = (
 GROUP_OF_METHOD = {
     "post": "posts",
     "reel": "posts",
-    "comment": "comments",
     "tagged": "tagged",
-    "story": "stories",
     "followers": "followers",
     "following": "following",
     "profile": "profiles",
@@ -68,27 +66,25 @@ class DiscoveryContext:
     guest: bool
     # Per-step, in-memory candidate validation (source, ignore-list, per-run duplicates).
     gate: CandidateGate
-    # (source username, "post" | "tagged_post" | "story") -> ids already handled.
+    # (source username, "post" | "tagged_post") -> ids already handled.
     skip: Callable[[str, str], list[str]]
 
 
 @dataclass
 class StepResult:
     group: str
-    # (candidate, comment observation or None) in page order.
+    # (candidate, caption observation or None) in page order.
     candidates: list[tuple[ScoutCandidate, dict | None]] = field(default_factory=list)
-    # Pages queued right away (a story's shared publication).
-    steps: list[dict] = field(default_factory=list)
     # Publications queued in batches as the run needs them.
     backlog: list[dict] = field(default_factory=list)
     # (shortcode, kind, status, error) for publications; kind is "post" or "tagged_post".
     posts: list[tuple[str, str, str, str | None]] = field(default_factory=list)
-    # (story id, status, error)
-    stories: list[tuple[str, str, str | None]] = field(default_factory=list)
     metrics: dict[str, int] = field(default_factory=empty_metrics)
     log: list[str] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     debug: dict | None = None
+    # The source's own page is unavailable: its other pages are not opened either.
+    source_unavailable: bool = False
 
 
 class DiscoveryProvider:
@@ -122,20 +118,32 @@ def _grid_args(ctx: DiscoveryContext, source: str, kind: str) -> dict:
 
 
 def _grid(
-    step: dict, snapshot: dict, ctx: DiscoveryContext, kind: str, result: StepResult, title: str
+    step: dict,
+    snapshot: dict,
+    ctx: DiscoveryContext,
+    kind: str,
+    result: StepResult,
+    title: str,
+    resolve: Callable | None = None,
 ):
-    """Grid snapshot -> publications for the backlog (already processed ones are excluded)."""
+    """Grid snapshot -> publications for the backlog (already processed ones are excluded).
+
+    `resolve(parsed, facts, result)` handles a publication from the data the grid page
+    received ("done") or leaves it to be opened as before (None)."""
     source = source_name(step["source"])
     result.log.append(f"[Scout][{title}][@{source}]")
     if snapshot.get("unavailable"):
         result.notices.append(f"Страница недоступна: {step['url']}")
         result.log.append("Page unavailable; nothing to scan.")
+        result.source_unavailable = step["kind"] == "source"
         return
     seen = int(snapshot.get("seen") or 0)
     already = int(snapshot.get("already_processed") or 0)
     # The page script already drops processed shortcodes; keep the core strict as well.
     skip = set((step.get("args") or {}).get("skip") or [])
+    facts_by_code = grid_feed.from_snapshot(snapshot) if resolve else {}
     queued = set()
+    inline = 0
     for raw in snapshot.get("posts", []):
         parsed = parse_instagram_post_url(str(raw))
         if parsed is None or parsed.shortcode in queued:
@@ -144,23 +152,32 @@ def _grid(
             already += 1
             continue
         queued.add(parsed.shortcode)
-        result.backlog.append(
-            {
-                "kind": kind,
-                "url": parsed.canonical_url,
-                "source": step["source"],
-                "code": parsed.shortcode,
-            }
-        )
+        facts = facts_by_code.get(parsed.shortcode)
+        outcome = resolve(parsed, facts, result) if facts and resolve else None
+        if outcome == "done":
+            inline += 1
+            continue
+        item = {
+            "kind": kind,
+            "url": parsed.canonical_url,
+            "source": step["source"],
+            "code": parsed.shortcode,
+        }
+        result.backlog.append(item)
     seen = max(seen, len(queued) + already)
     result.metrics["itemsSeen"] += seen
     result.metrics["alreadyProcessed"] += already
     result.log += [
         f"Found {seen} post tiles",
         f"{already} already processed",
-        f"Queued {len(queued)} publications (scroll rounds {snapshot.get('rounds', 0)},"
-        f" stop: {snapshot.get('end_reason', 'n/a')})",
+        f"Queued {len(queued) - inline} publications"
+        f" (scroll rounds {snapshot.get('rounds', 0)}, stop: {snapshot.get('end_reason', 'n/a')})",
     ]
+    if resolve:
+        result.log.append(
+            f"From grid data without opening: {inline}; to open: {len(queued) - inline}"
+            f" (publication data received: {len(facts_by_code)})"
+        )
     if not seen:
         result.notices.append(f"Нет доступных публикаций: {step['url']}")
     elif not queued:
@@ -205,12 +222,37 @@ def _authors(
     ]
     if snapshot.get("collaborators_truncated"):
         result.log.append("Header says 'and others': only listed collaborators are used.")
+    emitted = _emit_authors(
+        ctx,
+        result,
+        author,
+        collaborators,
+        code,
+        parsed.canonical_url if parsed else step["url"],
+        method,
+        evidence,
+    )
+    result.log.append(
+        "Candidates emitted: " + (", ".join(f"@{name}" for name in emitted) or "none")
+    )
+    return author
+
+
+def _emit_authors(
+    ctx: DiscoveryContext,
+    result: StepResult,
+    author: str,
+    collaborators: list[str],
+    code: str,
+    url: str,
+    method: str,
+    evidence: str,
+) -> list[str]:
+    """Author and collaborators of one publication through the candidate gate."""
     before = ctx.gate.duplicates
     emitted = []
-    for name, kind in [
-        (author, "post_author"),
-        *[(name, "collaborator") for name in collaborators],
-    ]:
+    named = [(author, "post_author"), *[(name, "collaborator") for name in collaborators]]
+    for name, kind in named:
         admitted = ctx.gate.admit(name)
         if admitted:
             emitted.append(admitted)
@@ -221,17 +263,56 @@ def _authors(
                         ctx.gate.source,
                         method,
                         code,
-                        parsed.canonical_url if parsed else step["url"],
+                        url,
                         evidence_type=f"{evidence}{kind}",
                     ),
                     None,
                 )
             )
     result.metrics["duplicatesSkipped"] += ctx.gate.duplicates - before
-    result.log.append(
-        "Candidates emitted: " + (", ".join(f"@{name}" for name in emitted) or "none")
-    )
-    return author
+    return emitted
+
+
+def _posts_from_grid(ctx: DiscoveryContext):
+    """Source publications from grid data: their author and collaborators, no page needed."""
+
+    def resolve(parsed, facts, result) -> str:
+        _emit_authors(
+            ctx,
+            result,
+            facts.author,
+            facts.collaborators,
+            parsed.shortcode,
+            parsed.canonical_url,
+            parsed.type,
+            "",
+        )
+        result.metrics["itemsProcessed"] += 1
+        result.posts.append((parsed.shortcode, "post", "processed", None))
+        return "done"
+
+    return resolve
+
+
+def _tagged_from_grid(ctx: DiscoveryContext):
+    """Tagged publications from grid data: their author is the candidate, no page needed."""
+
+    def resolve(parsed, facts, result) -> str:
+        _emit_authors(
+            ctx,
+            result,
+            facts.author,
+            facts.collaborators,
+            parsed.shortcode,
+            parsed.canonical_url,
+            "tagged",
+            "tagged_",
+        )
+        result.metrics["itemsProcessed"] += 1
+        result.posts.append((parsed.shortcode, "tagged_post", "processed", None))
+        return "done"
+
+    return resolve
 
 
 class PostDiscoveryProvider(DiscoveryProvider):
@@ -241,9 +322,6 @@ class PostDiscoveryProvider(DiscoveryProvider):
     group = "posts"
     kinds = ("source", "post")
 
-    def enabled(self, settings):
-        return bool({"posts", "comments"} & set(settings.scout_methods))
-
     def start(self, source_url, ctx):
         args = _grid_args(ctx, source_name(source_url), "post")
         return [{"kind": "source", "url": source_url, "source": source_url, "args": args}]
@@ -251,7 +329,7 @@ class PostDiscoveryProvider(DiscoveryProvider):
     def handle(self, step, snapshot, ctx):
         result = StepResult(group=self.group)
         if step["kind"] == "source":
-            _grid(step, snapshot, ctx, "post", result, "Posts")
+            _grid(step, snapshot, ctx, "post", result, "Posts", _posts_from_grid(ctx))
             return result
         parsed = parse_instagram_post_url(step["url"])
         media = parsed.type if parsed else "post"
@@ -264,15 +342,7 @@ class PostDiscoveryProvider(DiscoveryProvider):
             result.posts.append((parsed.shortcode, "post", "unavailable", None))
             result.log.append("Publication unavailable; skipped.")
             return result
-        use_posts = "posts" in ctx.settings.scout_methods
-        author = (
-            _authors(step, snapshot, ctx, media, "", result)
-            if use_posts
-            else normalize_instagram_username(snapshot.get("author"))
-        )
-        if not author:
-            if not use_posts:
-                result.metrics["failures"] += 1
+        if not _authors(step, snapshot, ctx, media, "", result):
             result.posts.append(
                 (
                     parsed.shortcode,
@@ -282,50 +352,9 @@ class PostDiscoveryProvider(DiscoveryProvider):
                 )
             )
             return result
-        if "comments" in ctx.settings.scout_methods:
-            _comments(step, snapshot, ctx, result)
         result.metrics["itemsProcessed"] += 1
         result.posts.append((parsed.shortcode, "post", "processed", None))
         return result
-
-
-def _comments(step: dict, snapshot: dict, ctx: DiscoveryContext, result: StepResult) -> None:
-    """Comment authors of a source publication (the comments method); evidence travels along."""
-    comments = snapshot.get("comments", [])
-    if not isinstance(comments, list):
-        raise ValueError("Invalid comments snapshot")
-    if not comments:
-        result.notices.append("Нет доступных комментариев: " + step["url"])
-    if snapshot.get("comments_limited"):
-        result.notices.append("Прочитана доступная часть комментариев: " + step["url"])
-    parsed = parse_instagram_post_url(step["url"])
-    for comment in comments[:MAX_COMMENTS_PER_POST]:
-        if not isinstance(comment, dict):
-            continue
-        name = ctx.gate.valid(str(comment.get("profile_url", "")))
-        if not name:
-            continue
-        observation = {
-            "source": step["source"],
-            "url": step["url"],
-            "caption": str(comment.get("text", ""))[:1500],
-            "published_at": str(comment.get("published_at") or "")[:80] or None,
-            "kind": "comment",
-            "author": name,
-        }
-        result.candidates.append(
-            (
-                ScoutCandidate(
-                    name,
-                    ctx.gate.source,
-                    "comment",
-                    parsed.shortcode if parsed else None,
-                    step["url"],
-                    evidence_type="commenter",
-                ),
-                observation,
-            )
-        )
 
 
 class TaggedDiscoveryProvider(DiscoveryProvider):
@@ -349,7 +378,7 @@ class TaggedDiscoveryProvider(DiscoveryProvider):
     def handle(self, step, snapshot, ctx):
         result = StepResult(group=self.group)
         if step["kind"] == "tagged_grid":
-            _grid(step, snapshot, ctx, "tagged_post", result, "Tagged")
+            _grid(step, snapshot, ctx, "tagged_post", result, "Tagged", _tagged_from_grid(ctx))
             return result
         parsed = parse_instagram_post_url(step["url"])
         result.log += [
@@ -365,149 +394,6 @@ class TaggedDiscoveryProvider(DiscoveryProvider):
             return result
         result.metrics["itemsProcessed"] += 1
         result.posts.append((parsed.shortcode, "tagged_post", "processed", None))
-        return result
-
-
-class StoryDiscoveryProvider(DiscoveryProvider):
-    """Active stories: mention stickers, profile links and authors of shared posts/reels."""
-
-    method = "story"
-    group = "stories"
-    kinds = ("stories", "story_media")
-
-    def enabled(self, settings):
-        return "stories" in settings.scout_methods
-
-    def start(self, source_url, ctx):
-        if ctx.guest:
-            return []  # Stories need a signed-in session.
-        source = source_name(source_url)
-        settings = ctx.settings
-        return [
-            {
-                "kind": "stories",
-                "url": f"https://www.instagram.com/stories/{source}/",
-                "source": source_url,
-                "args": {
-                    "source": source,
-                    "maxStories": settings.scout_max_stories_per_source,
-                    "delayMs": settings.scout_story_delay_ms,
-                    "skip": ctx.skip(source, "story") if settings.scout_skip_processed else [],
-                    "debug": settings.scout_debug,
-                },
-            }
-        ]
-
-    def handle(self, step, snapshot, ctx):
-        result = StepResult(group=self.group)
-        source = source_name(step["source"])
-        threshold = ctx.settings.scout_story_confidence
-        result.log.append(f"[Scout][Stories][@{source}]")
-        if step["kind"] == "story_media":
-            return self._shared_media(step, snapshot, ctx, result)
-        stories = snapshot.get("stories", [])
-        if not isinstance(stories, list):
-            raise ValueError("Invalid stories snapshot")
-        result.log.append(
-            f"Frames seen: {len(stories)} (stop: {snapshot.get('end_reason', 'n/a')})"
-        )
-        for story in stories[: ctx.settings.scout_max_stories_per_source]:
-            story_id = str(story.get("id") or "")
-            if not story_id.isdigit():
-                continue
-            result.metrics["itemsSeen"] += 1
-            if story.get("skipped"):
-                result.metrics["alreadyProcessed"] += 1
-                continue
-            if story.get("error"):
-                result.metrics["failures"] += 1
-                result.stories.append((story_id, "failed", story["error"]))
-                result.log.append(f"Story ID: {story_id} — {story['error']}")
-                continue
-            result.log.append(f"Story ID: {story_id}")
-            before = ctx.gate.duplicates
-            for found in story.get("candidates", [])[:20]:
-                confidence = float(found.get("confidence") or 0)
-                evidence = str(found.get("evidenceType") or "unknown")[:40]
-                if confidence < threshold:
-                    result.log.append(
-                        f"Ignored @{found.get('username')}"
-                        f" ({evidence}, confidence {confidence:.2f})"
-                    )
-                    continue
-                name = ctx.gate.admit(found.get("username"))
-                if name:
-                    result.candidates.append(
-                        (
-                            ScoutCandidate(
-                                name,
-                                source,
-                                "story",
-                                story_id,
-                                story.get("url"),
-                                evidence_type=evidence,
-                                confidence=confidence,
-                            ),
-                            None,
-                        )
-                    )
-                    result.log.append(
-                        f"Detected {evidence.replace('_', ' ')}: @{name} — candidate emitted."
-                    )
-            result.metrics["duplicatesSkipped"] += ctx.gate.duplicates - before
-            for media in story.get("shared_media", [])[:5]:
-                parsed = parse_instagram_post_url(str(media.get("url", "")))
-                if parsed:
-                    result.steps.append(
-                        {
-                            "kind": "story_media",
-                            "url": parsed.canonical_url,
-                            "source": step["source"],
-                            "story_id": story_id,
-                            "story_url": story.get("url"),
-                            "args": {"comments": False, "debug": ctx.settings.scout_debug},
-                        }
-                    )
-                    result.log.append(
-                        f"Detected shared {parsed.type}; opening it for the original author."
-                    )
-            result.metrics["itemsProcessed"] += 1
-            result.stories.append((story_id, "processed", None))
-        return result
-
-    def _shared_media(self, step, snapshot, ctx, result):
-        parsed = parse_instagram_post_url(step["url"])
-        if snapshot.get("unavailable"):
-            result.log.append("Shared publication unavailable.")
-            return result
-        author = normalize_instagram_username(snapshot.get("author"))
-        if not author:
-            result.metrics["failures"] += 1
-            result.log.append(
-                "ERROR: original author of the shared publication not found; not guessing."
-            )
-            result.debug = snapshot.get("debug") or {"reason": "author_not_found"}
-            return result
-        result.log.append(f"Original author: @{author}")
-        before = ctx.gate.duplicates
-        name = ctx.gate.admit(author)
-        if name:
-            result.candidates.append(
-                (
-                    ScoutCandidate(
-                        name,
-                        ctx.gate.source,
-                        "story",
-                        step.get("story_id"),
-                        step["url"],
-                        evidence_type=f"shared_{parsed.type}_author",
-                        confidence=0.95,
-                    ),
-                    None,
-                )
-            )
-            result.log.append("Candidate emitted.")
-        result.metrics["duplicatesSkipped"] += ctx.gate.duplicates - before
         return result
 
 
@@ -582,7 +468,6 @@ PROFILE_CHECK = ProfileCheckProvider()
 PROVIDERS: list[DiscoveryProvider] = [
     PostDiscoveryProvider(),
     TaggedDiscoveryProvider(),
-    StoryDiscoveryProvider(),
     FollowDiscoveryProvider("followers"),
     FollowDiscoveryProvider("following"),
 ]
@@ -602,8 +487,5 @@ def initial_tasks(source_url: str, ctx: DiscoveryContext) -> tuple[list[dict], l
         return PROFILE_CHECK.start(source_url, ctx), notices
     for provider in PROVIDERS:
         if provider.enabled(ctx.settings):
-            started = provider.start(source_url, ctx)
-            if not started and provider.group == "stories":
-                notices.append("Stories требуют сохранённой сессии Instagram; для гостя пропущены.")
-            tasks += started
+            tasks += provider.start(source_url, ctx)
     return tasks, notices

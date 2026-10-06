@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 import pytest
 from sqlalchemy import select
 
+from artist_lead_finder import memory_reset
 from artist_lead_finder.database import open_database
 from artist_lead_finder.imessage import network, shortcut
 from artist_lead_finder.imessage import service as imessage
@@ -1016,3 +1017,23 @@ def test_preview_shows_every_message(bridge):
     preview = service.preview()
     assert [m["text"] for m in preview["items"][0]["messages"]] == ["Раз", "Два"]
     assert len(preview["payload"]["contacts"]) == 4
+
+
+def test_memory_reset_forgets_sent_numbers(bridge):
+    service, sessions, _, tmp_path = bridge
+    setup_list(service, tmp_path, attachment=False)
+    service.start({})
+
+    def reset():
+        with service.lock, sessions.begin() as session:
+            return memory_reset.reset_imessage(session)
+
+    with pytest.raises(ValueError, match="Остановите рассылку iMessage"):
+        reset()
+    phone = Phone(service._url("/v2/next"))
+    phone.run_job(phone.take())
+    service.control({"action": "stop"})
+    reset()
+    assert jobs(sessions) == [] and events(sessions) == []
+    # The number reached before the reset is sent to again.
+    assert service.start({})["skipped"] == 0

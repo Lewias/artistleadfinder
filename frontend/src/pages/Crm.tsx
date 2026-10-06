@@ -1,5 +1,5 @@
 import { ErrorToast } from '../components/Toaster';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import {
   ArrowUpDown,
@@ -57,6 +57,9 @@ import {
 type Sort = 'created' | 'name' | 'last' | 'next';
 type Dialog = 'import' | 'statuses' | 'contact' | 'purge' | null;
 const PAGE_SIZE = 100;
+// An owner id that matches no contact: the user CRM page before the owners load.
+const NOBODY = '-';
+
 const tabs: { id: CrmTab; label: string; icon: LucideIcon }[] = [
   { id: 'all', label: 'Все контакты', icon: Table2 },
   { id: 'attention', label: 'Требуют внимания', icon: Bell },
@@ -64,8 +67,11 @@ const tabs: { id: CrmTab; label: string; icon: LucideIcon }[] = [
 ];
 
 /** One channel's CRM: the Instagram and iMessage tables are separate and import into each other. */
-export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
+export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () => void; others?: boolean }) {
   const [tab, setTab] = useState<CrmTab>('all');
+  // Own CRM by default; `others` (admin, moderator) shows one other user's CRM at a time.
+  // Until the owners arrive the list asks for nobody's contacts.
+  const [owner, setOwner] = useState(others ? NOBODY : '');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<Sort>('created');
   const [descending, setDescending] = useState(true);
@@ -77,7 +83,7 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const query = { crm, tab, search, sort, descending, filters, page, page_size: PAGE_SIZE };
+  const query = { crm, tab, search, sort, descending, filters, page, page_size: PAGE_SIZE, owner };
   const resource = useResource<CrmList>('crm.list', query, 10000);
   const [data, setData] = useState<CrmList>();
   useEffect(() => {
@@ -87,7 +93,14 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
   useEffect(() => {
     setSelected([]);
     setPage(1);
-  }, [tab, search, sort, descending, filters]);
+  }, [tab, search, sort, descending, filters, owner]);
+
+  const otherOwners = useMemo(() => (data?.owners ?? []).filter(item => !item.mine), [data?.owners]);
+  useEffect(() => {
+    if (others && otherOwners.length && !otherOwners.some(item => item.id === owner)) {
+      setOwner(otherOwners[0].id);
+    }
+  }, [others, otherOwners, owner]);
 
   const items = data?.items ?? [];
   const statuses = data?.statuses ?? [];
@@ -141,7 +154,7 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
     if (!path) return;
     const result = await request<{ count: number }>(
       'crm.export',
-      selected.length ? { path, ids: selected } : { path },
+      selected.length ? { path, ids: selected, owner } : { path, owner },
     );
     if (result) setNotice(`Сохранено контактов: ${number(result.count)}`);
   };
@@ -194,29 +207,64 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
 
   return (
     <div className="crm-page">
-      <PageHeader page={crm === 'instagram' ? 'crm' : 'imessage-crm'} count={number(counts.all)}>
+      <PageHeader
+        page={
+          crm === 'instagram'
+            ? others
+              ? 'crm-users'
+              : 'crm'
+            : others
+              ? 'imessage-crm-users'
+              : 'imessage-crm'
+        }
+        count={number(counts.all)}
+      >
         <div className="crm-toolbar">
-          <Button variant="outline" disabled={busy} onClick={() => setDialog('import')}>
-            <DatabaseZap size={15} /> Импортировать
-          </Button>
-          <Button variant="outline" disabled={busy} onClick={() => void importFile()}>
-            <FileUp size={15} /> Импорт XLSX / CSV
-          </Button>
+          {others && (
+            <select
+              className="crm-owner-filter"
+              aria-label="Чья CRM"
+              value={owner}
+              disabled={!otherOwners.length}
+              onChange={event => setOwner(event.target.value)}
+            >
+              {!otherOwners.length && <option value={NOBODY}>Пока ни у кого нет контактов</option>}
+              {otherOwners.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.name || 'Без имени'} · {number(item.count)}
+                </option>
+              ))}
+            </select>
+          )}
+          {!others && (
+            <>
+              <Button variant="outline" disabled={busy} onClick={() => setDialog('import')}>
+                <DatabaseZap size={15} /> Импортировать
+              </Button>
+              <Button variant="outline" disabled={busy} onClick={() => void importFile()}>
+                <FileUp size={15} /> Импорт XLSX / CSV
+              </Button>
+            </>
+          )}
           <Button variant="outline" disabled={busy || !counts.all} onClick={() => void exportFile()}>
             <FileDown size={15} /> Экспорт XLSX / CSV
           </Button>
-          <Button variant="outline" disabled={!data} onClick={() => setDialog('statuses')}>
-            <SlidersHorizontal size={15} /> Настроить статусы
-          </Button>
-          <Button
-            onClick={() => {
-              setError('');
-              setDraft(emptyDraft(crm));
-              setDialog('contact');
-            }}
-          >
-            <Plus size={15} /> Добавить контакт
-          </Button>
+          {!others && (
+            <>
+              <Button variant="outline" disabled={!data} onClick={() => setDialog('statuses')}>
+                <SlidersHorizontal size={15} /> Настроить статусы
+              </Button>
+              <Button
+                onClick={() => {
+                  setError('');
+                  setDraft(emptyDraft(crm));
+                  setDialog('contact');
+                }}
+              >
+                <Plus size={15} /> Добавить контакт
+              </Button>
+            </>
+          )}
         </div>
       </PageHeader>
 
@@ -473,7 +521,9 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
           <tbody>
             {items.map(contact => {
               const due = dueState(contact.next_action_at);
-              const canWrite = contact.channels.some(item => writeKinds.includes(item.kind));
+              // Writing goes through this computer's own lists: only to your own contacts.
+              const canWrite =
+                contact.mine !== false && contact.channels.some(item => writeKinds.includes(item.kind));
               const openContact = () => {
                 setError('');
                 setDraft(draftOf(contact));
@@ -574,13 +624,15 @@ export function Crm({ crm, onWrite }: { crm: CrmId; onWrite: () => void }) {
                         variant="outline"
                         disabled={busy || !canWrite}
                         title={
-                          canWrite
-                            ? crm === 'instagram'
-                              ? 'Добавить в «Первичную рассылку»'
-                              : 'Добавить в получатели рассылки iMessage'
-                            : crm === 'instagram'
-                              ? 'Нет Instagram'
-                              : 'Нет телефона или email'
+                          contact.mine === false
+                            ? 'Написать можно только своим контактам'
+                            : canWrite
+                              ? crm === 'instagram'
+                                ? 'Добавить в «Первичную рассылку»'
+                                : 'Добавить в получатели рассылки iMessage'
+                              : crm === 'instagram'
+                                ? 'Нет Instagram'
+                                : 'Нет телефона или email'
                         }
                         onClick={() => void write([contact.id])}
                       >

@@ -4,6 +4,7 @@ import {
   AudioLines,
   BarChart3,
   BookUser,
+  Contact,
   Database,
   History,
   LayoutTemplate,
@@ -13,11 +14,13 @@ import {
   Send,
   Settings as SettingsIcon,
   UserRound,
+  UsersRound,
   type LucideIcon,
 } from 'lucide-react';
 import { channels, pages, type Channel, type PageId } from './navigation';
 import { useResource } from './hooks/useResource';
 import type {
+  AccountState,
   CrmList,
   IMessageState,
   IMessageTemplate,
@@ -37,10 +40,12 @@ import { IMessageCampaigns } from './pages/IMessageCampaigns';
 import { IMessageLog } from './pages/IMessageLog';
 import { IMessageTemplates } from './pages/IMessageTemplates';
 import { Crm } from './pages/Crm';
+import { Admin } from './pages/Admin';
 import { BrowserProfiles } from './components/BrowserProfiles';
 import { SectionTransition } from './components/SectionTransition';
-import { ErrorBoundary, Toaster } from './components/Toaster';
+import { ErrorBoundary, ErrorToast, Toaster } from './components/Toaster';
 import { UpdateNotice } from './components/UpdateNotice';
+import { AccountGate, AccountMenu } from './components/account/AccountGate';
 import { useUpdater } from './hooks/useUpdater';
 
 const icons: Record<PageId, LucideIcon> = {
@@ -54,7 +59,10 @@ const icons: Record<PageId, LucideIcon> = {
   'imessage-templates': LayoutTemplate,
   'imessage-log': ScrollText,
   crm: BookUser,
+  'crm-users': Contact,
   'imessage-crm': BookUser,
+  'imessage-crm-users': Contact,
+  admin: UsersRound,
   settings: SettingsIcon,
 };
 
@@ -81,8 +89,39 @@ function useNavCounts(): Partial<Record<PageId, number>> {
   };
 }
 
+/** The sign-in comes first when accounts are on; the workspace opens once it is ready. */
 export function App() {
+  const resource = useResource<AccountState>('account.state', {}, 10000);
+  const [account, setAccount] = useState<AccountState>();
+  useEffect(() => {
+    if (resource.data) setAccount(resource.data);
+  }, [resource.data]);
+  const locked = account?.configured && !account.ready;
+  return (
+    <>
+      {account && locked ? (
+        <AccountGate state={account} onChange={setAccount} />
+      ) : account || resource.error ? (
+        <Workspace account={account} onAccount={setAccount} />
+      ) : (
+        <div className="gate" />
+      )}
+      <Toaster />
+    </>
+  );
+}
+
+function Workspace({
+  account,
+  onAccount,
+}: {
+  account?: AccountState;
+  onAccount: (next: AccountState) => void;
+}) {
   const core = useResource<{ version: string }>('system.info');
+  const admin = account?.role === 'admin' && account.configured;
+  // Admin and moderator see every user's CRM, signed with the owner.
+  const allCrm = (account?.role === 'admin' || account?.role === 'moderator') && account.configured;
   const [active, setActive] = useState<PageId>('discovery');
   const [channel, setChannel] = useState<Channel>('instagram');
   // Each channel reopens on the section it was left on.
@@ -140,10 +179,17 @@ export function App() {
         </div>
         <div className="nav-section">{section.section}</div>
         <nav aria-label="Основная навигация">
-          {pages.filter(item => item.placement === 'main' && item.channel === channel).map(navButton)}
+          {pages
+            .filter(
+              item =>
+                item.placement === 'main' &&
+                item.channel === channel &&
+                (allCrm || (item.id !== 'crm-users' && item.id !== 'imessage-crm-users')),
+            )
+            .map(navButton)}
         </nav>
         <nav className="sidebar-footer" aria-label="Параметры">
-          {pages.filter(item => item.placement === 'footer').map(navButton)}
+          {pages.filter(item => item.placement === 'footer' && (item.id !== 'admin' || admin)).map(navButton)}
         </nav>
       </aside>
       <main className="main">
@@ -170,6 +216,7 @@ export function App() {
             <i />
             {core.error ? 'Ядро недоступно' : core.data ? 'Ядро подключено' : 'Подключение…'}
           </span>
+          {account?.configured && <AccountMenu state={account} onChange={onAccount} />}
         </header>
         {/* Board pages use the full window width, like the reference layout at 1920×1080. */}
         <div className="page">
@@ -203,6 +250,12 @@ export function App() {
                 <Crm crm="instagram" onWrite={() => navigate('outreach')} />
               ) : active === 'imessage-crm' ? (
                 <Crm crm="imessage" onWrite={() => navigate('imessage')} />
+              ) : active === 'crm-users' && allCrm ? (
+                <Crm key="crm-users" crm="instagram" others onWrite={() => navigate('outreach')} />
+              ) : active === 'imessage-crm-users' && allCrm ? (
+                <Crm key="imessage-crm-users" crm="imessage" others onWrite={() => navigate('imessage')} />
+              ) : active === 'admin' && admin ? (
+                <Admin />
               ) : (
                 <Settings updater={{ ...updater, version }} />
               )}
@@ -210,7 +263,7 @@ export function App() {
           </SectionTransition>
         </div>
       </main>
-      <Toaster />
+      <ErrorToast message={core.error} title="Ядро недоступно" />
     </div>
   );
 }

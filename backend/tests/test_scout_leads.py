@@ -26,8 +26,8 @@ def name_of(url: str) -> str:
     return url.rstrip("/").split("/")[-1]
 
 
-def commenters(profiles: dict, authors: list[str]):
-    """Source page -> one post per source -> comments by `authors` -> profile pages."""
+def coauthors(profiles: dict, authors: list[str]):
+    """Source page -> one post per source, co-authored by `authors` -> profile pages."""
 
     def pages(state):
         kind, url = state["kind"], state["url"]
@@ -36,16 +36,13 @@ def commenters(profiles: dict, authors: list[str]):
             return dict(url=url, ready=True, posts=[post])
         if kind == "post":
             source = name_of(url)[:-1].lower()
-            comments = [
-                dict(profile_url=f"https://www.instagram.com/{n}/", text="fire") for n in authors
-            ]
-            return dict(url=url, ready=True, author=source, comments=comments)
+            return dict(url=url, ready=True, author=source, collaborators=authors)
         return profiles[name_of(url)]
 
     return pages
 
 
-BASE = {"scout_methods": ["posts", "comments"]}
+BASE = {"scout_methods": ["posts"]}
 
 
 def test_run_metrics_skip_reasons_and_decision_log(scout):  # noqa: F811
@@ -68,7 +65,7 @@ def test_run_metrics_skip_reasons_and_decision_log(scout):  # noqa: F811
             "scout_only_contacts": True,
             "scout_lead_status": "reviewed",
         },
-        commenters(profiles, list(profiles)),
+        coauthors(profiles, list(profiles)),
     )
     stats = state["stats"]
     assert state["status"] == "completed"
@@ -140,7 +137,7 @@ def test_run_metrics_skip_reasons_and_decision_log(scout):  # noqa: F811
 def test_duplicate_lead_is_updated_with_its_source_history(scout):  # noqa: F811
     service, sessions = scout
     first = {"artist_one": profile_page("artist_one", "Rapper · new single out now", followers=900)}
-    run_pages(service, BASE, commenters(first, ["artist_one"]))
+    run_pages(service, BASE, coauthors(first, ["artist_one"]))
     with sessions.begin() as session:
         lead = session.scalar(select(Lead).where(Lead.username == "artist_one"))
         lead.status = "contacted"  # a manual CRM decision survives rediscovery
@@ -151,7 +148,7 @@ def test_duplicate_lead_is_updated_with_its_source_history(scout):  # noqa: F811
     job, state, _ = run_pages(
         service,
         {**BASE, "scout_skip_processed": False, "scout_profile_cache_hours": 0},
-        commenters(again, ["artist_one"]),
+        coauthors(again, ["artist_one"]),
         (OTHER,),
     )
     assert (state["stats"]["leads"], state["stats"]["leads_updated"]) == (0, 1)
@@ -180,7 +177,7 @@ def test_duplicate_lead_is_updated_with_its_source_history(scout):  # noqa: F811
 def test_new_leads_go_to_the_outreach_list_and_nothing_is_sent(scout):  # noqa: F811
     service, sessions = scout
     first = {"artist_one": profile_page("artist_one", "Rapper · new single out now")}
-    run_pages(service, BASE, commenters(first, ["artist_one"]))
+    run_pages(service, BASE, coauthors(first, ["artist_one"]))
     listed = service.call("outreach.workspace", {})["usernames"]
     assert [(row["username"], row["status"]) for row in listed] == [("artist_one", "new")]
     assert service.call("outreach.campaigns", {}) == []
@@ -189,7 +186,7 @@ def test_new_leads_go_to_the_outreach_list_and_nothing_is_sent(scout):  # noqa: 
     run_pages(
         service,
         {**BASE, "scout_skip_processed": False, "scout_profile_cache_hours": 0},
-        commenters(first, ["artist_one"]),
+        coauthors(first, ["artist_one"]),
         (OTHER,),
     )
     assert service.call("outreach.workspace", {})["usernames"] == []
@@ -198,7 +195,7 @@ def test_new_leads_go_to_the_outreach_list_and_nothing_is_sent(scout):  # noqa: 
     run_pages(
         service,
         {**BASE, "scout_add_to_outreach": False},
-        commenters(second, ["artist_two"]),
+        coauthors(second, ["artist_two"]),
         ("https://www.instagram.com/freshbeats/",),
     )
     assert service.call("outreach.workspace", {})["usernames"] == []
@@ -247,13 +244,13 @@ def test_known_lead_found_again_only_updates_the_history(scout):  # noqa: F811
     run_pages(
         service,
         BASE,
-        commenters({"artist_one": profile_page("artist_one", "Rapper")}, ["artist_one"]),
+        coauthors({"artist_one": profile_page("artist_one", "Rapper")}, ["artist_one"]),
     )
 
     def no_profiles(state):
         if state["kind"] == "profile":
             raise AssertionError("a processed lead is not opened again")
-        return commenters({}, ["artist_one"])(state)
+        return coauthors({}, ["artist_one"])(state)
 
     job, state, _ = run_pages(service, BASE, no_profiles, (OTHER,))
     assert state["stats"]["leads_updated"] == 1
@@ -261,17 +258,17 @@ def test_known_lead_found_again_only_updates_the_history(scout):  # noqa: F811
     with sessions() as session:
         rows = list(session.scalars(select(ScoutLeadSource).order_by(ScoutLeadSource.id)))
         assert [(row.source_username, row.discovery_method) for row in rows] == [
-            ("rapdaily", "comment"),
-            ("beatsdaily", "comment"),
+            ("rapdaily", "post"),
+            ("beatsdaily", "post"),
         ]
 
 
 def test_same_instagram_id_with_a_new_username_updates_the_lead(scout):  # noqa: F811
     service, sessions = scout
     old = {"old_name": profile_page("old_name", "Rapper", user_id="777")}
-    run_pages(service, BASE, commenters(old, ["old_name"]))
+    run_pages(service, BASE, coauthors(old, ["old_name"]))
     renamed = {"new_name": profile_page("new_name", "Rapper and singer", user_id="777")}
-    _, state, _ = run_pages(service, BASE, commenters(renamed, ["new_name"]), (OTHER,))
+    _, state, _ = run_pages(service, BASE, coauthors(renamed, ["new_name"]), (OTHER,))
     assert state["stats"]["leads_updated"] == 1 and state["stats"]["leads"] == 0
     with sessions() as session:
         leads = list(session.scalars(select(Lead)))
@@ -286,7 +283,7 @@ def test_failure_inside_the_save_leaves_no_partial_data(scout, monkeypatch):  # 
 
     monkeypatch.setattr(scout_leads, "record_source", broken)
     profiles = {"artist_one": profile_page("artist_one", "Rapper · new single out now")}
-    job, state, _ = run_pages(service, BASE, commenters(profiles, ["artist_one"]))
+    job, state, _ = run_pages(service, BASE, coauthors(profiles, ["artist_one"]))
     # The profile error is logged and counted; the run itself goes on to the end.
     assert state["status"] == "completed"
     assert (state["stats"]["leads"], state["stats"]["errors"]) == (0, 1)
@@ -318,7 +315,7 @@ def test_pause_during_classification_resumes_the_same_run(scout):  # noqa: F811
     )
     service.call("scout.source_add", {"values": [SOURCE]})
     job = service.call("scout.start_internal", {"profile_id": ACCOUNT})["id"]
-    pages = commenters({"artist_one": profile_page("artist_one", "dj")}, ["artist_one"])
+    pages = coauthors({"artist_one": profile_page("artist_one", "dj")}, ["artist_one"])
     while (state := service.call("capture.state", {"id": job}))["status"] == "running":
         service.call("scout.commit_internal", {"id": job, "snapshot": pages(state)})
     # Paused at the safe point after AI: nothing saved, the profile step is still current.
@@ -419,12 +416,12 @@ def test_candidate_filters_run_before_the_profile_is_opened(scout):  # noqa: F81
         if state["kind"] == "profile" and name_of(state["url"]) == "first_one":
             # Another account's run decides on second_one meanwhile.
             with sessions.begin() as session:
-                memory.mark_profile(session, "second_one", "beatsdaily", "comment", "skipped")
+                memory.mark_profile(session, "second_one", "beatsdaily", "post", "skipped")
         if state["kind"] == "profile" and name_of(state["url"]) == "second_one":
             # The desktop driver opens nothing for access "none" and sends this snapshot.
             assert state["access"] == "none" and state["wait_seconds"] == 0
             return dict(url=state["url"], ready=True, blocked=False)
-        return commenters(profiles, ["first_one", "second_one"])(state)
+        return coauthors(profiles, ["first_one", "second_one"])(state)
 
     job, state, visited = run_pages(service, BASE, pages)
     assert state["status"] == "completed"

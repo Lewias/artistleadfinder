@@ -24,6 +24,13 @@ class InstagramUnavailableError(InstagramError):
     reason = "unavailable"
 
 
+class InstagramWindowClosedError(InstagramError):
+    """The account's browser window is closed: the run pauses until it is open again,
+    instead of skipping every page it cannot load."""
+
+    reason = "closed"
+
+
 class InstagramTransientError(InstagramError):
     """Timeout, failed navigation or network hiccup; retried up to the configured limit."""
 
@@ -38,6 +45,7 @@ BY_REASON = {
         InstagramCheckpointError,
         InstagramRateLimitError,
         InstagramUnavailableError,
+        InstagramWindowClosedError,
         InstagramTransientError,
     )
 }

@@ -1,14 +1,12 @@
 /* eslint-disable-next-line @typescript-eslint/no-unused-expressions -- evaluated as a function by Playwright */
 async (args) => {
-  // Publication page (/p/, /reel/, /reels/, /tv/): author, collaborators and, when the
-  // comments method is on, comment authors. All Instagram DOM assumptions live in SELECTORS.
+  // Publication page (/p/, /reel/, /reels/, /tv/): author and collaborators.
+  // All Instagram DOM assumptions live in SELECTORS.
   const SELECTORS = {
     structuredData: 'script[type="application/ld+json"]',
     headers: ['article header', 'main header', '[role="dialog"] header'],
     caption: 'article h1',
     time: 'article time[datetime]',
-    commentPermalinks: 'a[href*="/c/"]',
-    buttons: 'button,[role="button"]',
     password: 'input[type="password"]',
     dialog: '[role="dialog"]',
   };
@@ -19,7 +17,6 @@ async (args) => {
     loginDialog: /log in|sign up|войти|зарегистрир/i,
     unavailable: /sorry, this page isn[’']?t available|эта страница недоступна|post isn[’']?t available|публикация недоступна/i,
     moreAuthors: /\b(?:and|и)\s+(?:\d+|ещё \d+)\s+(?:others?|друг\w*)/i,
-    loadMore: /^(?:(?:load|view|show) (?:all |more |previous )?(?:comments|replies)|(?:показать|смотреть|загрузить) (?:все |ещ[её] |предыдущие )?(?:комментарии|ответы))/i,
   };
   const hosts = ['instagram.com', 'www.instagram.com'];
   const reserved = /^(accounts|explore|reels?|p|tv|direct|stories|challenge|about|developer|legal)$/i;
@@ -120,72 +117,6 @@ async (args) => {
   const caption = document.querySelector(SELECTORS.caption)?.innerText || quoted || '';
   const published_at = meta('article:published_time') || document.querySelector(SELECTORS.time)?.getAttribute('datetime') || null;
 
-  const comments = new Map();
-  let limited = false;
-  if (args?.comments !== false && author) {
-    const code = parts[parts.length - 1];
-    const clicked = new WeakSet();
-    let stable = 0;
-    // Duplicates are filtered by the core, so read past its 30-new-candidate quota.
-    const full = () => comments.size >= 200 || new Set([...comments.values()].map(c => c.profile_url)).size >= 100;
-    for (let round = 0; round < 14; round++) {
-      const before = comments.size;
-      let lastRow = null;
-      // A comment permalink distinguishes its author from caption tags and recommendations.
-      for (const permalink of document.querySelectorAll(SELECTORS.commentPermalinks)) {
-        let link;
-        try { link = new URL(permalink.href, url); } catch { continue; }
-        const match = link.pathname.match(/^\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]+)\/c\/(\d+)\/?$/);
-        if (!match || match[1] !== code || !hosts.includes(link.hostname)) continue;
-        let row = permalink.parentElement;
-        let authorLink = null;
-        for (let depth = 0; row && depth < 7; depth++, row = row.parentElement) {
-          authorLink = [...row.querySelectorAll('a[href]')].find(a => profileName(a));
-          if (authorLink) break;
-        }
-        if (!row || !authorLink) continue;
-        const commenter = profileName(authorLink);
-        if (commenter === author) continue;
-        // Current Instagram uses an author/time row followed by a sibling text block.
-        const rowHeader = row;
-        if (row.parentElement && row.parentElement.querySelectorAll(SELECTORS.commentPermalinks).length === 1) row = row.parentElement;
-        const copy = row.cloneNode(true);
-        for (const control of copy.querySelectorAll('button,[role="button"],time,svg')) control.remove();
-        let text = (copy.innerText || copy.textContent || '').trim();
-        const name = authorLink.innerText?.trim() || '';
-        if (name && text.startsWith(name)) text = text.slice(name.length).trim();
-        const time = rowHeader.querySelector('time[datetime]');
-        comments.set(match[2], { profile_url: `https://www.instagram.com/${commenter}/`, text: text.slice(0, 1500),
-          published_at: time?.getAttribute('datetime') || null });
-        lastRow = row;
-        if (full()) break;
-      }
-      if (full()) { limited = true; break; }
-      const more = [...document.querySelectorAll(SELECTORS.buttons)].find(button => {
-        const label = (button.innerText || button.getAttribute('aria-label') || '').trim();
-        return !clicked.has(button) && TEXT.loadMore.test(label);
-      });
-      if (more) { clicked.add(more); more.click(); limited = true; }
-      if (lastRow) {
-        lastRow.scrollIntoView({ block: 'end' });
-        let scroller = lastRow.parentElement;
-        while (scroller && scroller !== document.body) {
-          if (scroller.scrollHeight > scroller.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(scroller).overflowY)) {
-            scroller.scrollTop = scroller.scrollHeight;
-            break;
-          }
-          scroller = scroller.parentElement;
-        }
-      }
-      stable = comments.size === before && !more ? stable + 1 : 0;
-      if (stable >= 2) break;
-      if (round === 13) { limited = true; break; }
-      await wait(750);
-      if (location.href !== url.href) return { ready: false };
-      const stop = gate();
-      if (stop) return blocked(stop);
-    }
-  }
   const result = {
     url: url.href,
     // Loaded even when the author is unknown: the core logs the failure instead of guessing.
@@ -197,8 +128,6 @@ async (args) => {
     collaborators,
     collaborators_truncated: collaboratorsTruncated,
     published_at,
-    comments: [...comments.values()],
-    comments_limited: limited,
   };
   if (!author) {
     result.parse_error = 'author_not_found';

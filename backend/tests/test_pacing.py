@@ -61,11 +61,11 @@ def test_run_limit_state_wait_and_rate_limit_via_service(tmp_path):
         {
             "profiles_per_run": 2,
             "profiles_per_hour": 0,
-            "scout_methods": ["posts", "comments"],
+            "scout_methods": ["posts"],
             "scout_profile_api": False,
         },
     )
-    assert saved["page_delay_min"] == 8 and saved["profiles_per_run"] == 2
+    assert saved["page_delay_min"] == 4 and saved["profiles_per_run"] == 2
     with pytest.raises(ValueError):
         service.call("settings.save", {"page_delay_min": 30, "page_delay_max": 10})
     job = service.call("scout.start_internal", {"sources": [SOURCE], "profile_id": "0" * 32})["id"]
@@ -83,16 +83,14 @@ def test_run_limit_state_wait_and_rate_limit_via_service(tmp_path):
         },
     )
     state = service.call("capture.state", {"id": job})
-    assert state["wait_seconds"] == 8 and state["wait_reason"] == "Пауза между страницами."
+    assert state["wait_seconds"] == 4 and state["wait_reason"] == "Пауза между страницами."
     clock.advance(seconds=8)
     commit(
         dict(
             url="https://www.instagram.com/p/a/",
             ready=True,
             author="music_news",
-            comments=[
-                dict(profile_url=f"https://www.instagram.com/fan{i}/", text="hi") for i in range(4)
-            ],
+            collaborators=[f"fan{i}" for i in range(4)],
         )
     )
     for i in range(2):

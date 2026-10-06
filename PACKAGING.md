@@ -13,14 +13,15 @@ PyInstaller включает Python, sqlite3, SQLAlchemy, Pydantic, Playwright,
 комплектный Chromium и native DLL. Перед сборкой установите браузер командой
 `$env:PLAYWRIGHT_BROWSERS_PATH='0'; .venv/Scripts/python -m playwright install chromium --no-shell`.
 Сборка проверяет запуск Chromium из замороженного sidecar без обращения к сети.
-`externalBin` использует target suffix x86_64-pc-windows-msvc. Tauri копирует
-sidecar в каталог приложения под именем `artist-core.exe`. Release-шлюз
-разрешает путь относительно собственного exe; от cwd пользователя не зависит.
+Ядро собирается PyInstaller в режиме `--onedir` и ставится как ресурс Tauri
+(`bundle.resources` в `tauri.production.conf.json`) в папку `core` рядом с приложением:
+`core/artist-core.exe` и его библиотеки. Release-шлюз разрешает путь относительно
+собственного exe; от cwd пользователя не зависит.
 Dev-шлюз использует только виртуальное окружение репозитория.
 
-PyInstaller onefile выбран ради простой и атомарной комплектации externalBin;
-runtime распаковывается в системный temp. Для больших зависимостей возможна
-замена на onedir + Tauri resources без изменения IPC или UI.
+Режим `--onefile` больше не используется: ядро вместе с Chromium (~250 МБ) распаковывалось
+в temp при каждом запуске, и окно ждало ответа ядра около 5 секунд. Установщик удаляет
+`artist-core.exe`, оставшийся от версий до 0.9.1 (`src-tauri/installer-hooks.nsh`).
 
 NSIS включает WebView2 bootstrapper для интерфейса Tauri. На Windows без WebView2 его первичная
 установка может требовать интернет; установка Python/Node/SQLite или отдельного браузера не нужна.
@@ -34,10 +35,9 @@ MVP-сборка. Для публичного выпуска нужны code sig
 сборка пропускает пакеты обновления.
 Сборка установщика не означает, что эти release-проверки пройдены.
 
-Скрипт также обновляет `artifacts/ArtistLeadFinder-Portable`: основной EXE и
-`artist-core.exe` всегда копируются из той же сборки, что и установщик.
-Если существуют прежние папки `Portable-Update`, `Portable-Fixed` и `Portable-Ready`,
-их EXE также обновляются. Контрольные суммы всех копий сверяются с результатом сборки.
+Скрипт также обновляет `artifacts/ArtistLeadFinder-Portable`: основной EXE и папка
+`core` всегда копируются из той же сборки, что и установщик.
+Контрольные суммы копий сверяются с результатом сборки.
 `scripts/smoke-scout.py` проверяет путь источник → публикация/reel → артист → лид
 на локальных HTML-страницах в настоящем Chromium без сетевых запросов. При передаче
 пути к EXE проверяет, что встроенные обработчики `scout.js` и `capture.js` совпадают
@@ -130,9 +130,8 @@ SHA256: `B845226FE057A71673C210DDC53F2E5646E03E772D1A004A865321AB096DE4FD`.
 поэтому обновление видно только после публикации черновика. На Windows установка идёт в
 режиме `passive` (окно прогресса без вопросов).
 
-macOS: ядро собирается PyInstaller в режиме `--onedir` и лежит в
-`Contents/Resources/core/artist-core` (конфиг `src-tauri/tauri.macos-core.conf.json`
-добавляется к сборке в CI). Режим `--onefile` на macOS синхронизирует загрузчик с
+macOS: ядро, как и на Windows, собирается в режиме `--onedir` и лежит в
+`Contents/Resources/core/artist-core`. Режим `--onefile` на macOS синхронизирует загрузчик с
 процессом ядра через семафор System V; на части Mac (MDM-профили, защитные агенты)
 `semctl` запрещён — «Failed to initialize sync semaphore», ядро не стартует. dev-режим
 использует `.venv/bin/python`. Секреты шифруются AES-GCM ключом из login Keychain

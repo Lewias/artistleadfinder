@@ -34,7 +34,7 @@ def page_html(title, description, body):
 def main():
     scripts = {
         name: (ROOT / "src-tauri" / "src" / f"{name}.js").read_text(encoding="utf-8")
-        for name in ("scout", "capture", "grid", "story", "follow", "profile_api")
+        for name in ("scout", "capture", "grid", "follow", "profile_api")
     }
     if len(sys.argv) > 1:
         executable = Path(sys.argv[1]).read_bytes()
@@ -50,14 +50,14 @@ def main():
             f'<h2>music_news</h2><a href="{POST}">Post</a><a href="{REEL}">Reel</a>',
         ),
         POST: page_html(
-            "Instagram", '100 likes - music_news September 25, 2026: '
-            '"Rapper @caption_only has a new single". ',
-            '<article><div><a href="/new_rapper/">new_rapper</a><a href="/p/first/c/123/"><time datetime="2026-09-25T00:00:00Z">1d</time></a><span>Great post @unrelated</span></div></article>', 
+            "Instagram", '100 likes - new_rapper on September 25, 2026: '
+            '"New single with @caption_only". ',
+            '<article><header><a href="/new_rapper/">new_rapper</a></header>'
+            '<span>Great post @unrelated</span></article>',
         ),
         REEL: page_html(
-            "Instagram", 'music_news September 25, 2026: '
-            '"Rapper @caption_only needs beats". ',
-            '<article><div><a href="/new_rapper/">new_rapper</a><a href="/reel/second/c/456/"><time datetime="2026-09-25T00:00:00Z">1d</time></a><span>I need beats</span></div></article>', 
+            "Instagram", 'new_rapper on September 25, 2026: "Studio day". ',
+            '<article><header><a href="/new_rapper/">new_rapper</a></header></article>',
         ),
         ARTIST: page_html(
             "New Rapper (@new_rapper)",
@@ -69,8 +69,8 @@ def main():
         folder = Path(temporary)
         engine, sessions = open_database(folder / "test.sqlite3")
         service = ApplicationService(sessions, folder)
-        # The fixture pages cover the posts and comments methods.
-        service.call("settings.save", {"scout_methods": ["posts", "comments"]})
+        # The fixture grid has no post data, so both publications are opened.
+        service.call("settings.save", {"scout_methods": ["posts"]})
         try:
             job = service.call("scout.start_internal", {
                 "sources": [SOURCE], "profile_id": "0" * 32,
@@ -104,7 +104,7 @@ def main():
                         if state.get("access") != "in_place":
                             page.goto(state["url"], wait_until="load")
                         name = {"profile": "capture", "source": "grid", "tagged_grid": "grid",
-                                "stories": "story", "followers": "follow",
+                                "followers": "follow",
                                 "following": "follow"}.get(state["kind"], "scout")
                         if state["kind"] == "profile" and state.get("access") == "in_place":
                             name = "profile_api"
@@ -118,15 +118,10 @@ def main():
             assert kinds == ["source", "post", "post", "profile"], kinds
             state = service.call("capture.state", {"id": job})
             assert state["status"] == "completed", state
-            # The artist comments under both publications; the reel sees a duplicate.
-            assert state["notices"] == [f"{REEL}: новых кандидатов 0, повторов 1"], state[
-                "notices"
-            ]
+            # The artist posted both publications: one profile step, one lead.
             results = service.call("scout.results", {})
             assert len(results) == 1, results
             assert results[0]["username"] == "new_rapper"
-            assert len(results[0]["evidence"]) == 2
-            assert all(e["kind"] == "comment" for e in results[0]["evidence"])
             assert results[0]["contacts"] == ["bookings@example.com"]
             print("Scout smoke OK: source -> post + reel -> artist -> saved lead")
         finally:

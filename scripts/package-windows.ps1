@@ -34,19 +34,20 @@ $desktopExecutable = Join-Path $projectRoot 'src-tauri/target/release/artist-lea
 Invoke-Checked $pythonRuntime @('scripts/smoke-scout.py', $desktopExecutable)
 $portableDirectory = Join-Path $projectRoot 'artifacts/ArtistLeadFinder-Portable'
 New-Item -ItemType Directory -Path $portableDirectory -Force | Out-Null
-$portableDirectories = @($portableDirectory)
-$coreExecutable = Join-Path $projectRoot 'src-tauri/binaries/artist-core-x86_64-pc-windows-msvc.exe'
+# The core is one folder (core/artist-core.exe and its libraries), as in the installed app.
+$coreDirectory = Join-Path $projectRoot 'src-tauri/core/artist-core'
+$portableCoreDirectory = Join-Path $portableDirectory 'core'
+$portableDesktop = Join-Path $portableDirectory 'artist-lead-finder.exe'
+Remove-Item -LiteralPath (Join-Path $portableDirectory 'artist-core.exe') -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $portableCoreDirectory -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item -LiteralPath $desktopExecutable -Destination $portableDesktop
+Copy-Item -LiteralPath $coreDirectory -Destination $portableCoreDirectory -Recurse
 $desktopHash = (Get-FileHash -LiteralPath $desktopExecutable -Algorithm SHA256).Hash
-$coreHash = (Get-FileHash -LiteralPath $coreExecutable -Algorithm SHA256).Hash
-foreach ($directory in $portableDirectories) {
-    $portableDesktop = Join-Path $directory 'artist-lead-finder.exe'
-    $portableCore = Join-Path $directory 'artist-core.exe'
-    Copy-Item -LiteralPath $desktopExecutable -Destination $portableDesktop
-    Copy-Item -LiteralPath $coreExecutable -Destination $portableCore
-    if ((Get-FileHash -LiteralPath $portableDesktop -Algorithm SHA256).Hash -ne $desktopHash -or
-        (Get-FileHash -LiteralPath $portableCore -Algorithm SHA256).Hash -ne $coreHash) {
-        throw "Portable copy verification failed: $directory"
-    }
+$coreHash = (Get-FileHash -LiteralPath (Join-Path $coreDirectory 'artist-core.exe') -Algorithm SHA256).Hash
+if ((Get-FileHash -LiteralPath $portableDesktop -Algorithm SHA256).Hash -ne $desktopHash -or
+    (Get-FileHash -LiteralPath (Join-Path $portableCoreDirectory 'artist-core.exe') -Algorithm SHA256).Hash -ne $coreHash -or
+    (Get-ChildItem -LiteralPath $coreDirectory -Recurse -File).Count -ne (Get-ChildItem -LiteralPath $portableCoreDirectory -Recurse -File).Count) {
+    throw "Portable copy verification failed: $portableDirectory"
 }
 $installer = Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($null -eq $installer) { throw 'NSIS installer not found.' }

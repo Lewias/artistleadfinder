@@ -15,3 +15,4 @@ artifacts/
 src-tauri/binaries/
 src-tauri/core/
 .pytest-*/
+scripts/.alf-keys-email
