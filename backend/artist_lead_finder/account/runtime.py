@@ -40,6 +40,8 @@ CRM_WRITES = {
     "crm.statuses_save",
     "crm.import_verse",
     "crm.import_file",
+    # Phones and emails from Direct go to the iMessage CRM.
+    "inbox.add_to_crm",
 }
 
 

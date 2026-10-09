@@ -3,9 +3,11 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   AtSign,
   Copy,
+  Inbox,
   CornerDownLeft,
   Filter,
   LayoutGrid,
+  ListChecks,
   LayoutTemplate,
   Plus,
   Send,
@@ -18,7 +20,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
-import type { OutreachSender, OutreachWorkspace } from '../services/types';
+import type { InboxState, OutreachSender, OutreachWorkspace } from '../services/types';
 import { number } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/button';
@@ -32,6 +34,8 @@ import {
 } from '../components/outreach/outreachList';
 import { CrmModal, OutreachSettingsModal, TemplatesModal } from '../components/outreach/OutreachModals';
 import { Modal } from '../components/Modal';
+import { InboxPanel } from '../components/outreach/InboxPanel';
+import { AutopilotBar } from '../components/outreach/AutopilotBar';
 import { errorText } from '../components/accountRuns';
 
 type Dialog = 'crm' | 'templates' | 'settings' | 'clear-users' | 'clear-messages' | null;
@@ -39,6 +43,8 @@ type Dialog = 'crm' | 'templates' | 'settings' | 'clear-users' | 'clear-messages
 export function Outreach() {
   const workspace = useResource<OutreachWorkspace>('outreach.workspace', {}, 4000);
   const senders = useResource<OutreachSender[]>('outreach.senders', {}, 5000);
+  const inbox = useResource<InboxState>('inbox.state', {}, 10000);
+  const [view, setView] = useState<'list' | 'replies'>('list');
   const [state, setState] = useState<OutreachWorkspace>();
   const [userDraft, setUserDraft] = useState('');
   const [userBulk, setUserBulk] = useState<string | null>(null);
@@ -193,186 +199,224 @@ export function Outreach() {
         page="outreach"
         count={`${accountsLabel(usernames.length)} · ${messagesLabel(messages.length)}`}
       />
-      <section className="panel board outreach-board">
-        {userBulk === null ? (
-          <div className="chip-cloud board-chips" aria-label="Аккаунты для рассылки">
-            {usernames.map(item => (
-              <span
-                key={item.username}
-                className={`chip board-chip ${chipTone[item.status] ?? ''}`}
-                title={chipTitle(item)}
-              >
-                {item.username}
-                <button
-                  type="button"
-                  aria-label={`Убрать ${item.username}`}
-                  disabled={busy}
-                  onClick={() => void save({ usernames: names.filter(name => name !== item.username) })}
-                >
-                  <X size={13} />
-                </button>
-              </span>
-            ))}
-            {!usernames.length && (
-              <p className="empty-copy">
-                Список пуст. Добавьте usernames ниже, вставьте список через «Массовый» или возьмите лидов по
-                статусу из CRM.
-              </p>
+      <div className="crm-tabs-row">
+        <div className="crm-tabs" role="tablist" aria-label="Рассылка">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'list'}
+            className={view === 'list' ? 'active' : ''}
+            onClick={() => setView('list')}
+          >
+            <ListChecks size={14} /> Рассылка
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'replies'}
+            className={view === 'replies' ? 'active' : ''}
+            onClick={() => setView('replies')}
+          >
+            <Inbox size={14} /> Ответы
+            {!!inbox.data?.counts.new && (
+              <span className="crm-tab-count">{number(inbox.data.counts.new)}</span>
             )}
-          </div>
-        ) : (
-          <textarea
-            className="board-bulk"
-            autoFocus
-            aria-label="Список usernames, по одному в строке"
-            placeholder={'getabag.bo\n@shotbyjae_\nhttps://www.instagram.com/vezolotti/'}
-            value={userBulk}
-            disabled={busy}
-            onChange={event => setUserBulk(event.target.value)}
-          />
-        )}
+          </button>
+        </div>
+      </div>
 
-        {userBulk === null && (
-          <label className="chip-input">
-            <AtSign size={17} aria-hidden="true" />
-            <input
-              aria-label="Новый username"
-              placeholder="Добавьте usernames и нажмите Enter…"
-              value={userDraft}
+      {view === 'list' && <AutopilotBar senders={senders.data} disabled={!messages.length} />}
+
+      {view === 'replies' ? (
+        <InboxPanel senders={senders.data} />
+      ) : (
+        <section className="panel board outreach-board">
+          {userBulk === null ? (
+            <div className="chip-cloud board-chips" aria-label="Аккаунты для рассылки">
+              {usernames.map(item => (
+                <span
+                  key={item.username}
+                  className={`chip board-chip ${chipTone[item.status] ?? ''}`}
+                  title={chipTitle(item)}
+                >
+                  {item.username}
+                  <button
+                    type="button"
+                    aria-label={`Убрать ${item.username}`}
+                    disabled={busy}
+                    onClick={() => void save({ usernames: names.filter(name => name !== item.username) })}
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+              {!usernames.length && (
+                <p className="empty-copy">
+                  Список пуст. Добавьте usernames ниже, вставьте список через «Массовый» или возьмите лидов по
+                  статусу из CRM.
+                </p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              className="board-bulk"
+              autoFocus
+              aria-label="Список usernames, по одному в строке"
+              placeholder={'getabag.bo\n@shotbyjae_\nhttps://www.instagram.com/vezolotti/'}
+              value={userBulk}
               disabled={busy}
-              onChange={event => setUserDraft(event.target.value)}
-              onKeyDown={onUserKey}
+              onChange={event => setUserBulk(event.target.value)}
             />
-            <kbd aria-hidden="true">
-              <CornerDownLeft size={13} />
-            </kbd>
-          </label>
-        )}
+          )}
 
-        <div className="board-toolbar">
-          <Button variant="outline" disabled={busy} onClick={toggleUserBulk}>
-            {userBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
-            {userBulk === null ? 'Массовый' : 'Карточки'}
-          </Button>
-          <Button variant="outline" onClick={() => setDialog('crm')}>
-            <Tag size={15} /> CRM Метки
-          </Button>
-          <Button variant="outline" disabled={!sent.length} onClick={() => void copySent()}>
-            <Copy size={15} /> Скопировать отправленные
-          </Button>
-          <Button
-            variant="outline"
-            disabled={!sent.length || busy}
-            onClick={() => void save({ usernames: names.filter(name => !sent.includes(name)) })}
-          >
-            <Filter size={15} /> Убрать отправленные
-          </Button>
-          <Button variant="outline" onClick={() => setDialog('settings')}>
-            <SlidersHorizontal size={15} /> Настройки
-          </Button>
-          <Button
-            variant="danger"
-            icon
-            aria-label="Очистить список аккаунтов"
-            title="Очистить список аккаунтов"
-            disabled={!usernames.length}
-            onClick={() => setDialog('clear-users')}
-          >
-            <Trash2 size={15} />
-          </Button>
-        </div>
+          {userBulk === null && (
+            <label className="chip-input">
+              <AtSign size={17} aria-hidden="true" />
+              <input
+                aria-label="Новый username"
+                placeholder="Добавьте usernames и нажмите Enter…"
+                value={userDraft}
+                disabled={busy}
+                onChange={event => setUserDraft(event.target.value)}
+                onKeyDown={onUserKey}
+              />
+              <kbd aria-hidden="true">
+                <CornerDownLeft size={13} />
+              </kbd>
+            </label>
+          )}
 
-        <div className="board-heading">
-          <h2>Сообщения</h2>
-          <span className="helper">Enter — добавить, Shift+Enter — новая строка</span>
-        </div>
-        {messageBulk === null && (
-          <div className="message-grid">
-            {messages.map((text, index) => (
-              <div className="message-card" key={text}>
-                <p title={text}>{text}</p>
-                <button
-                  type="button"
-                  aria-label={`Удалить сообщение ${index + 1}`}
-                  disabled={busy}
-                  onClick={() => void save({ messages: messages.filter(item => item !== text) })}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {messageBulk === null ? (
-          <textarea
-            className="message-input"
-            rows={1}
-            aria-label="Новое сообщение"
-            placeholder="Введите сообщение и нажмите Enter…"
-            value={messageDraft}
-            disabled={busy}
-            onChange={event => setMessageDraft(event.target.value)}
-            onKeyDown={onMessageKey}
-          />
-        ) : (
-          <textarea
-            className="board-bulk message-bulk"
-            autoFocus
-            aria-label="Список сообщений, отделяйте пустой строкой"
-            placeholder={'Первое сообщение\n\nВторое сообщение — отделяйте пустой строкой'}
-            value={messageBulk}
-            disabled={busy}
-            onChange={event => setMessageBulk(event.target.value)}
-          />
-        )}
-
-        <ErrorToast message={error} />
-        {notice && !error && <p className="helper">{notice}</p>}
-
-        <div className="board-footer">
-          <div className="actions">
-            <Button variant="outline" disabled={busy} onClick={toggleMessageBulk}>
-              {messageBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
-              {messageBulk === null ? 'Массовый' : 'Карточки'}
+          <div className="board-toolbar">
+            <Button variant="outline" disabled={busy} onClick={toggleUserBulk}>
+              {userBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
+              {userBulk === null ? 'Массовый' : 'Карточки'}
             </Button>
-            <Button variant="outline" disabled={messageBulk !== null} onClick={() => setDialog('templates')}>
-              <LayoutTemplate size={15} /> Шаблоны
+            <Button variant="outline" onClick={() => setDialog('crm')}>
+              <Tag size={15} /> CRM Метки
             </Button>
-            {messageBulk === null && (
-              <Button
-                variant="outline"
-                disabled={!messageDraft.trim() || busy}
-                onClick={() => void addMessages([messageDraft.trim()]).then(ok => ok && setMessageDraft(''))}
-              >
-                <Plus size={15} /> Добавить
-              </Button>
-            )}
+            <Button variant="outline" disabled={!sent.length} onClick={() => void copySent()}>
+              <Copy size={15} /> Скопировать отправленные
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!sent.length || busy}
+              onClick={() => void save({ usernames: names.filter(name => !sent.includes(name)) })}
+            >
+              <Filter size={15} /> Убрать отправленные
+            </Button>
+            <Button variant="outline" onClick={() => setDialog('settings')}>
+              <SlidersHorizontal size={15} /> Настройки
+            </Button>
             <Button
               variant="danger"
               icon
-              aria-label="Удалить все сообщения"
-              title="Удалить все сообщения"
-              disabled={!messages.length}
-              onClick={() => setDialog('clear-messages')}
+              aria-label="Очистить список аккаунтов"
+              title="Очистить список аккаунтов"
+              disabled={!usernames.length}
+              onClick={() => setDialog('clear-users')}
             >
               <Trash2 size={15} />
             </Button>
           </div>
-          <span className="board-status" role="status">
-            {status}
-          </span>
-          {running ? (
-            <Button variant="outline" disabled={busy} onClick={() => void call('outreach.workspace_stop')}>
-              <Square size={14} /> Остановить
-            </Button>
-          ) : (
-            <Button disabled={busy || !usernames.length || !messages.length} onClick={() => void start()}>
-              <Send size={15} /> Рассылка
-            </Button>
+
+          <div className="board-heading">
+            <h2>Сообщения</h2>
+            <span className="helper">Enter — добавить, Shift+Enter — новая строка</span>
+          </div>
+          {messageBulk === null && (
+            <div className="message-grid">
+              {messages.map((text, index) => (
+                <div className="message-card" key={text}>
+                  <p title={text}>{text}</p>
+                  <button
+                    type="button"
+                    aria-label={`Удалить сообщение ${index + 1}`}
+                    disabled={busy}
+                    onClick={() => void save({ messages: messages.filter(item => item !== text) })}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-        </div>
-      </section>
+
+          {messageBulk === null ? (
+            <textarea
+              className="message-input"
+              rows={1}
+              aria-label="Новое сообщение"
+              placeholder="Введите сообщение и нажмите Enter…"
+              value={messageDraft}
+              disabled={busy}
+              onChange={event => setMessageDraft(event.target.value)}
+              onKeyDown={onMessageKey}
+            />
+          ) : (
+            <textarea
+              className="board-bulk message-bulk"
+              autoFocus
+              aria-label="Список сообщений, отделяйте пустой строкой"
+              placeholder={'Первое сообщение\n\nВторое сообщение — отделяйте пустой строкой'}
+              value={messageBulk}
+              disabled={busy}
+              onChange={event => setMessageBulk(event.target.value)}
+            />
+          )}
+
+          <ErrorToast message={error} />
+          {notice && !error && <p className="helper">{notice}</p>}
+
+          <div className="board-footer">
+            <div className="actions">
+              <Button variant="outline" disabled={busy} onClick={toggleMessageBulk}>
+                {messageBulk === null ? <SquarePen size={15} /> : <LayoutGrid size={15} />}
+                {messageBulk === null ? 'Массовый' : 'Карточки'}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={messageBulk !== null}
+                onClick={() => setDialog('templates')}
+              >
+                <LayoutTemplate size={15} /> Шаблоны
+              </Button>
+              {messageBulk === null && (
+                <Button
+                  variant="outline"
+                  disabled={!messageDraft.trim() || busy}
+                  onClick={() =>
+                    void addMessages([messageDraft.trim()]).then(ok => ok && setMessageDraft(''))
+                  }
+                >
+                  <Plus size={15} /> Добавить
+                </Button>
+              )}
+              <Button
+                variant="danger"
+                icon
+                aria-label="Удалить все сообщения"
+                title="Удалить все сообщения"
+                disabled={!messages.length}
+                onClick={() => setDialog('clear-messages')}
+              >
+                <Trash2 size={15} />
+              </Button>
+            </div>
+            <span className="board-status" role="status">
+              {status}
+            </span>
+            {running ? (
+              <Button variant="outline" disabled={busy} onClick={() => void call('outreach.workspace_stop')}>
+                <Square size={14} /> Остановить
+              </Button>
+            ) : (
+              <Button disabled={busy || !usernames.length || !messages.length} onClick={() => void start()}>
+                <Send size={15} /> Рассылка
+              </Button>
+            )}
+          </div>
+        </section>
+      )}
 
       {dialog === 'crm' && (
         <CrmModal

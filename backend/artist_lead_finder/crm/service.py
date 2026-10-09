@@ -32,6 +32,7 @@ from ..models import (
 )
 from . import sheets
 from . import sync as _sync  # noqa: F401 - registers the change marker
+from .emoji import clean_emoji
 
 CRMS = ("instagram", "imessage")
 KINDS = ("instagram", "email", "phone")
@@ -50,6 +51,16 @@ INSTAGRAM_URL = re.compile(r"instagram\.com/([A-Za-z0-9._]{1,30})", re.I)
 SPLIT = re.compile(r"[,;\n]+")
 MAX_STATUSES = 40
 MAX_LABEL = 40
+
+
+def status_emoji(value) -> str:
+    """One emoji before a status label."""
+    emoji = clean_emoji(value)
+    if emoji is None:
+        raise UserError("Неподходящий эмодзи статуса.")
+    return emoji
+
+
 PAGE_SIZE = 100
 MAX_PAGE_SIZE = 500
 EXPORT_HEADER = [
@@ -261,7 +272,7 @@ class CrmService:
         items = params.get("statuses")
         if not isinstance(items, list) or len(items) > MAX_STATUSES:
             raise UserError(f"Не больше {MAX_STATUSES} статусов.")
-        wanted: list[tuple[str, str]] = []
+        wanted: list[tuple[str, str, str]] = []
         for item in items:
             label = " ".join(str(item.get("label") or "").split())[:MAX_LABEL]
             color = str(item.get("color") or "violet")
@@ -269,17 +280,19 @@ class CrmService:
                 raise UserError("У статуса должно быть название.")
             if color not in COLORS:
                 raise UserError("Неизвестный цвет статуса.")
-            if any(label.casefold() == known.casefold() for known, _ in wanted):
+            if any(label.casefold() == known.casefold() for known, *_ in wanted):
                 raise UserError(f"Статус «{label}» повторяется.")
-            wanted.append((label, color))
+            wanted.append((label, color, status_emoji(item.get("emoji"))))
         with self.sessions.begin() as session:
             removed = {row.label for row in self._statuses(session, crm)} - {
-                label for label, _ in wanted
+                label for label, *_ in wanted
             }
             session.execute(delete(CrmStatus).where(CrmStatus.crm == crm))
             session.flush()
-            for position, (label, color) in enumerate(wanted):
-                session.add(CrmStatus(crm=crm, label=label, color=color, position=position))
+            for position, (label, color, emoji) in enumerate(wanted):
+                session.add(
+                    CrmStatus(crm=crm, label=label, color=color, emoji=emoji, position=position)
+                )
             if removed:
                 own = self._own(select(CrmContact).where(CrmContact.crm == crm))
                 for contact in session.scalars(own):
@@ -410,7 +423,10 @@ class CrmService:
             "total": len(rows),
             "counts": counts,
             "totals": totals,
-            "statuses": [{"label": row.label, "color": row.color} for row in statuses],
+            "statuses": [
+                {"label": row.label, "color": row.color, "emoji": row.emoji or ""}
+                for row in statuses
+            ],
             "labels": in_use,
             "owners": owners,
         }
@@ -742,6 +758,14 @@ class CrmService:
                 incoming = self._lead_contacts(session)
             else:
                 incoming = [self._copy(row) for row in self._crm_rows(session, source)]
+            return self._merge_all(session, crm, incoming)
+
+    def merge(self, crm: str, incoming: list[dict]) -> dict:
+        """Contacts from another part of the app (the replies read from Direct), merged
+        like an import."""
+        if crm not in ("instagram", "imessage"):
+            raise UserError("Неизвестная CRM.")
+        with self.sessions.begin() as session:
             return self._merge_all(session, crm, incoming)
 
     def _merge_all(self, session, crm: str, incoming: list[dict]) -> dict:

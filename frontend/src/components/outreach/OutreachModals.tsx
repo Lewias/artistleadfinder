@@ -163,6 +163,25 @@ const pacing = [
   ['outreach_send_interval_seconds', 'Пауза между сообщениями одного аккаунта, с', 30, 3600],
   ['outreach_daily_limit_per_sender', 'Сообщений с аккаунта за 24 часа', 1, 200],
 ] as const;
+const inboxPacing = [
+  ['inbox_max_threads', 'Чатов за одно чтение', 1, 1000],
+  ['inbox_delay_min_seconds', 'Пауза между чатами от, с', 3, 300],
+  ['inbox_delay_max_seconds', 'Пауза между чатами до, с', 3, 600],
+] as const;
+const regions = [
+  ['US', 'США'],
+  ['CA', 'Канада'],
+  ['GB', 'Великобритания'],
+  ['AU', 'Австралия'],
+  ['DE', 'Германия'],
+  ['FR', 'Франция'],
+  ['BR', 'Бразилия'],
+  ['NG', 'Нигерия'],
+  ['ZA', 'ЮАР'],
+  ['RU', 'Россия'],
+  ['UA', 'Украина'],
+  ['KZ', 'Казахстан'],
+] as const;
 
 /** Sender accounts for the list, their health, and pacing settings. */
 export function OutreachSettingsModal({
@@ -284,11 +303,45 @@ export function OutreachSettingsModal({
           </label>
         </div>
       )}
+      <h3>Чтение Директа («Ответы»)</h3>
+      <p className="helper">
+        Номер без кода страны, например (312) 555-0199, читается как номер этой страны и помечается «код
+        угадан».
+      </p>
+      {form && (
+        <div className="modal-fields">
+          <label>
+            <span>Страна номеров без кода</span>
+            <select
+              value={String(form.inbox_region ?? 'US')}
+              onChange={event => setForm({ ...form, inbox_region: event.target.value })}
+            >
+              {regions.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {inboxPacing.map(([key, label, min, max]) => (
+            <label key={key}>
+              <span>{label}</span>
+              <input
+                type="number"
+                min={min}
+                max={max}
+                value={Number(form[key] ?? min)}
+                onChange={event => setForm({ ...form, [key]: Number(event.target.value) })}
+              />
+            </label>
+          ))}
+        </div>
+      )}
       <ErrorToast message={error} />
       {message && !error && <p className="helper">{message}</p>}
       <div className="actions">
         <Button disabled={!form} onClick={() => void saveSettings()}>
-          Сохранить темп
+          Сохранить настройки
         </Button>
         <Button variant="outline" onClick={onClose}>
           Готово

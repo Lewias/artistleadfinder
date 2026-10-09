@@ -10,6 +10,8 @@ RATE_LIMITED = "RATE_LIMITED"
 MESSAGE_REJECTED = "MESSAGE_REJECTED"
 # The profile offers only «Follow»: its owner does not take messages from this account.
 MESSAGES_CLOSED = "MESSAGES_CLOSED"
+# The thread already had messages: the person is already in this account's Direct.
+ALREADY_IN_DIRECT = "ALREADY_IN_DIRECT"
 NETWORK_ERROR = "NETWORK_ERROR"
 SEND_ERROR = "SEND_ERROR"
 CAMPAIGN_CANCELLED = "CAMPAIGN_CANCELLED"
@@ -24,6 +26,7 @@ REASONS = (
     RATE_LIMITED,
     MESSAGE_REJECTED,
     MESSAGES_CLOSED,
+    ALREADY_IN_DIRECT,
     NETWORK_ERROR,
     SEND_ERROR,
     CAMPAIGN_CANCELLED,

@@ -3453,6 +3453,7 @@ button.channel-pill:hover:not(.active) {
   --chip: var(--violet);
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   padding: 3px 9px;
   border-radius: 7px;
   border: 1px solid color-mix(in srgb, var(--chip) 45%, transparent);
@@ -3690,6 +3691,108 @@ button.crm-chip.off {
 }
 .crm-swatch.slate {
   --chip: #a9b4c6;
+}
+img.emoji {
+  flex: none;
+  display: inline-block;
+  object-fit: contain;
+  user-select: none;
+}
+.emoji-button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.emoji-button.set {
+  border-style: solid;
+  background: var(--input);
+}
+.emoji-button:hover,
+.emoji-button[aria-expanded='true'] {
+  border-color: var(--violet);
+  color: var(--ink);
+}
+.emoji-menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  width: 312px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--sidebar);
+  box-shadow: var(--shadow);
+  animation: selectReveal var(--motion-fast) var(--motion-enter-ease);
+}
+.emoji-tabs {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.emoji-tabs button,
+.emoji-grid button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.emoji-tabs button {
+  width: 34px;
+  height: 30px;
+  opacity: 0.55;
+}
+.emoji-tabs button.active,
+.emoji-tabs button:hover {
+  background: var(--raised);
+  opacity: 1;
+}
+.emoji-group-name {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 216px;
+  overflow-y: auto;
+}
+.emoji-grid button {
+  height: 34px;
+}
+.emoji-grid button:hover {
+  background: var(--raised);
+}
+.emoji-grid button.active {
+  background: color-mix(in srgb, var(--violet) 22%, transparent);
+}
+.emoji-clear {
+  padding: 7px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.emoji-clear:hover {
+  background: var(--raised);
+  color: var(--ink);
 }
 .crm-form {
   grid-template-columns: minmax(0, 1fr);
@@ -4616,4 +4719,118 @@ button:active:not(:disabled) {
 .memory-reset-row > div {
   display: grid;
   gap: 2px;
+}
+
+/* ---------- Outreach: «Ответы» ---------- */
+.inbox-panel {
+  display: grid;
+  gap: 14px;
+}
+.inbox-controls {
+  display: grid;
+  gap: 10px;
+}
+.inbox-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.inbox-run label {
+  display: grid;
+  gap: 6px;
+  min-width: 200px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.inbox-status {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.inbox-progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--input);
+}
+.inbox-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--violet);
+  transition: width var(--motion-fast) ease;
+}
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.inbox-actions-buttons {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.inbox-table table {
+  min-width: 820px;
+}
+.inbox-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.inbox-guessed {
+  display: block;
+  margin-top: 3px;
+  color: var(--amber);
+  font-size: 11px;
+}
+.inbox-snippet {
+  max-width: 420px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---------- Outreach: «Найти и написать» ---------- */
+.autopilot {
+  display: grid;
+  gap: 10px;
+}
+.autopilot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.autopilot-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  margin-right: 8px;
+  color: var(--ink);
+  font-size: 15px;
+}
+.autopilot-row label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.autopilot-row select {
+  min-width: 200px;
+}
+.autopilot-row input {
+  width: 120px;
+}
+.autopilot-status {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
 }

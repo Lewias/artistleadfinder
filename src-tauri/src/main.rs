@@ -623,6 +623,56 @@ fn recipient_url(args: &Value) -> Option<String> {
     valid.then(|| format!("https://www.instagram.com/{name}/"))
 }
 
+/// Thread or profile page of a reply reading; None for anything else the core might name.
+fn inbox_url(job: &Value) -> Option<String> {
+    let url = job["url"].as_str()?;
+    if let Some(id) = url
+        .strip_prefix("https://www.instagram.com/direct/t/")
+        .and_then(|rest| rest.strip_suffix('/'))
+    {
+        let valid = (1..=80).contains(&id.len())
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-');
+        return valid.then(|| url.to_string());
+    }
+    recipient_url(job).filter(|profile| profile == url)
+}
+
+/// «Ответы»: one outreach thread read in its sender window when nothing is due to be sent.
+/// The core picks the thread and its pause; the read types and sends nothing.
+fn read_inbox_thread(request: &impl Fn(&str, Value) -> Result<Value, String>) {
+    let Ok(job) = request("inbox.next_internal", json!({})) else {
+        return;
+    };
+    let (Some(profile_id), Some(item_id)) = (job["profile_id"].as_str(), job["item_id"].as_i64())
+    else {
+        return;
+    };
+    let opened = inbox_url(&job).map(|url| {
+        request(
+            "browser.runtime.navigate",
+            json!({"id":profile_id,"url":url}),
+        )
+    });
+    let result = match opened {
+        None => json!({"outcome": "error", "error": "bad_request"}),
+        Some(Err(_)) => json!({"outcome": "error", "error": "network"}),
+        Some(Ok(page)) if page["rate_limited"] == true => {
+            json!({"outcome": "error", "error": "rate_limited"})
+        }
+        Some(Ok(_)) => request(
+            "browser.runtime.read_thread",
+            json!({"id":profile_id,"username":job["username"],"outbound":job["outbound"]}),
+        )
+        .unwrap_or_else(|_| json!({"outcome": "error", "error": "browser"})),
+    };
+    let _ = request(
+        "inbox.commit_internal",
+        json!({"item_id": item_id, "result": result}),
+    );
+}
+
 /// Outreach send queue. The core picks a due job whose sender window is open and idle
 /// and claims it; the send script runs once in that window and the result goes back to
 /// the core. A failed script call is reported as a browser failure (never resent by the
@@ -636,11 +686,11 @@ fn run_outreach_driver(core: Core, closing: BrowserClosing) {
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
-        let Ok(job) = request("outreach.next_internal", json!({})) else {
-            continue;
-        };
+        let job = request("outreach.next_internal", json!({})).unwrap_or(Value::Null);
         let (Some(profile_id), Some(job_id)) = (job["profile_id"].as_str(), job["job_id"].as_i64())
         else {
+            // Nothing to send: the same window reads replies, never both at once.
+            read_inbox_thread(&request);
             continue;
         };
         // Open the recipient's profile in the sender window first, the way the parser opens
@@ -765,6 +815,19 @@ mod tests {
         assert_eq!(recipient_url(&json!({"username": "Upper"})), None);
         assert_eq!(recipient_url(&json!({"username": ""})), None);
         assert_eq!(recipient_url(&json!({})), None);
+    }
+
+    #[test]
+    fn reply_reading_opens_only_threads_and_its_profile() {
+        let job = |url: &str| json!({"username": "shot.by_jae1", "url": url});
+        let thread = "https://www.instagram.com/direct/t/340282366841710300949128/";
+        assert_eq!(inbox_url(&job(thread)).as_deref(), Some(thread));
+        let profile = "https://www.instagram.com/shot.by_jae1/";
+        assert_eq!(inbox_url(&job(profile)).as_deref(), Some(profile));
+        assert_eq!(inbox_url(&job("https://www.instagram.com/someone_else/")), None);
+        assert_eq!(inbox_url(&job("https://www.instagram.com/direct/t/../../x/")), None);
+        assert_eq!(inbox_url(&job("https://evil.example/direct/t/1/")), None);
+        assert_eq!(inbox_url(&json!({})), None);
     }
 
     #[test]

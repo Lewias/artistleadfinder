@@ -197,12 +197,12 @@ def test_statuses_are_per_crm_and_removed_from_contacts(crm):
         }
     )
     statuses = service.contacts({"crm": "instagram"})["statuses"]
-    assert statuses[0] == {"label": "Артист", "color": "violet"}
+    assert statuses[0] == {"label": "Артист", "color": "violet", "emoji": ""}
     kept = [item for item in statuses if item["label"] != "Отказ"] + [
-        {"label": "Тёплый", "color": "pink"}
+        {"label": "Тёплый", "color": "pink", "emoji": "🔥"}
     ]
     result = service.statuses_save({"crm": "instagram", "statuses": kept})
-    assert result["statuses"][-1] == {"label": "Тёплый", "color": "pink"}
+    assert result["statuses"][-1] == {"label": "Тёплый", "color": "pink", "emoji": "🔥"}
     assert service.contacts({"crm": "instagram"})["items"][0]["statuses"] == ["Сделка"]
     # The iMessage CRM keeps its defaults.
     assert any(s["label"] == "Отказ" for s in service.contacts({"crm": "imessage"})["statuses"])
@@ -210,6 +210,8 @@ def test_statuses_are_per_crm_and_removed_from_contacts(crm):
     assert service.contacts({"crm": "instagram"})["items"][0]["statuses"] == ["Сделка", "Тёплый"]
     with pytest.raises(ValueError):
         service.statuses_save({"crm": "instagram", "statuses": [{"label": "A"}, {"label": "a"}]})
+    with pytest.raises(ValueError):
+        service.statuses_save({"crm": "instagram", "statuses": [{"label": "A", "emoji": "ok"}]})
 
 
 def test_write_puts_contacts_into_the_channel_list(crm):

@@ -5,6 +5,10 @@ a person sends it by hand: «Отправить сообщение», the text t
 message box (`MessageTyper`), verified, Enter. Nothing is disguised and nothing is
 retried here; the worker decides on retries.
 
+Someone already in this account's Direct is never written to: when the opened thread
+already has messages (ours written by hand, theirs, a request), nothing is typed and the
+result is "existing_thread".
+
 Result: {"outcome": "sent", "thread_id"} or {"outcome": "error", "error": <kind>} with the
 kinds of `outreach.worker.OUTCOMES`. Failures before Enter never sent anything; after
 Enter anything unclear is "unconfirmed", which the core never resends.
@@ -36,12 +40,39 @@ SEND_FAILED = re.compile(
 COMPOSER = '[role="textbox"][contenteditable="true"]'
 THREAD = re.compile(r"^/direct/t/([0-9A-Za-z_-]{1,80})/?")
 
+COLLECT = """([header, center]) => {
+  const box = [...document.querySelectorAll('[role="textbox"][contenteditable="true"]')].pop();
+  if (!box) return null;
+  let pane = box;
+  while (pane.parentElement && pane.getBoundingClientRect().height < innerHeight * 0.6)
+    pane = pane.parentElement;
+  const area = pane.getBoundingClientRect();
+  const middle = area.left + area.width / 2;
+  const messages = [];
+  for (const node of pane.querySelectorAll('[dir="auto"]')) {
+    if (node.querySelector('[dir="auto"]') || node.closest('[role="textbox"]')) continue;
+    const rect = node.getBoundingClientRect();
+    if (!rect.width || !rect.height || rect.top < area.top + header) continue;
+    const text = (node.innerText || '').trim();
+    if (!text) continue;
+    const offset = (rect.left + rect.right) / 2 - middle;
+    const side = Math.abs(offset) < area.width * center ? 'middle' : offset < 0 ? 'in' : 'out';
+    messages.push({ text, side });
+  }
+  return messages;
+}"""
+HEADER = 72  # px: the thread header with the name and buttons
+CENTER = 0.06  # share of the column width around the middle: dates and notices
+
 # Seconds. The whole send stays well inside the shell's 45 s call limit.
 PROFILE_WAIT = 8.0
 FOLLOW_GRACE = 1.2
 DIALOG_WAIT = 12.0
 CONFIRM_WAIT = 6.0
 SETTLE = 2.0
+# An opened thread shows its earlier messages within this time; until then it is not
+# taken for an empty one.
+HISTORY_WAIT = 2.5
 POLL_MS = 250
 
 
@@ -51,6 +82,18 @@ def fail(error: str) -> dict:
 
 def normalized(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def has_history(page, clock: Callable[[], float] = time.monotonic) -> bool:
+    """Messages in the open thread: ours or the other person's, on either side."""
+    deadline = clock() + HISTORY_WAIT
+    while True:
+        messages = page.evaluate(COLLECT, [HEADER, CENTER]) or []
+        if any(item.get("side") in ("in", "out") for item in messages):
+            return True
+        if clock() > deadline:
+            return False
+        page.wait_for_timeout(POLL_MS)
 
 
 def send_direct(
@@ -105,6 +148,8 @@ def send_direct(
             if clock() > deadline:
                 return fail("dialog")
             page.wait_for_timeout(POLL_MS)
+        if has_history(page, clock):
+            return fail("existing_thread")
         box = composer.last
         # Keyboard events, one character at a time; a leftover draft is cleared first.
         # The typer verifies the box and never sends.

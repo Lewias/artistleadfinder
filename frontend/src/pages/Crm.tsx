@@ -41,18 +41,11 @@ import {
   ContactModal,
   FilterOption,
   ImportModal,
+  StatusChip,
   StatusesModal,
 } from '../components/crm/CrmModals';
 import { draftOf, emptyDraft, kindIcons, type ContactDraft } from '../components/crm/crmDraft';
-import {
-  dueLabel,
-  dueState,
-  initials,
-  kindLabels,
-  lastContactLabel,
-  money,
-  statusColor,
-} from '../components/crm/crmText';
+import { dueLabel, dueState, initials, kindLabels, lastContactLabel, money } from '../components/crm/crmText';
 
 type Sort = 'created' | 'name' | 'last' | 'next';
 type Dialog = 'import' | 'statuses' | 'contact' | 'purge' | null;
@@ -397,7 +390,7 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
                       <FilterOption
                         key={label}
                         checked={!!filters.statuses?.includes(label)}
-                        label={<span className={`crm-chip ${statusColor(label, statuses)}`}>{label}</span>}
+                        label={<StatusChip label={label} statuses={statuses} />}
                         onClick={() => toggleIn('statuses', label)}
                       />
                     ))
@@ -554,9 +547,7 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
                   <td>
                     <div className="crm-chips">
                       {contact.statuses.map(label => (
-                        <span key={label} className={`crm-chip ${statusColor(label, statuses)}`}>
-                          {label}
-                        </span>
+                        <StatusChip key={label} label={label} statuses={statuses} />
                       ))}
                     </div>
                   </td>

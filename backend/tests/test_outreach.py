@@ -22,6 +22,7 @@ from artist_lead_finder.models import (
     utcnow,
 )
 from artist_lead_finder.outreach import reasons
+from artist_lead_finder.outreach.eligibility import can_send_initial_outreach
 from artist_lead_finder.outreach.renderer import LeadVariables, MessageTemplateRenderer
 from artist_lead_finder.outreach.worker import OutreachWorker, client_context
 from artist_lead_finder.service import ApplicationService
@@ -357,6 +358,32 @@ def test_closed_messages_fail_the_recipient_and_keep_the_sender(app):
     assert rows["open"].status == "sent"
     status = service.call("outreach.senders", {})
     assert next(item for item in status if item["id"] == senders[0])["status"] == "active"
+
+
+def test_someone_already_in_direct_is_skipped_and_kept_out_of_later_outreach(app):
+    service, sessions, clock, senders, _ = app
+    known, new = add_lead(sessions, "already.talking", "K"), add_lead(sessions, "fresh", "N")
+    campaign_id = campaign(service, [known, new], senders[:1])
+    service.call("outreach.campaign_start", {"id": campaign_id})
+    drive(
+        service,
+        clock,
+        lambda job: (
+            {"outcome": "error", "error": "existing_thread"}
+            if job["args"]["username"] == "already.talking"
+            else sent_ok(job)
+        ),
+    )
+    rows = recipients(sessions, campaign_id)
+    assert rows["already.talking"].status == "skipped"
+    assert rows["already.talking"].skip_reason == reasons.ALREADY_IN_DIRECT
+    assert rows["fresh"].status == "sent"
+    with sessions() as session:
+        assert session.get(Lead, known).status == "contacted"
+    # Later outreach does not write to them either.
+    with sessions() as session:
+        check = can_send_initial_outreach(session, known, campaign_id + 1)
+    assert not check.allowed and check.reason == reasons.ALREADY_CONTACTED
 
 
 def test_refusal_details_keep_the_http_status(app):
@@ -784,8 +811,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 17
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (18, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 19
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (20, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):

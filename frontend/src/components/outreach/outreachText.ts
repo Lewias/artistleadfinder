@@ -40,6 +40,7 @@ export const outreachReasons: Record<string, string> = {
   RATE_LIMITED: 'Ограничение Instagram',
   MESSAGE_REJECTED: 'Сообщение отклонено',
   MESSAGES_CLOSED: 'Нельзя написать — только подписаться',
+  ALREADY_IN_DIRECT: 'Уже есть переписка в Директе',
   NETWORK_ERROR: 'Сеть',
   SEND_ERROR: 'Ошибка отправки',
   CAMPAIGN_CANCELLED: 'Кампания отменена',

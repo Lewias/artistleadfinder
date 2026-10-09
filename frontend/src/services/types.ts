@@ -182,6 +182,10 @@ export interface SettingsData {
   outreach_daily_limit_per_sender: number;
   outreach_max_attempts: number;
   outreach_rate_limit_pause_minutes: number;
+  inbox_region: string;
+  inbox_max_threads: number;
+  inbox_delay_min_seconds: number;
+  inbox_delay_max_seconds: number;
   scout_ignore_usernames: string[];
   scout_profile_cache_hours: number;
   scout_recent_captions: number;
@@ -382,6 +386,53 @@ export interface OutreachSender {
   last_sent_at: string | null;
   sent_24h: number;
   daily_limit: number;
+}
+/** «Найти и написать»: the parser run of one account, then «Рассылка» to its new leads. */
+export interface AutopilotState {
+  status: 'idle' | 'starting' | 'scouting' | 'sending' | 'done' | 'failed' | 'stopped' | 'cancelled';
+  profile_id: string;
+  account: string;
+  target: number;
+  scout_found: number;
+  found?: number;
+  sent: number;
+  total: number;
+  message: string;
+}
+/** «Ответы»: one reading of an account's outreach threads. */
+export interface InboxScan {
+  id: number;
+  sender: string;
+  sender_name: string;
+  status: 'running' | 'done' | 'stopped';
+  days: number;
+  total: number;
+  done: number;
+  replied: number;
+  found: number;
+  errors: number;
+  reason: string;
+  /** Why the next thread waits (closed window, parser running); empty while reading. */
+  waiting: string;
+  started_at: string;
+  finished_at: string | null;
+}
+export interface InboxFinding {
+  id: number;
+  username: string;
+  kind: 'phone' | 'email';
+  value: string;
+  raw: string;
+  snippet: string;
+  /** The country code came from the default region. */
+  guessed: boolean;
+  sender: string;
+  found_at: string;
+}
+export interface InboxState {
+  scan: InboxScan | null;
+  findings: InboxFinding[];
+  counts: { new: number; added: number; hidden: number };
 }
 export interface CampaignPreview {
   total: number;
@@ -629,6 +680,8 @@ export type CrmColor = 'violet' | 'blue' | 'green' | 'amber' | 'red' | 'pink' | 
 export interface CrmStatus {
   label: string;
   color: CrmColor;
+  /** Shown before the label; empty or absent when there is none. */
+  emoji?: string;
 }
 export interface CrmContact {
   id: number;

@@ -1579,14 +1579,13 @@ class ScoutService:
         if not stats.get("rotation"):
             return [], []
         scout = self.scout_settings()
-        picked, _ = memory.pick_sources(
+        fresh, _ = memory.pick_sources(
             session,
             scout.scout_sources_per_run,
             scout.scout_source_cooldown_hours,
             scout.scout_skip_recent_sources,
             exclude=set(stats["sources"]),
         )
-        fresh = [url for url in picked if url not in stats["sources"]]
         tasks = []
         for url in fresh:
             added, _ = initial_tasks(url, self._context(session, scout, profile_id, url, set()))

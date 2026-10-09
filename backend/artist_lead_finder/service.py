@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import lead_removal, memory_reset
+from .autopilot import Autopilot
 from .browser_capture import BrowserCaptureService
 from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
@@ -21,6 +22,8 @@ from .discovery import DiscoveryEngine
 from .errors import UserError
 from .imessage import shortcut as imessage_shortcut
 from .imessage.service import IMessageService
+from .inbox.service import InboxService
+from .inbox.settings import InboxSettings
 from .jobs import DiscoveryManager
 from .lead_scout import leads as scout_leads
 from .lead_scout.ai import AIKeyStore, OpenRouterClassifier
@@ -155,6 +158,7 @@ DEFAULTS = {
     **PacingSettings().model_dump(),
     **ScoutSettings().model_dump(),
     **OutreachSettings().model_dump(),
+    **InboxSettings().model_dump(),
 }
 
 
@@ -212,6 +216,15 @@ class ApplicationService:
         # iMessage through the iPhone: the LAN bridge comes back if it was on.
         self.imessage = IMessageService(sessions, data_dir)
         self.crm = CrmService(sessions, self.workspace.add_usernames, self.imessage.add_recipients)
+        # «Ответы»: phones and emails from the outreach threads, read in the sender window.
+        self.inbox = InboxService(
+            sessions, self.settings, self.chromium.is_open, self._sender_names, self.crm.merge
+        )
+        self.inbox.recover()
+        # «Найти и написать»: the parser's new leads, then «Рассылка» to them.
+        self.autopilot = Autopilot(
+            sessions, self.scout.set_target, self.workspace.start, self._sender_names
+        )
         self.imessage.prune()
         self.imessage.remove_orphan_files()
         self.imessage.restore()
@@ -249,6 +262,16 @@ class ApplicationService:
             "browser.runtime.send_message": lambda p: chromium.send_message(
                 p["id"], str(p["username"]), str(p["text"])
             ),
+            "browser.runtime.read_thread": lambda p: chromium.read_thread(
+                p["id"], str(p["username"]), [str(text) for text in p.get("outbound") or []]
+            ),
+            "inbox.state": self.inbox.state,
+            "inbox.start": self.inbox.start,
+            "inbox.stop": self.inbox.stop,
+            "inbox.add_to_crm": self.inbox.add_to_crm,
+            "inbox.hide": self.inbox.hide,
+            "inbox.next_internal": lambda p: self.inbox.next_job(),
+            "inbox.commit_internal": self.inbox.commit,
             "browser.runtime.eval": lambda p: chromium.evaluate(
                 p["id"],
                 p["script"],
@@ -296,7 +319,10 @@ class ApplicationService:
             "outreach.mark_replied": self.campaigns.mark_replied,
             "outreach.stop_conversation": self.campaigns.stop_conversation,
             "outreach.resolve_review": self.outreach.resolve_review,
-            "outreach.next_internal": lambda p: self.outreach.next_job(),
+            "outreach.next_internal": lambda p: self._outreach_next(),
+            "autopilot.state": self.autopilot.state,
+            "autopilot.start": self.autopilot.start,
+            "autopilot.cancel": self.autopilot.cancel,
             "outreach.commit_internal": self.outreach.commit,
             "leads.do_not_contact": self.campaigns.set_do_not_contact,
             "crm.list": self.crm.contacts,
@@ -359,6 +385,15 @@ class ApplicationService:
             "dashboard.get": lambda p: self.dashboard(),
             "leads.export": self.export,
         }
+
+    def _outreach_next(self) -> dict | None:
+        """The shell's send queue; the autopilot looks at its parser run first, so the
+        outreach it starts is picked up by this very call."""
+        try:
+            self.autopilot.tick()
+        except Exception as error:  # noqa: BLE001 - the send queue never stops for it
+            log.warning("autopilot_tick_failed", extra={"error_type": type(error).__name__})
+        return self.outreach.next_job()
 
     def _sender_names(self) -> dict[str, str]:
         return {
@@ -532,6 +567,7 @@ class ApplicationService:
         PacingSettings.model_validate(settings)
         ScoutSettings.model_validate(settings)
         OutreachSettings.model_validate(settings)
+        InboxSettings.model_validate(settings)
         enabled = settings["enabled_providers"]
         if not isinstance(enabled, list) or set(enabled) - {"mock", "imported"}:
             raise UserError("Источник недоступен.")

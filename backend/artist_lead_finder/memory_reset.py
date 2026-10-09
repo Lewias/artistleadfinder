@@ -16,6 +16,9 @@ from .models import (
     IMessageCampaign,
     IMessageEvent,
     IMessageJob,
+    InboxFinding,
+    InboxScan,
+    InboxScanItem,
     Lead,
     LeadSource,
     Message,
@@ -90,12 +93,18 @@ def reset_scout(session) -> dict:
 
 
 def reset_outreach(session) -> dict:
-    """Campaigns, queues, sent messages, follow-ups and sender health, and the marks that
-    a lead was already written to: the next outreach may write to the same people."""
+    """Campaigns, queues, sent messages, follow-ups, sender health and the reading of
+    replies, and the marks that a lead was already written to: the next outreach may write
+    to the same people. Contacts already added to the CRM stay there."""
     if session.scalar(select(OutreachCampaign.id).where(OutreachCampaign.status.in_(UNFINISHED))):
         raise UserError("Остановите рассылку, затем сбросьте память.")
+    if session.scalar(select(InboxScan.id).where(InboxScan.status == "running")):
+        raise UserError("Остановите чтение Директа, затем сбросьте память.")
     session.execute(update(OutreachWorkspace).values(campaign_id=None))
     for model in (
+        InboxScanItem,
+        InboxScan,
+        InboxFinding,
         FollowUpJob,
         OutboundMessageJob,
         CampaignRecipient,

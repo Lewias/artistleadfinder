@@ -52,6 +52,7 @@ RETRY_BACKOFF_MINUTES = (2, 10, 30, 60)
 #   retry        temporary, nothing was sent: queued again with backoff
 #   sender       the sender cannot send: sender stopped, job waits for it
 #   failed       recipient-level: not retried
+#   skip         nothing was sent on purpose: the recipient is skipped, not failed
 #   unconfirmed  the message may have gone out: failed + needs_review, never resent
 OUTCOMES = {
     "network": ("retry", reasons.NETWORK_ERROR, "Сетевая ошибка до отправки"),
@@ -74,6 +75,11 @@ OUTCOMES = {
         "failed",
         reasons.MESSAGES_CLOSED,
         "В профиле только «Подписаться» — этому аккаунту нельзя написать",
+    ),
+    "existing_thread": (
+        "skip",
+        reasons.ALREADY_IN_DIRECT,
+        "С этим человеком уже есть переписка в Директе — не пишем",
     ),
     "rejected": ("failed", reasons.MESSAGE_REJECTED, "Instagram отклонил сообщение"),
     "bad_request": ("failed", reasons.SEND_ERROR, "Некорректные данные отправки"),
@@ -401,6 +407,15 @@ class OutreachWorker:
             )
             refresh_counts(session, campaign)
             return {"ok": True, "outcome": "sender"}
+        if kind == "skip":
+            job.status = "cancelled"
+            skip_recipient(session, recipient, reason, details)
+            # Already talking: later outreach skips them like anyone written to.
+            lead = session.get(Lead, recipient.lead_id)
+            if lead is not None and lead.status != "rejected":
+                lead.status = "contacted"
+            refresh_counts(session, campaign)
+            return {"ok": True, "outcome": "skipped"}
         job.status = "failed"
         recipient.status, recipient.failure_reason = "failed", reason
         recipient.reason_details, recipient.failed_at = details, now

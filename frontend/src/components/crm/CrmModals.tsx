@@ -15,7 +15,16 @@ import type { CrmChannel, CrmChannelKind, CrmId, CrmSource, CrmStatus } from '..
 import { useResource } from '../../hooks/useResource';
 import { Modal } from '../Modal';
 import { Button } from '../ui/button';
-import { colorNames, crmColors, kindLabels, kindPlaceholders, sourceText, statusColor } from './crmText';
+import {
+  colorNames,
+  crmColors,
+  kindLabels,
+  kindPlaceholders,
+  sourceText,
+  statusColor,
+  statusEmoji,
+} from './crmText';
+import { Emoji, EmojiPicker } from './Emoji';
 import type { ContactDraft } from './crmDraft';
 
 /** «Что импортировать?»: the parsing base and the other CRM with their counts. */
@@ -69,7 +78,18 @@ export function ImportModal({
   );
 }
 
-/** «Настроить статусы»: names and colors; a removed status leaves the contacts too. */
+/** A status label as a colored chip with its emoji. */
+export function StatusChip({ label, statuses }: { label: string; statuses: CrmStatus[] }) {
+  const emoji = statusEmoji(label, statuses);
+  return (
+    <span className={`crm-chip ${statusColor(label, statuses)}`}>
+      {emoji && <Emoji emoji={emoji} />}
+      {label}
+    </span>
+  );
+}
+
+/** «Настроить статусы»: emoji, names and colors; a removed status leaves the contacts too. */
 export function StatusesModal({
   statuses,
   busy,
@@ -106,6 +126,11 @@ export function StatusesModal({
                 />
               ))}
             </div>
+            <EmojiPicker
+              value={status.emoji ?? ''}
+              label={status.label}
+              onChange={emoji => update(index, { emoji })}
+            />
             <input
               aria-label="Название статуса"
               value={status.label}
@@ -259,6 +284,7 @@ export function ContactModal({
                 className={`crm-chip ${statusColor(label, statuses)}${draft.statuses.includes(label) ? ' on' : ' off'}`}
                 onClick={() => toggle(label)}
               >
+                {statusEmoji(label, statuses) && <Emoji emoji={statusEmoji(label, statuses)} />}
                 {label}
               </button>
             ))}

@@ -21,6 +21,10 @@ export function statusColor(label: string, statuses: CrmStatus[]): CrmColor {
   return looseColors[hash % looseColors.length];
 }
 
+/** The emoji of a configured status; other labels have none. */
+export const statusEmoji = (label: string, statuses: CrmStatus[]) =>
+  statuses.find(status => status.label === label)?.emoji ?? '';
+
 /** Two letters for the avatar: words of the name, else its first two characters. */
 export function initials(name: string) {
   const words = name

@@ -180,12 +180,12 @@ def test_trash_and_purge_reach_every_copy(server, people):
 def test_statuses_follow_the_user_to_a_new_computer(server, people, tmp_path):
     ids, copies = people
     copies["artist"].crm.statuses_save(
-        {"crm": "instagram", "statuses": [{"label": "Горячий", "color": "red"}]}
+        {"crm": "instagram", "statuses": [{"label": "Горячий", "color": "red", "emoji": "🔥"}]}
     )
     copies["artist"].sync.run_once()
     sets = server.tables["crm_status_sets"]
     assert [(row["crm"], row["items"]) for row in sets] == [
-        ("instagram", [{"label": "Горячий", "color": "red"}])
+        ("instagram", [{"label": "Горячий", "color": "red", "emoji": "🔥"}])
     ]
     # A new computer seeds the defaults, then takes the list from the server.
     server.keys["KEY-ARTIST-0000"]["device_id"] = None
@@ -194,7 +194,7 @@ def test_statuses_follow_the_user_to_a_new_computer(server, people, tmp_path):
         fresh.crm.contacts({"crm": "instagram"})
         fresh.sync.run_once()
         statuses = fresh.crm.contacts({"crm": "instagram"})["statuses"]
-        assert statuses == [{"label": "Горячий", "color": "red"}]
+        assert statuses == [{"label": "Горячий", "color": "red", "emoji": "🔥"}]
     finally:
         fresh.close()
 

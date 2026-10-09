@@ -13,6 +13,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 from .browser_sessions import BrowserSessions
 from .database import application_data_dir
 from .direct_message import send_direct
+from .inbox.reader import read_thread
 from .lead_scout import feed as grid_feed
 from .lead_scout.candidates import parse_instagram_post_url
 
@@ -353,6 +354,15 @@ class ChromiumRuntime:
             raise ValueError("Browser window is closed")
         window.rate_limited = False
         return send_direct(window.page, username, text, rate_limited=lambda: window.rate_limited)
+
+    def read_thread(self, identifier: str, username: str, outbound: list[str]) -> dict:
+        """One outreach thread read through Instagram's interface; nothing is typed."""
+        window = self._window(identifier)
+        if not window:
+            raise ValueError("Browser window is closed")
+        return read_thread(
+            window.page, username, outbound, rate_limited=lambda: window.rate_limited
+        )
 
     def evaluate(self, identifier: str, script: str, args=None, feed: bool = False) -> dict:
         """Run a page script. `feed` (grid pages) adds what the page's own data says about

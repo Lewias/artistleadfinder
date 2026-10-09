@@ -824,4 +824,77 @@ class CrmStatus(Base):
     crm: Mapped[str] = mapped_column(String(12))
     label: Mapped[str] = mapped_column(String(40))
     color: Mapped[str] = mapped_column(String(12), default="violet")
+    # Schema 18: an optional emoji before the label; empty when there is none.
+    emoji: Mapped[str] = mapped_column(String(16), default="")
     position: Mapped[int] = mapped_column(default=0)
+
+
+class InboxScan(Base):
+    """Schema 19: one reading of an account's outreach threads («Ответы»)."""
+
+    __tablename__ = "inbox_scans"
+    __table_args__ = (
+        CheckConstraint("status IN ('running','done','stopped')"),
+        Index("ix_inbox_scans_sender", "sender_account_id", "started_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_account_id: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(10), default="running")
+    days: Mapped[int] = mapped_column(default=30)
+    total: Mapped[int] = mapped_column(default=0)
+    done: Mapped[int] = mapped_column(default=0)
+    replied: Mapped[int] = mapped_column(default=0)
+    found: Mapped[int] = mapped_column(default=0)
+    errors: Mapped[int] = mapped_column(default=0)
+    # Why the scan stopped before the end; empty otherwise.
+    reason: Mapped[str] = mapped_column(String(200), default="")
+    started_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None]
+    # The next thread is opened no earlier than this (the pause between threads).
+    next_at: Mapped[datetime | None]
+
+
+class InboxScanItem(Base):
+    """One thread of a scan: pending → reading → done / error."""
+
+    __tablename__ = "inbox_scan_items"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','reading','done','error')"),
+        Index("ix_inbox_items_scan", "scan_id", "status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scan_id: Mapped[int] = mapped_column(ForeignKey("inbox_scans.id", ondelete="CASCADE"))
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE")
+    )
+    status: Mapped[str] = mapped_column(String(10), default="pending")
+    error: Mapped[str] = mapped_column(String(40), default="")
+    # When the shell took the thread; a reading without a result for long is an error.
+    claimed_at: Mapped[datetime | None]
+
+
+class InboxFinding(Base):
+    """A phone or email a person wrote in a reply, waiting for review."""
+
+    __tablename__ = "inbox_findings"
+    __table_args__ = (
+        CheckConstraint("kind IN ('phone','email')"),
+        CheckConstraint("status IN ('new','added','hidden')"),
+        UniqueConstraint("lead_id", "kind", "value", name="uq_inbox_finding"),
+        Index("ix_inbox_findings_status", "status", "found_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"))
+    conversation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL")
+    )
+    sender_account_id: Mapped[str] = mapped_column(String(32))
+    username: Mapped[str] = mapped_column(String(40))
+    kind: Mapped[str] = mapped_column(String(10))
+    value: Mapped[str] = mapped_column(String(200))
+    raw: Mapped[str] = mapped_column(String(200), default="")
+    snippet: Mapped[str] = mapped_column(String(300), default="")
+    # The country code came from the default region, not from the message.
+    guessed: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(10), default="new")
+    found_at: Mapped[datetime] = mapped_column(default=utcnow)

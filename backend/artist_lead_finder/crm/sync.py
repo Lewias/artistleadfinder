@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..account.client import AuthError, OfflineError
 from ..models import CrmContact, CrmStatus, CrmTombstone, Setting
+from .emoji import clean_emoji
 
 log = logging.getLogger(__name__)
 
@@ -286,7 +287,7 @@ class CrmSync:
                 synced = session.get(Setting, _synced_key(crm))
                 synced_at = parse(synced.value) if synced else None
                 items = [
-                    {"label": row.label, "color": row.color}
+                    {"label": row.label, "color": row.color, "emoji": row.emoji or ""}
                     for row in session.scalars(
                         select(CrmStatus).where(CrmStatus.crm == crm).order_by(CrmStatus.position)
                     )
@@ -329,9 +330,15 @@ class CrmSync:
                         crm=crm,
                         label=str(item["label"])[:40],
                         color=str(item.get("color") or "slate")[:12],
+                        emoji=_emoji(item.get("emoji")),
                         position=position,
                     )
                 )
             _set(session, f"crm_statuses_seeded_{crm}", True)
             _set(session, _dirty_key(crm), False)
             _set(session, _synced_key(crm), server.get("updated_at"))
+
+
+def _emoji(value) -> str:
+    """An emoji from the server; anything else is dropped, never refused."""
+    return clean_emoji(value) or ""
