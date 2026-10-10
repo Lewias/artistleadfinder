@@ -45,6 +45,7 @@ import {
   StatusesModal,
 } from '../components/crm/CrmModals';
 import { draftOf, emptyDraft, kindIcons, type ContactDraft } from '../components/crm/crmDraft';
+import { CloudBadge } from '../components/cloud/CloudBadge';
 import { dueLabel, dueState, initials, kindLabels, lastContactLabel, money } from '../components/crm/crmText';
 
 type Sort = 'created' | 'name' | 'last' | 'next';
@@ -542,6 +543,7 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
                     <button type="button" className="crm-person" onClick={openContact}>
                       <span className="crm-avatar">{initials(contact.name)}</span>
                       <strong>{contact.name}</strong>
+                      {contact.cloud && <CloudBadge info={contact.cloud} />}
                     </button>
                   </td>
                   <td>

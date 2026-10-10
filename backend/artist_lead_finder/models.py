@@ -800,6 +800,10 @@ class CrmContact(Base):
     owner_id: Mapped[str | None] = mapped_column(String(36))
     owner_name: Mapped[str] = mapped_column(String(160), default="")
     dirty: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Schema 20, from the server only (never sent back): "Cloud Parser" for contacts the
+    # cloud parser created, and what it found (category, confidence, reason, profile).
+    source: Mapped[str] = mapped_column(String(40), default="")
+    cloud: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -864,9 +868,7 @@ class InboxScanItem(Base):
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     scan_id: Mapped[int] = mapped_column(ForeignKey("inbox_scans.id", ondelete="CASCADE"))
-    conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE")
-    )
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(10), default="pending")
     error: Mapped[str] = mapped_column(String(40), default="")
     # When the shell took the thread; a reading without a result for long is an error.
@@ -898,3 +900,79 @@ class InboxFinding(Base):
     guessed: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(10), default="new")
     found_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AssistantTurn(Base):
+    """Schema 21: one message of the assistant's conversation, as the API takes it back.
+
+    `content` holds the API content blocks of the turn (text, tool use, tool results,
+    thinking), so the conversation goes on exactly as it was; `conversation` groups the
+    turns of one chat, a new chat starts a new number.
+    """
+
+    __tablename__ = "assistant_turns"
+    __table_args__ = (
+        CheckConstraint("role IN ('user','assistant')"),
+        Index("ix_assistant_turns_conversation", "conversation", "id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation: Mapped[int] = mapped_column(default=1)
+    role: Mapped[str] = mapped_column(String(10))
+    content: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AssistantDraft(Base):
+    """An iMessage the assistant proposed; it goes out only when the user sends it."""
+
+    __tablename__ = "assistant_drafts"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','queued','rejected')"),
+        Index("ix_assistant_drafts_status", "status", "id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # A phone with «+» and the country code, or an email, as the iMessage queue takes it.
+    handle: Mapped[str] = mapped_column(String(200))
+    contact_id: Mapped[int | None]
+    contact_name: Mapped[str] = mapped_column(String(160), default="")
+    text: Mapped[str] = mapped_column(String(2000))
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    # The model that wrote the text: the everyday one or the stronger one it asked.
+    model: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(10), default="pending")
+    campaign_id: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AssistantUsage(Base):
+    """Tokens of one model request and what they cost, for the spend counter."""
+
+    __tablename__ = "assistant_usage"
+    __table_args__ = (Index("ix_assistant_usage_created", "created_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    model: Mapped[str] = mapped_column(String(40))
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(default=0)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AssistantAction(Base):
+    """An action the assistant proposed (a cloud search, an outreach, a list, a contact);
+    it runs only when the user presses «Выполнить»."""
+
+    __tablename__ = "assistant_actions"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','done','failed','rejected')"),
+        Index("ix_assistant_actions_status", "status", "id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    summary: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(10), default="pending")
+    result: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    done_at: Mapped[datetime | None]

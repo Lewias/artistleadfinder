@@ -20,6 +20,13 @@ class FakeSupabase:
         self.tokens: dict[str, str] = {}  # access token -> user id
         self.refresh: dict[str, str] = {}  # refresh token -> user id
         self.tables: dict[str, list[dict]] = {"crm_contacts": [], "crm_status_sets": []}
+        # Cloud parser jobs and their candidates; only the owner reads them.
+        self.cloud: dict[str, list[dict]] = {"cloud_jobs": [], "cloud_candidates": []}
+        # (owner, profile) -> {name, record}: what the parser logs in with.
+        self.cloud_sessions: dict[tuple[str, str], dict] = {}
+        # Telegram: user id -> linked chat name; user id -> the code the app shows.
+        self.tg_links: dict[str, str] = {}
+        self.tg_codes: dict[str, str] = {}
         self.down = False
         self.counter = itertools.count(1)
         self.requests: list[str] = []
@@ -173,6 +180,136 @@ class FakeSupabase:
             found.update(user_id=None, activated=False)
         return 200, None
 
+    def _cloud_session_put(self, user_id, body):
+        self.cloud_sessions[(user_id, body["p_profile"])] = {
+            "name": body["p_name"],
+            "record": body["p_record"],
+        }
+        return 204, None
+
+    def _cloud_sessions_list(self, user_id):
+        return 200, [
+            {
+                "profile_id": profile,
+                "name": item["name"],
+                "has_proxy": bool(item["record"].get("proxy")),
+            }
+            for (owner, profile), item in self.cloud_sessions.items()
+            if owner == user_id
+        ]
+
+    def _cloud_start(self, user_id, body):
+        jobs = self.cloud["cloud_jobs"]
+        for job in jobs:
+            if job["owner_id"] == user_id and job["request_id"] == body["p_request_id"]:
+                return 200, job["id"]
+        session = self.cloud_sessions.get((user_id, body["p_params"]["profile_id"]))
+        if session is None:
+            return 400, {"message": "Сессия этого аккаунта Instagram не отправлена на сервер."}
+        kind = body["p_params"].get("kind") or "scout"
+        if kind == "outreach" and not session["record"].get("proxy"):
+            return 400, {"message": "Для облачной рассылки у аккаунта должен быть прокси."}
+        active = [
+            job
+            for job in jobs
+            if job["owner_id"] == user_id
+            and job["kind"] == kind
+            and job["stage"] not in ("completed", "failed", "cancelled")
+        ]
+        if kind == "outreach" and active:
+            return 400, {
+                "message": "Облачная рассылка уже идёт. Дождитесь конца или остановите её."
+            }
+        if len(active) >= 2:
+            return 400, {
+                "message": "Уже идёт 2 облачных задачи. Дождитесь конца или отмените одну."
+            }
+        params = {key: value for key, value in body["p_params"].items() if key != "kind"}
+        job = {
+            "id": f"00000000-0000-4000-8000-{next(self.counter):012d}",
+            "owner_id": user_id,
+            "request_id": body["p_request_id"],
+            "profile_id": body["p_params"]["profile_id"],
+            "kind": kind,
+            "params": params,
+            "stage": "queued",
+            "cancel_requested": False,
+            "progress": {},
+            "counters": {},
+            "error": None,
+            "created_at": stamp(),
+            "updated_at": stamp(),
+            "finished_at": None,
+        }
+        jobs.append(job)
+        return 200, job["id"]
+
+    def _cloud_unwritten(self, user_id, body):
+        """New leads of the user's parser jobs that no outreach job has taken."""
+        jobs = {job["id"]: job for job in self.cloud["cloud_jobs"] if job["owner_id"] == user_id}
+        taken = {
+            name
+            for job in jobs.values()
+            if job["kind"] == "outreach"
+            for name in job["params"].get("usernames") or []
+        }
+        names = []
+        for row in reversed(self.cloud["cloud_candidates"]):
+            job = jobs.get(row["job_id"])
+            if job and job["kind"] == "scout" and row.get("outcome") == "added":
+                if row["username"] not in taken and row["username"] not in names:
+                    names.append(row["username"])
+        return 200, [{"username": name} for name in names[: int(body.get("p_limit") or 500)]]
+
+    def _cloud_cancel(self, user_id, body):
+        for job in self.cloud["cloud_jobs"]:
+            if job["id"] == body["p_job"] and job["owner_id"] == user_id:
+                job["cancel_requested"] = True
+                if job["stage"] == "queued":
+                    job["stage"] = "cancelled"
+                return 204, None
+        return 404, {"message": "Задача не найдена."}
+
+    def _telegram(self, user_id, name):
+        if name == "tg_link_start":
+            self.tg_codes[user_id] = f"{next(self.counter):010X}"
+            return 200, {
+                "code": self.tg_codes[user_id],
+                "expires_at": stamp(),
+                "bot": "alf_test_bot",
+            }
+        if name == "tg_unlink":
+            self.tg_links.pop(user_id, None)
+            return 204, None
+        linked = user_id in self.tg_links
+        return 200, {
+            "linked": linked,
+            "username": self.tg_links.get(user_id, ""),
+            "notify": True,
+            "bot": "alf_test_bot",
+        }
+
+    def _cloud_rows(self, user_id, table, query):
+        def match(row, key):
+            wanted = (query.get(key) or [""])[0]
+            if not wanted:
+                return True
+            if wanted.startswith("eq."):
+                return str(row.get(key)) == wanted[3:]
+            if wanted.startswith("in.("):
+                return str(row.get(key)) in wanted[4:-1].split(",")
+            return True
+
+        rows = [
+            {k: v for k, v in row.items() if k != "owner_id"}
+            for row in self.cloud[table]
+            if row["owner_id"] == user_id
+            and all(match(row, key) for key in ("id", "job_id", "outcome", "state"))
+        ]
+        if table == "cloud_jobs":
+            rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return rows
+
     def _visible(self, user_id, row):
         user = self.users[user_id]
         return self._sees_all(user_id) or (row["owner_id"] == user_id and not user["blocked"])
@@ -277,6 +414,25 @@ class FakeSupabase:
                     return self._send(200, {"ok": True})
                 if url.path == "/rest/v1/license_keys":
                     return self._send(200, fake._key_rows(user_id))
+                if url.path == "/rest/v1/rpc/cloud_session_put":
+                    return self._send(*fake._cloud_session_put(user_id, body))
+                if url.path == "/rest/v1/rpc/cloud_sessions_list":
+                    return self._send(*fake._cloud_sessions_list(user_id))
+                if url.path == "/rest/v1/rpc/cloud_start":
+                    return self._send(*fake._cloud_start(user_id, body))
+                if url.path == "/rest/v1/rpc/cloud_unwritten":
+                    return self._send(*fake._cloud_unwritten(user_id, body))
+                if url.path in (
+                    "/rest/v1/rpc/tg_link_start",
+                    "/rest/v1/rpc/tg_status",
+                    "/rest/v1/rpc/tg_unlink",
+                ):
+                    return self._send(*fake._telegram(user_id, url.path.rsplit("/", 1)[1]))
+                if url.path == "/rest/v1/rpc/cloud_cancel":
+                    return self._send(*fake._cloud_cancel(user_id, body))
+                if url.path.removeprefix("/rest/v1/") in fake.cloud and method == "GET":
+                    table = url.path.removeprefix("/rest/v1/")
+                    return self._send(200, fake._cloud_rows(user_id, table, query))
                 if url.path == "/rest/v1/rpc/activate_key":
                     if fake.users[user_id]["blocked"]:
                         return self._send(400, {"message": "Аккаунт заблокирован или не найден."})

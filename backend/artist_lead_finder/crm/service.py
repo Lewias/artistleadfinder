@@ -354,6 +354,8 @@ class CrmService:
             "mine": contact.owner_id in (None, me),
             "id": contact.id,
             "name": contact.name,
+            "source": contact.source or "",
+            "cloud": contact.cloud,
             "statuses": contact.statuses or [],
             "channels": contact.channels or [],
             "notes": contact.notes,

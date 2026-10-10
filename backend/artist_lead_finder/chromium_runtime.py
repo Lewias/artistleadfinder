@@ -20,10 +20,12 @@ from .lead_scout.candidates import parse_instagram_post_url
 # Windows: Chromium is frozen into the core (Playwright's "0" location). macOS: PyInstaller
 # cannot re-sign Chromium's app bundle, so it is downloaded once into the app data folder,
 # which also survives app updates.
+# Linux is only the cloud parser container, whose image brings its own Chromium path.
 DOWNLOADS_CHROMIUM = sys.platform == "darwin"
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = (
-    str(application_data_dir() / "ms-playwright") if DOWNLOADS_CHROMIUM else "0"
-)
+if not (sys.platform.startswith("linux") and os.environ.get("PLAYWRIGHT_BROWSERS_PATH")):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = (
+        str(application_data_dir() / "ms-playwright") if DOWNLOADS_CHROMIUM else "0"
+    )
 
 
 GUEST_ID = "0" * 32

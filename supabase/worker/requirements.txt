@@ -1,0 +1,10 @@
+# The cloud parser runs the app's own core (backend/artist_lead_finder) plus the database
+# driver. Chromium 1200 comes with the base image; the Python package is installed here.
+playwright==1.57.0
+psycopg[binary]==3.3.6
+SQLAlchemy==2.0.54
+pydantic==2.13.5
+platformdirs==4.11.10
+cryptography==46.0.7
+phonenumbers==9.0.40
+certifi==2026.7.22

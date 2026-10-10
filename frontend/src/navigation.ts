@@ -3,19 +3,20 @@
 export const pages = [
   {
     id: 'discovery',
-    label: 'Локальный парсер',
+    label: 'Парсер и рассылка',
     eyebrow: 'SMM РЕСУРСЫ',
-    title: 'Локальный парсер',
+    title: 'Парсер и рассылка',
     description: '',
     placement: 'main',
     channel: 'instagram',
   },
   {
-    id: 'outreach',
-    label: 'Первичная рассылка',
-    eyebrow: 'АККАУНТЫ',
-    title: 'Первичная рассылка',
-    description: '',
+    id: 'cloud',
+    label: 'Облачный парсер',
+    eyebrow: 'СЕРВЕР',
+    title: 'Облачный парсер',
+    description:
+      'Наш парсер на сервере: тот же поиск по источникам, но без вашего компьютера. Найденные лиды сразу попадают в CRM.',
     placement: 'main',
     channel: 'instagram',
   },
@@ -118,6 +119,16 @@ export const pages = [
     description: 'CRM iMessage других пользователей: выберите, чью смотреть. Видно админу и модераторам.',
     placement: 'main',
     channel: 'imessage',
+  },
+  {
+    id: 'assistant',
+    label: 'Ассистент',
+    eyebrow: 'ИИ',
+    title: 'Ассистент',
+    description:
+      'Claude видит CRM, переписку iMessage и данные приложения, ведёт статусы, готовит ответы и предлагает запуски. Отправляете и запускаете вы — своей кнопкой.',
+    placement: 'footer',
+    channel: 'instagram',
   },
   {
     id: 'admin',

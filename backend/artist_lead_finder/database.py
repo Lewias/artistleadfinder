@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 19 for version in versions):
+        if any(version > 21 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -105,6 +105,8 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "owner_id": "VARCHAR(36)",
             "owner_name": "VARCHAR(160) NOT NULL DEFAULT ''",
             "dirty": "BOOLEAN NOT NULL DEFAULT 1",
+            "source": "VARCHAR(40) NOT NULL DEFAULT ''",
+            "cloud": "JSON",
         },
         "crm_statuses": {"emoji": "VARCHAR(16) NOT NULL DEFAULT ''"},
         "scout_sources": {
@@ -222,4 +224,11 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # inbox_findings); new tables only.
         if session.get(SchemaMigration, 19) is None:
             session.add(SchemaMigration(version=19))
+        # Schema 20: crm_contacts.source and .cloud, what the cloud parser found.
+        if session.get(SchemaMigration, 20) is None:
+            session.add(SchemaMigration(version=20))
+        # Schema 21: the assistant (assistant_turns, assistant_drafts, assistant_usage,
+        # assistant_actions); new tables only.
+        if session.get(SchemaMigration, 21) is None:
+            session.add(SchemaMigration(version=21))
     return engine, factory

@@ -12,6 +12,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from ..cloud import CloudService
 from ..crm.sync import CrmSync
 from .admin import AdminService
 from .session import AccountService
@@ -65,6 +66,7 @@ class Runtime:
         self.opened_for: str | None = None
         self.crm_sync: CrmSync | None = None
         self.admin = AdminService(account)
+        self.cloud = CloudService(account, lambda: self.service)
         self.locked = False
         self.lock = threading.RLock()
         self.stopping = threading.Event()
@@ -118,6 +120,11 @@ class Runtime:
         self.opened_for = user_id
         self.locked = False
         crm = getattr(self.service, "crm", None)
+        assistant = getattr(self.service, "assistant", None)
+        if user_id and assistant is not None:
+            # The assistant reaches the cloud jobs the way the interface does, with the same
+            # account checks.
+            assistant.cloud = lambda method, params: self.call(method, params)
         if user_id and crm is not None:
             crm.viewer = lambda: (self.account.user_id, self.account.sees_all_crm)
             self.crm_sync = CrmSync(self.service.sessions, self.account)
@@ -180,6 +187,14 @@ class Runtime:
             # Roles and blocks changed on the server: the next check picks them up.
             self.account.checked_at = None
             return result
+        if method.startswith("cloud."):
+            # Jobs live on the server: the account must be signed in and ready.
+            with self.lock:
+                if self.account.configured:
+                    self.account.check()
+                    self.sync()
+                    self.account.require_ready()
+                return self.cloud.call(method, params)
         if method == "system.info":
             return {**self.info(), "account": self.account.state()}
         if method == "browser.runtime.self_test" and self.service is None:

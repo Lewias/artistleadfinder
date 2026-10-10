@@ -126,3 +126,32 @@ def test_needs_messages_and_a_known_account(app):
     state = service.call("autopilot.start", {"profile_id": sender, "target": 10})
     assert service.call("autopilot.cancel", {})["status"] == "cancelled"
     assert state["status"] == "starting"
+
+
+def test_several_accounts_write_once_every_parser_is_over(app):
+    service, sessions, first = app
+    second = service.call("browser.create", {"name": "Sender B"})["id"]
+    state = service.call("autopilot.start", {"profile_ids": [first, second], "target": 20})
+    assert state["goal"] == 40 and state["accounts"] == ["Sender A", "Sender B"]
+    assert service.call("outreach.workspace", {})["sender_ids"] == [first, second]
+
+    one = parser_run(sessions, first, ["jay.carter"])
+    finish(sessions, one)
+    # The second window has not started yet: nothing is sent.
+    assert service.call("autopilot.state", {})["status"] == "scouting"
+    two = parser_run(sessions, second, ["kid.vibes", "lil.wave"])
+    assert service.call("autopilot.state", {})["status"] == "scouting"
+
+    # A run stopped by the user adds nothing; the completed one is written to.
+    finish(sessions, two, "cancelled")
+    state = service.call("autopilot.state", {})
+    assert state["status"] == "sending" and state["found"] == 1
+    listed = {item["username"] for item in service.call("outreach.workspace", {})["usernames"]}
+    assert "jay.carter" in listed and "kid.vibes" not in listed
+
+
+def test_an_account_already_parsing_is_refused(app):
+    service, sessions, sender = app
+    parser_run(sessions, sender, [])
+    with pytest.raises(UserError, match="уже идёт парсинг"):
+        service.call("autopilot.start", {"profile_ids": [sender], "target": 10})

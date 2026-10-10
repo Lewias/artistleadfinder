@@ -64,6 +64,8 @@ def main() -> None:
         raise RuntimeError(
             f"Frozen core failed: exit {result.returncode}, {len(responses)} responses"
         )
+    if not (responses[0].get("result") or {}).get("assistant_sdk"):
+        raise RuntimeError("The Anthropic SDK of the assistant is missing from the build")
     chromium = responses[2]["result"]
     if not chromium.get("ok") or not chromium.get("version"):
         raise RuntimeError("Bundled Chromium did not start")

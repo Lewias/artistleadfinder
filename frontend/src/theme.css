@@ -4834,3 +4834,463 @@ button:active:not(:disabled) {
   font-size: 13.5px;
   font-weight: 600;
 }
+
+/* ---------- «Парсер и рассылка»: sources, messages and the launch one under another ---------- */
+.work-flow {
+  gap: 18px;
+}
+.work-flow > .board {
+  flex: none;
+}
+.work-flow .board-chips {
+  flex: none;
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.work-flow .board-heading h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.messages-board .board-footer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+.messages-board .board-footer .board-status {
+  text-align: center;
+}
+.messages-board .board-footer > .button {
+  justify-self: end;
+}
+.autopilot-spacer {
+  flex: 1;
+}
+.autopilot-go {
+  min-height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
+}
+.settings-panel {
+  display: grid;
+  gap: 12px;
+}
+.modal .crm-tabs {
+  margin-bottom: 14px;
+}
+@media (max-width: 720px) {
+  .messages-board .board-footer {
+    grid-template-columns: 1fr;
+  }
+  .autopilot-go {
+    width: 100%;
+  }
+}
+
+/* ---------- «Облачный парсер» ---------- */
+.cloud-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.cloud-field small {
+  justify-self: end;
+}
+.cloud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.cloud-grid fieldset {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.cloud-grid legend {
+  padding: 0 6px;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.cloud-stack {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.cloud-stack .check-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+.cloud-stack .check-row input {
+  flex: none;
+  width: auto;
+  margin-top: 2px;
+}
+.cloud-check span {
+  display: grid;
+  gap: 2px;
+}
+.crm-table.cloud-table table {
+  min-width: 0;
+  width: 100%;
+}
+.crm-table.cloud-table td {
+  white-space: normal;
+  vertical-align: top;
+}
+.cloud-check small,
+.cloud-detail td small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.cloud-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.cloud-form .board-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cloud-history,
+.cloud-detail {
+  display: grid;
+  gap: 14px;
+}
+.cloud-jobs {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cloud-job {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.cloud-job.active {
+  border-color: var(--accent, #8b7cf6);
+}
+.cloud-job .helper {
+  grid-column: 2;
+}
+.cloud-job-sources {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cloud-detail .board-heading h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.cloud-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cloud-stages li {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.cloud-stages li.done {
+  color: var(--ink);
+}
+.cloud-stages li.current {
+  border-color: var(--accent, #8b7cf6);
+  color: var(--ink);
+  font-weight: 600;
+}
+.cloud-counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.cloud-counters div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.cloud-counters span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.cloud-user,
+.cloud-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.cloud-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.cloud-link {
+  color: inherit;
+  text-decoration: underline;
+}
+.cloud-user:hover,
+.cloud-link:hover {
+  color: var(--green);
+}
+.cloud-reason {
+  max-width: 360px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.cloud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(139, 124, 246, 0.14);
+  color: #b9b0ff;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .cloud-form .board-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+.telegram-panel h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.telegram-code {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--chip);
+  color: var(--ink);
+  user-select: all;
+}
+
+/* ---------- Assistant ---------- */
+.assistant-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .assistant-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.assistant-chat {
+  display: grid;
+  gap: 12px;
+}
+.assistant-chat h2,
+.assistant-key-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-key {
+  display: grid;
+  gap: 10px;
+}
+.assistant-key-row input {
+  min-width: 260px;
+}
+.assistant-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 320px;
+  max-height: calc(100vh - 330px);
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+.assistant-bubble {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-bubble.user {
+  align-self: flex-end;
+  background: var(--violet-bg);
+  border: 1px solid var(--violet-line);
+  color: var(--ink);
+}
+.assistant-bubble.assistant {
+  align-self: flex-start;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.assistant-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  color: var(--faint);
+  font-size: 12px;
+}
+.assistant-step.escalation {
+  color: var(--violet);
+}
+.assistant-step.running {
+  color: var(--muted);
+}
+.assistant-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--violet);
+  animation: assistant-pulse 1.1s ease-in-out infinite;
+}
+@keyframes assistant-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-dot {
+    animation: none;
+  }
+}
+.assistant-empty {
+  display: grid;
+  gap: 12px;
+  margin: auto 0;
+}
+.assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.assistant-suggestions button {
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.assistant-suggestions button:hover:not(:disabled) {
+  background: var(--raised-hover);
+}
+.assistant-input {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.assistant-input textarea {
+  flex: 1;
+  resize: vertical;
+}
+.assistant-side {
+  display: grid;
+  gap: 16px;
+}
+.assistant-drafts {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.assistant-draft {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.assistant-draft.chosen {
+  border-color: var(--violet-line);
+}
+.assistant-draft header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-draft textarea {
+  width: 100%;
+  resize: vertical;
+}
+.assistant-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.assistant-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.assistant-model.strong {
+  border-color: var(--violet-line);
+  background: var(--violet-bg);
+  color: var(--violet);
+}
+.assistant-settings {
+  display: grid;
+  gap: 12px;
+}
+.assistant-action {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--violet-line);
+  border-radius: var(--radius);
+  background: var(--violet-bg);
+}
+.assistant-action.done,
+.assistant-action.failed {
+  border-color: var(--line);
+  background: none;
+}
+.assistant-action p {
+  margin: 0;
+  color: var(--ink);
+}

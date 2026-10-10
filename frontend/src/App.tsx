@@ -4,6 +4,7 @@ import {
   AudioLines,
   BarChart3,
   BookUser,
+  CloudCog,
   Contact,
   Database,
   History,
@@ -11,8 +12,8 @@ import {
   MessageSquareText,
   ScanSearch,
   ScrollText,
-  Send,
   Settings as SettingsIcon,
+  Sparkles,
   UserRound,
   UsersRound,
   type LucideIcon,
@@ -24,7 +25,6 @@ import type {
   CrmList,
   IMessageState,
   IMessageTemplate,
-  OutreachWorkspace,
   SearchJob,
   ScoutAccountRow,
 } from './services/types';
@@ -32,15 +32,17 @@ import { api } from './services/api';
 import { number } from './lib/format';
 import { Dashboard } from './pages/Dashboard';
 import { Discovery } from './pages/Discovery';
+import { Cloud } from './pages/Cloud';
+import type { WorkTab } from './components/ScoutDiscovery';
 import { Leads } from './pages/Leads';
 import { SearchHistory } from './pages/SearchHistory';
 import { Settings } from './pages/Settings';
-import { Outreach } from './pages/Outreach';
 import { IMessageCampaigns } from './pages/IMessageCampaigns';
 import { IMessageLog } from './pages/IMessageLog';
 import { IMessageTemplates } from './pages/IMessageTemplates';
 import { Crm } from './pages/Crm';
 import { Admin } from './pages/Admin';
+import { Assistant } from './pages/Assistant';
 import { BrowserProfiles } from './components/BrowserProfiles';
 import { SectionTransition } from './components/SectionTransition';
 import { ErrorBoundary, ErrorToast, Toaster } from './components/Toaster';
@@ -50,9 +52,9 @@ import { useUpdater } from './hooks/useUpdater';
 
 const icons: Record<PageId, LucideIcon> = {
   discovery: ScanSearch,
+  cloud: CloudCog,
   profiles: UserRound,
   leads: Database,
-  outreach: Send,
   history: History,
   dashboard: BarChart3,
   imessage: MessageSquareText,
@@ -62,6 +64,7 @@ const icons: Record<PageId, LucideIcon> = {
   'crm-users': Contact,
   'imessage-crm': BookUser,
   'imessage-crm-users': Contact,
+  assistant: Sparkles,
   admin: UsersRound,
   settings: SettingsIcon,
 };
@@ -71,7 +74,6 @@ function useNavCounts(): Partial<Record<PageId, number>> {
   const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 15000);
   const leads = useResource<{ total: number }>('leads.list', { page_size: 1 }, 15000);
   const jobs = useResource<SearchJob[]>('jobs.list', {}, 15000);
-  const outreach = useResource<OutreachWorkspace>('outreach.workspace', {}, 15000);
   const imessage = useResource<IMessageState>('imessage.state', {}, 15000);
   const templates = useResource<IMessageTemplate[]>('imessage.templates', {}, 15000);
   const crm = useResource<CrmList>('crm.list', { crm: 'instagram', page_size: 1 }, 15000);
@@ -81,7 +83,6 @@ function useNavCounts(): Partial<Record<PageId, number>> {
     'imessage-crm': imessageCrm.data?.counts.all,
     imessage: imessage.data?.workspace.recipients.length,
     'imessage-templates': templates.data?.length,
-    outreach: outreach.data?.usernames.length,
     discovery: sources.data?.length,
     profiles: accounts.data?.length,
     leads: leads.data?.total,
@@ -129,6 +130,7 @@ function Workspace({
     instagram: 'discovery',
     imessage: 'imessage',
   });
+  const [workTab, setWorkTab] = useState<WorkTab>('auto');
   const navigate = (page: PageId) => {
     setActive(page);
     const owner = pages.find(item => item.id === page);
@@ -136,6 +138,11 @@ function Workspace({
       setChannel(owner.channel);
       setLastPage(value => ({ ...value, [owner.channel]: page }));
     }
+  };
+  // «Написать» from the base or the CRM opens the hand-made outreach list.
+  const writeTo = () => {
+    setWorkTab('list');
+    navigate('discovery');
   };
   const switchChannel = (next: Channel) => {
     if (next === channel) return;
@@ -226,16 +233,16 @@ function Workspace({
               {active === 'dashboard' ? (
                 <Dashboard navigate={navigate} />
               ) : active === 'discovery' ? (
-                <Discovery />
+                <Discovery tab={workTab} onTab={setWorkTab} />
+              ) : active === 'cloud' ? (
+                <Cloud />
               ) : active === 'leads' ? (
                 <Leads
                   onCampaign={async ids => {
                     await api.request('outreach.workspace_add_leads', { lead_ids: ids });
-                    navigate('outreach');
+                    writeTo();
                   }}
                 />
-              ) : active === 'outreach' ? (
-                <Outreach />
               ) : active === 'history' ? (
                 <SearchHistory />
               ) : active === 'profiles' ? (
@@ -247,13 +254,15 @@ function Workspace({
               ) : active === 'imessage-log' ? (
                 <IMessageLog />
               ) : active === 'crm' ? (
-                <Crm crm="instagram" onWrite={() => navigate('outreach')} />
+                <Crm crm="instagram" onWrite={writeTo} />
               ) : active === 'imessage-crm' ? (
                 <Crm crm="imessage" onWrite={() => navigate('imessage')} />
               ) : active === 'crm-users' && allCrm ? (
-                <Crm key="crm-users" crm="instagram" others onWrite={() => navigate('outreach')} />
+                <Crm key="crm-users" crm="instagram" others onWrite={writeTo} />
               ) : active === 'imessage-crm-users' && allCrm ? (
                 <Crm key="imessage-crm-users" crm="imessage" others onWrite={() => navigate('imessage')} />
+              ) : active === 'assistant' ? (
+                <Assistant />
               ) : active === 'admin' && admin ? (
                 <Admin />
               ) : (

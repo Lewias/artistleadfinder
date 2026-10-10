@@ -4,7 +4,7 @@ describe('desktop navigation contract', () => {
   it('exposes the required sections with distinct identities', () => {
     expect(pages.map(page => page.id)).toEqual([
       'discovery',
-      'outreach',
+      'cloud',
       'profiles',
       'leads',
       'history',
@@ -16,14 +16,16 @@ describe('desktop navigation contract', () => {
       'imessage-log',
       'imessage-crm',
       'imessage-crm-users',
+      'assistant',
       'admin',
       'settings',
     ]);
     expect(pages.filter(page => page.placement === 'footer').map(page => page.id)).toEqual([
+      'assistant',
       'admin',
       'settings',
     ]);
-    expect(new Set(pages.map(page => page.id)).size).toBe(15);
+    expect(new Set(pages.map(page => page.id)).size).toBe(16);
   });
   it('splits the main sections between the two channels', () => {
     const main = (channel: string) =>

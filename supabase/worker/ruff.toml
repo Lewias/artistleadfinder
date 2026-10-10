@@ -1,0 +1,4 @@
+extend = "../../backend/pyproject.toml"
+
+[lint.isort]
+known-first-party = ["cloud_worker"]

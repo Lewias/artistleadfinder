@@ -213,3 +213,35 @@ def test_admin_writes_and_imports_only_with_own_crm(server, people):
     # The same Instagram as a user's contact is a new contact of the admin's own CRM.
     duplicate = add(copies["admin"], "Jay too", "jay_music")
     assert duplicate["mine"] is True
+
+
+def test_cloud_parser_leads_arrive_with_what_it_found_and_are_never_sent_back(server, people):
+    ids, copies = people
+    artist = copies["artist"]
+    # The cloud worker wrote this contact on the server.
+    server.tables["crm_contacts"].append(
+        {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "owner_id": ids["artist"],
+            "crm": "instagram",
+            "name": "Lil Wave",
+            "statuses": ["Артист"],
+            "channels": [{"kind": "instagram", "value": "lil.wave"}],
+            "notes": "",
+            "source": "Cloud Parser",
+            "cloud": {"category": "ARTIST", "confidence": 88, "reason": "Выпускает треки."},
+            "instagram_id": "123",
+            "earned": 0,
+            "potential": 0,
+            "updated_at": "2030-01-01T00:00:00+00:00",
+        }
+    )
+    assert artist.sync.run_once()
+    [contact] = artist.contacts()
+    assert contact["source"] == "Cloud Parser" and contact["cloud"]["confidence"] == 88
+    # The user's edit goes to the server without the parser's fields.
+    artist.crm.save({**contact, "crm": "instagram", "notes": "написать в пятницу"})
+    assert artist.sync.run_once()
+    row = server.tables["crm_contacts"][0]
+    assert row["notes"] == "написать в пятницу"
+    assert row["cloud"]["confidence"] == 88 and row["source"] == "Cloud Parser"

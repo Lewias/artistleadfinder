@@ -390,9 +390,11 @@ export interface OutreachSender {
 /** «Найти и написать»: the parser run of one account, then «Рассылка» to its new leads. */
 export interface AutopilotState {
   status: 'idle' | 'starting' | 'scouting' | 'sending' | 'done' | 'failed' | 'stopped' | 'cancelled';
-  profile_id: string;
-  account: string;
+  profile_ids: string[];
+  accounts: string[];
+  /** New leads per account; `goal` is the total over the accounts. */
   target: number;
+  goal: number;
   scout_found: number;
   found?: number;
   sent: number;
@@ -690,6 +692,10 @@ export interface CrmContact {
   owner_name: string;
   mine: boolean;
   name: string;
+  /** 'Cloud Parser' for contacts the cloud parser created. */
+  source?: string;
+  /** What the cloud parser found; set on the server only. */
+  cloud?: CloudContactInfo | null;
   statuses: string[];
   channels: CrmChannel[];
   notes: string;
@@ -701,6 +707,168 @@ export interface CrmContact {
   lead_id: number | null;
   deleted_at: string | null;
   attention: boolean;
+}
+// ---------- Cloud parser ----------
+export type CloudCategory = 'ARTIST' | 'PRODUCER' | 'MEDIA' | 'OTHER' | 'UNKNOWN';
+export type CloudStage = 'queued' | 'collecting' | 'completed' | 'failed' | 'cancelled';
+export interface CloudCounters {
+  found?: number;
+  passed?: number;
+  added?: number;
+  updated?: number;
+  filtered?: number;
+  errors?: number;
+  // Outreach jobs.
+  total?: number;
+  sent?: number;
+  failed?: number;
+  skipped?: number;
+}
+/** What the parser on the server reports while it works. */
+export interface CloudProgress {
+  status?: string;
+  found?: number;
+  target?: number;
+  candidates?: number;
+  step?: string | null;
+  url?: string | null;
+  waiting?: number;
+  wait_reason?: string | null;
+  error?: string | null;
+  sources_done?: number;
+  notices?: string[];
+  // Outreach jobs: the campaign on the server and its sender.
+  total?: number;
+  sent?: number;
+  failed?: number;
+  skipped?: number;
+  queued?: number;
+  sender_status?: string;
+  sent_24h?: number;
+  daily_limit?: number;
+}
+export interface CloudJob {
+  id: string;
+  request_id: string;
+  /** scout: the parser; outreach: messages to a list of usernames. */
+  kind: 'scout' | 'outreach';
+  profile_id: string;
+  params: {
+    sources?: string[];
+    categories?: CloudCategory[];
+    target?: number;
+    usernames?: string[];
+    messages?: string[];
+  };
+  stage: CloudStage;
+  cancel_requested: boolean;
+  progress: CloudProgress;
+  counters: CloudCounters;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+export interface CloudCandidate {
+  id: number;
+  username: string;
+  instagram_id: string | null;
+  via: string[];
+  origins: { via: string | null; source: string | null; post: string | null }[];
+  profile: {
+    full_name: string | null;
+    followers: number | null;
+    emails: string[];
+    phones: string[];
+  } | null;
+  category: CloudCategory | null;
+  confidence: number | null;
+  reason: string | null;
+  outcome: 'added' | 'updated' | 'filtered' | 'error' | 'sent' | 'failed' | 'skipped' | null;
+  note: string | null;
+  contact_id: string | null;
+  updated_at: string;
+}
+export type CloudView = 'all' | 'saved' | 'filtered' | 'sent' | 'problems';
+/** Whom a cloud outreach can write to, and how many messages the app has for it. */
+export interface CloudOutreachSources {
+  list: number;
+  found: number;
+  messages: number;
+}
+export interface CloudJobDetail {
+  job: CloudJob;
+  items: CloudCandidate[];
+  page: number;
+  page_size: number;
+}
+export interface CloudSession {
+  profile_id: string;
+  name: string;
+  has_proxy: boolean;
+  updated_at: string;
+}
+// ---------- Assistant ----------
+export interface AssistantItem {
+  /** user / assistant: messages; tool: a step; escalation: handed to the stronger model. */
+  kind: 'user' | 'assistant' | 'tool' | 'escalation';
+  text: string;
+}
+export interface AssistantDraft {
+  id: number;
+  handle: string;
+  contact_id: number | null;
+  contact_name: string;
+  text: string;
+  reason: string;
+  model: string;
+  /** Written by the stronger model. */
+  strong: boolean;
+}
+/** An action the assistant proposed; it runs on «Выполнить». */
+export interface AssistantAction {
+  id: number;
+  kind: string;
+  summary: string;
+  status: 'pending' | 'done' | 'failed';
+  result: string;
+  done_at: string | null;
+}
+export interface AssistantState {
+  configured: boolean;
+  running: boolean;
+  step: string;
+  error: string;
+  escalation: boolean;
+  models: { main: string; strong: string };
+  messages: { available: boolean; reason: string };
+  items: AssistantItem[];
+  drafts: AssistantDraft[];
+  actions: AssistantAction[];
+  usage: { today: number; month: number; by_model: Record<string, number> };
+}
+export interface TelegramStatus {
+  linked: boolean;
+  username?: string;
+  notify?: boolean;
+  bot?: string | null;
+}
+export interface TelegramLink {
+  code: string;
+  expires_at: string;
+  bot: string;
+  url: string;
+}
+export interface CloudContactInfo {
+  job_id: string;
+  checked_at: string;
+  category: CloudCategory | null;
+  confidence: number | null;
+  reason: string | null;
+  ai: boolean | null;
+  via: string[];
+  profile?: { followers?: number | null; full_name?: string | null };
 }
 export type CrmTab = 'all' | 'attention' | 'trash';
 export interface CrmFilters {

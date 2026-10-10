@@ -1,7 +1,8 @@
 """Encryption of local secrets (Instagram sessions, the AI key) bound to the OS user.
 
 Windows: DPAPI, as before. macOS: AES-GCM with a random key kept in the user's login
-Keychain; the files carry a prefix so the format is recognised. Keys never enter logs.
+Keychain; the files carry a prefix so the format is recognised. Linux (only the cloud
+parser container): the same AES-GCM with the key from ALF_SECRET_KEY. Keys never enter logs.
 """
 
 import ctypes
@@ -22,7 +23,17 @@ def protect(data: bytes, decrypt: bool = False) -> bytes:
         return _dpapi(data, decrypt)
     if sys.platform == "darwin":
         return keychain_box(data, decrypt, _keychain_key)
+    if os.environ.get("ALF_SECRET_KEY"):
+        # The cloud parser container (Linux): the key comes from its environment.
+        return keychain_box(data, decrypt, _environment_key)
     raise UserError("Хранилище секретов поддерживается на Windows и macOS.")
+
+
+def _environment_key(create: bool) -> bytes:
+    key = bytes.fromhex(os.environ["ALF_SECRET_KEY"])
+    if len(key) != 32:
+        raise ValueError("ALF_SECRET_KEY must be 32 bytes of hex")
+    return key
 
 
 def keychain_box(data: bytes, decrypt: bool, key_source) -> bytes:

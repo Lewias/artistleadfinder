@@ -61,6 +61,9 @@ def main() -> None:
             name,
             "--paths",
             "backend",
+            # The assistant imports the SDK on first use; it must be in the build anyway.
+            "--hidden-import",
+            "anthropic",
             "--add-data",
             str(ROOT / "backend/artist_lead_finder/imessage/Verse iMessage.shortcut")
             + os.pathsep

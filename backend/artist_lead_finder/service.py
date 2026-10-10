@@ -1,6 +1,7 @@
 """Application API shared by local RPC and a future cloud transport."""
 
 import csv
+import importlib.util
 import json
 import logging
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import lead_removal, memory_reset
+from .assistant.service import AssistantService
 from .autopilot import Autopilot
 from .browser_capture import BrowserCaptureService
 from .browser_sessions import BrowserSessions
@@ -164,10 +166,12 @@ DEFAULTS = {
 
 def system_info(data_dir: Path, log_dir: Path) -> dict:
     return {
-        "version": "0.9.9",
+        "version": "0.10.0",
         "data_dir": str(data_dir),
         "log_dir": str(log_dir),
         "transport": "stdio",
+        # The assistant's Anthropic SDK made it into the build (it is imported on first use).
+        "assistant_sdk": importlib.util.find_spec("anthropic") is not None,
     }
 
 
@@ -221,6 +225,15 @@ class ApplicationService:
             sessions, self.settings, self.chromium.is_open, self._sender_names, self.crm.merge
         )
         self.inbox.recover()
+        # «Ассистент»: Claude over the CRM, the Mac's iMessage history and the iMessage queue.
+        self.assistant = AssistantService(
+            sessions,
+            data_dir,
+            self.crm,
+            self.imessage,
+            core=self.call,
+            add_usernames=self.workspace.add_usernames,
+        )
         # «Найти и написать»: the parser's new leads, then «Рассылка» to them.
         self.autopilot = Autopilot(
             sessions, self.scout.set_target, self.workspace.start, self._sender_names
@@ -242,6 +255,8 @@ class ApplicationService:
         return {**DEFAULTS, **{key: value for key, value in stored.items() if key in DEFAULTS}}
 
     def call(self, method: str, params: dict) -> Any:
+        if method.startswith("assistant."):
+            return self.assistant.call(method, params)
         handler = self.handlers.get(method)
         if handler is None:
             if method.startswith("browser.runtime."):
@@ -914,6 +929,8 @@ class ApplicationService:
         return {"count": count, "path": str(path)}
 
     def shutdown(self) -> None:
+        # A running assistant stops after its current step.
+        self.assistant.stopping.set()
         self.imessage.shutdown()
         self.chromium.shutdown()
         self.manager.shutdown()

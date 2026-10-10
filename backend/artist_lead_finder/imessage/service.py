@@ -803,6 +803,60 @@ class IMessageService:
             log.info("imessage_campaign_started", extra={"campaign_id": campaign.id})
         return {**self.state(), "skipped": skipped}
 
+    def send_messages(self, items: list[dict], origin: str) -> int:
+        """A campaign of the given messages ({phone, message}), apart from the workspace's
+        list: the assistant's drafts the user sent. The phone takes it like any other;
+        returns the campaign's id."""
+        recipients = []
+        for item in items:
+            phone = normalize_recipient(item.get("phone"))
+            text = str(item.get("message") or "").strip()
+            if phone is None or not text or len(text) > MAX_MESSAGE_LENGTH:
+                raise UserError("Некорректный получатель или текст сообщения.")
+            recipients.append((phone, text))
+        if not recipients:
+            raise UserError("Нечего отправлять.")
+        with self.lock, self.sessions.begin() as session:
+            self._sweep(session)
+            if self._active(session) is not None:
+                raise UserError(
+                    "Сейчас идёт другая рассылка iMessage. Дождитесь её конца или остановите её."
+                )
+            row = self._row(session)
+            campaign = IMessageCampaign(
+                protocol=row.protocol,
+                status="running",
+                is_test=False,
+                message=recipients[0][1],
+                attachment_ids=[],
+                steps=[],
+                delay_seconds=row.delay_seconds,
+                total=len(recipients),
+                created_at=self.clock(),
+            )
+            session.add(campaign)
+            session.flush()
+            for position, (phone, text) in enumerate(recipients, start=1):
+                session.add(
+                    IMessageJob(
+                        campaign_id=campaign.id,
+                        key=f"{campaign.id}-{position}-{secrets.token_hex(4)}",
+                        position=position,
+                        step=0,
+                        phone=phone,
+                        message=text,
+                        status="pending",
+                    )
+                )
+            self._event(
+                session,
+                "campaign_started",
+                f"Запущена рассылка №{campaign.id} ({origin}): {len(recipients)} получ.",
+                campaign.id,
+            )
+            log.info("imessage_campaign_started", extra={"campaign_id": campaign.id})
+            return campaign.id
+
     def control(self, params: dict) -> dict:
         action = params.get("action")
         moves = {"pause": ("running", "paused"), "resume": ("paused", "running")}

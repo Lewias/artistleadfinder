@@ -1,7 +1,7 @@
 # Сервер аккаунтов и общей CRM (Supabase)
 
-Приложение хранит на сервере только аккаунты, ключи доступа и CRM (Instagram и iMessage).
-Лиды, парсер, рассылки и сессии Instagram остаются на компьютере пользователя.
+Приложение хранит на сервере аккаунты, ключи доступа, CRM (Instagram и iMessage) и задачи
+облачного парсера. Локальный парсер, рассылки и сессии Instagram остаются на компьютере пользователя.
 
 Сервер — это Supabase на своём VDS (папка `vds/`). Подойдёт и облачный supabase.com,
 настройка для него в конце.
@@ -86,13 +86,121 @@ docker exec -i supabase-db pg_restore -h localhost -U supabase_admin -d postgres
 docker compose restart auth rest
 ```
 
+## Облачный парсер
+
+Наш Lead Scout на сервере: тот же поиск по источникам, что в приложении, только в своём
+Chromium на сервере (на виртуальном экране Xvfb) и без компьютера пользователя. Найденные
+лиды сразу попадают в его Instagram CRM (источник `Cloud Parser`).
+
+Как это работает:
+- В разделе «Облачный парсер» пользователь выбирает аккаунт Instagram, источники и сколько
+  лидов найти. Приложение отправляет на сервер сессию этого аккаунта (куки и прокси) и
+  текущие настройки парсера, затем создаёт задачу.
+- Сервис `alf-cloud-parser` берёт задачи по одной, открывает Instagram с этой сессией
+  (через прокси аккаунта, если он задан, иначе с IP сервера) и ведёт парсер тем же
+  циклом, что десктопная часть. Каждый найденный лид сразу сохраняется в CRM.
+- Просит вход или подтверждение — задача останавливается с просьбой войти в аккаунт
+  в приложении и запустить снова. Ограничение запросов — выжидает перерыв и продолжает.
+- После перезапуска сервера задача продолжается новым запуском на недостающее число
+  лидов; уже сохранённые повторно не добавляются.
+
+Части:
+- `migrations/0005_cloud_parser.sql` — сессии (пользователь их записывает, но не читает),
+  задачи, результаты, функции `cloud_session_put`, `cloud_start`, `cloud_cancel`,
+  `cloud_sessions_list`; каждый видит только свои задачи.
+- `worker/` — сервис (Python + ядро приложения `backend/artist_lead_finder` + скрипты
+  страниц из `src-tauri/src`). Отдельный docker compose проект `/opt/alf-cloud-parser`
+  с лимитом 1,4 ГБ памяти и 1 ядра; стек Supabase не трогается.
+- `migrations/0006_telegram_bot.sql` и `worker/cloud_worker/bot.py` — Telegram-бот
+  (контейнер `alf-telegram-bot` из того же образа, 160 МБ, без портов: бот сам спрашивает
+  Telegram о новых сообщениях).
+- `migrations/0007_cloud_outreach.sql` и `worker/cloud_worker/outreach.py` — облачная
+  рассылка (контейнер `alf-cloud-outreach` из того же образа, 1,1 ГБ, 0,75 ядра).
+- `vds/cloud-parser.sh` — установка и обновление.
+
+### Облачная рассылка
+
+- В «Облачном парсере» → «Рассылка в облаке» пользователь выбирает аккаунт **с прокси** и
+  кому писать: новым лидам облачного парсера, которым ещё не писали (`cloud_unwritten`), или
+  по списку «Рассылки» приложения. Сообщения берутся из «Парсер и рассылка», паузы и дневной
+  лимит — из настроек рассылки. Задача — `cloud_start` с `kind = 'outreach'`; без прокси у
+  сессии база её не примет.
+- `alf-cloud-outreach` ведёт ту же очередь рассылки, что приложение (ядро пользователя на
+  сервере в `/data/outreach/<id>`, отдельно от папок парсера): открывает профиль, пишет
+  через интерфейс Instagram, ждёт паузу между сообщениями и дневной лимит, пропускает тех,
+  с кем уже есть переписка, никогда не отправляет повторно то, что могло уйти.
+- Каждый итог (отправлено, пропущен, не ушло — с причиной) попадает в результаты задачи;
+  отправленное сдвигает «последний контакт» контакта в CRM.
+- Один аккаунт Instagram работает в одном месте: рассылка ждёт, пока этот аккаунт закончит
+  облачный поиск, и наоборот. Instagram просит вход или подтверждение — задача падает с
+  просьбой войти в приложении; ограничение действий — ждёт перерыв.
+- Ответы в Директе на сервере пока не читаются: их видно в Instagram и в «Ответах»
+  приложения на компьютере.
+
+### Telegram-бот
+
+- Пользователь нажимает «Подключить Telegram» в «Облачном парсере», приложение получает
+  одноразовый код (`tg_link_start`, 15 минут) и открывает `t.me/<бот>?start=<код>`.
+- В боте: «🔎 Найти артистов» (или `/find 100`) спрашивает аккаунт Instagram (из тех, чья
+  сессия на сервере) и сколько лидов найти; источники, категории и настройки берутся из
+  последнего облачного поиска. Задача создаётся через `cloud_start` с правами пользователя
+  (те же проверки, что у приложения); «📊 Статус», «⏹ Остановить», «📋 Последние лиды», `/notify`, `/unlink`.
+- «✉️ Написать лидам» (или `/write 20`) — облачная рассылка новым лидам облачного парсера, которым
+  ещё не писали: спрашивает аккаунт (только с прокси) и скольким написать; сообщения и паузы —
+  из последней облачной рассылки, запущенной из приложения. Та же кнопка — под итогом поиска.
+- Статус — одно сообщение, которое бот сам переписывает, пока идёт поиск или рассылка.
+- Когда задача закончилась, упала или отменена, бот пишет владельцу. Админам (роль
+  `admin` с привязанным Telegram) — о каждой упавшей задаче, о задаче, которую парсер
+  перестал продлевать, и об очереди, которую никто не берёт дольше 20 минут.
+
+Токен от @BotFather кладётся на сервер, не в репозиторий:
+
+```
+ssh -t root@IP_СЕРВЕРА 'umask 077; read -rsp "Токен бота: " t; echo; cd /opt/alf-cloud-parser && (grep -v "^TELEGRAM_BOT_TOKEN=" .env; echo "TELEGRAM_BOT_TOKEN=$t") > .env.new && mv .env.new .env && docker compose up -d telegram-bot'
+```
+
+### Установка и обновление
+
+Собрать контекст сборки (на компьютере, из корня репозитория) и залить на сервер:
+
+```
+mkdir -p build/cloud/build/scripts
+cp supabase/worker/{Dockerfile,requirements.txt,start.sh} build/cloud/build/
+cp -r supabase/worker/cloud_worker backend/artist_lead_finder build/cloud/build/
+cp src-tauri/src/{capture,scout,grid,follow}.js build/cloud/build/scripts/
+scp -r build/cloud/build root@IP_СЕРВЕРА:/opt/alf-cloud-parser/
+scp supabase/migrations/000{5,6,7}_*.sql root@IP_СЕРВЕРА:/root/supabase/migrations/
+scp supabase/vds/cloud-parser.sh root@IP_СЕРВЕРА:/root/supabase/vds/
+ssh root@IP_СЕРВЕРА bash /root/supabase/vds/cloud-parser.sh
+```
+
+Скрипт делает копию базы, один раз применяет каждую миграцию, собирает образ и
+перезапускает только `alf-cloud-parser`, `alf-cloud-outreach` и `alf-telegram-bot`. Ключ
+шифрования сессий (`ALF_SECRET_KEY`), токен бота и доступ к базе лежат в
+`/opt/alf-cloud-parser/.env`.
+
+- Журнал: `docker logs -f alf-cloud-parser`, рассылка — `docker logs -f alf-cloud-outreach`,
+  бот — `docker logs -f alf-telegram-bot`
+- Память и процессор: `docker stats alf-cloud-parser`
+- Остановить: `cd /opt/alf-cloud-parser && docker compose stop`
+
+Тесты сервиса (локальный Postgres из пакета `pgserver`, без Docker; окружение в папке
+без кириллицы в пути):
+
+```
+python -m venv C:/Users/Public/alf-cloud-test/venv
+C:/Users/Public/alf-cloud-test/venv/Scripts/pip install -r supabase/worker/requirements-dev.txt
+cd supabase/worker && C:/Users/Public/alf-cloud-test/venv/Scripts/python -m pytest
+```
+
 ## Облачный supabase.com
 
 1. Создайте проект. **Authentication → Providers → Email**: вход по паролю включён,
    **Allow new users to sign up** включено, **Confirm email** выключено.
 2. **SQL Editor**: выполните файлы из `migrations/` по порядку.
 3. **Edge Functions**: функция `admin-users` с кодом из `functions/admin-users/index.ts`
-   (или `supabase functions deploy admin-users`).
+   (или `supabase functions deploy admin-users`). Облачный парсер (`worker/`) запускается
+   отдельно, на любой машине с доступом к базе (переменные PGHOST, PGUSER, PGPASSWORD и т. д.).
 4. Первый админ: **Authentication → Users → Add user** с отметкой «Auto Confirm», затем в SQL Editor:
 
    ```sql

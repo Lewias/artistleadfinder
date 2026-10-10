@@ -323,6 +323,81 @@ CORE["leads.detail"]["outreach"] = {
 CORE.update(json.loads((ROOT / "scripts" / "ui-preview-imessage.json").read_text(encoding="utf-8")))
 # CRM: four contacts saved through the real CrmService (scratch database).
 CORE.update(json.loads((ROOT / "scripts" / "ui-preview-crm.json").read_text(encoding="utf-8")))
+CORE["autopilot.state"] = {
+    "status": "scouting", "message": "", "profile_ids": ["a" * 32, "b" * 32],
+    "accounts": ["Dmitrii", "Dima2"], "target": 20, "goal": 40, "found": None,
+    "scout_found": 13, "sent": 0, "total": 0,
+}
+CORE["inbox.state"] = {"scan": None, "findings": [], "counts": {"new": 0, "added": 0, "hidden": 0}}
+
+CLOUD_JOB = {
+    "id": "6f1c2e8a-0000-4000-8000-000000000001", "request_id": "x", "profile_id": "a" * 32,
+    "kind": "scout", "stage": "collecting", "cancel_requested": False, "error": None,
+    "created_at": "2026-10-09T18:00:00+00:00", "updated_at": "2026-10-09T18:20:00+00:00",
+    "started_at": "2026-10-09T18:00:05+00:00", "finished_at": None,
+    "params": {"sources": ["rapgoat.tv", "topdailyrap", "raphitsusa"],
+               "categories": ["ARTIST", "PRODUCER"], "target": 50},
+    "progress": {"status": "running", "found": 14, "target": 50, "candidates": 212,
+                 "step": "profile", "waiting": 6, "notices": []},
+    "counters": {"found": 14, "passed": 12, "added": 10, "updated": 2, "filtered": 2, "errors": 0},
+}
+CLOUD_OUTREACH = {
+    **CLOUD_JOB, "id": "6f1c2e8a-0000-4000-8000-000000000003", "kind": "outreach",
+    "created_at": "2026-10-09T19:00:00+00:00",
+    "params": {"usernames": ["jay.carter", "kid.vibes", "beatz.by.max"], "messages": ["Привет!"]},
+    "progress": {"status": "sending", "total": 3, "sent": 1, "skipped": 1, "failed": 0,
+                 "queued": 1, "sender_status": "active", "sent_24h": 1, "daily_limit": 20},
+    "counters": {"total": 3, "sent": 1, "skipped": 1, "failed": 0},
+}
+CORE["cloud.jobs"] = [CLOUD_OUTREACH, CLOUD_JOB,
+                      {**CLOUD_JOB, "id": "6f1c2e8a-0000-4000-8000-000000000002",
+                       "stage": "completed", "created_at": "2026-10-08T12:00:00+00:00"}]
+CORE["cloud.outreach_sources"] = {"list": 12, "found": 27, "messages": 3}
+CORE["assistant.state"] = {
+    "configured": True, "running": True, "step": "Пишет сильная модель", "error": "",
+    "escalation": True, "models": {"main": "Haiku 5.5", "strong": "Sonnet 5.5"},
+    "messages": {"available": True, "reason": ""},
+    "items": [
+        {"kind": "user", "text": "Подготовь ответы всем, кто ждёт больше дня"},
+        {"kind": "tool", "text": "Смотрю переписки"},
+        {"kind": "tool", "text": "Читаю переписку"},
+        {"kind": "assistant", "text": "Ждут двое: Jay спрашивает про цену и гарантии, Kid прислал демо."},
+        {"kind": "escalation", "text": "Спрашиваю сильную модель"},
+        {"kind": "tool", "text": "Готовлю черновик"},
+    ],
+    "drafts": [
+        {"id": 1, "handle": "+79991234567", "contact_id": 1, "contact_name": "Jay",
+         "text": "Понимаю вопрос про гарантии. Давай созвонимся на 10 минут — покажу кейсы.",
+         "reason": "ответ про цену", "model": "Sonnet 5.5", "strong": True},
+        {"id": 2, "handle": "kid@example.com", "contact_id": 2, "contact_name": "Kid",
+         "text": "Привет! Послушал демо, вечером напишу подробно.", "reason": "подтвердить",
+         "model": "Haiku 5.5", "strong": False},
+    ],
+    "actions": [
+        {"id": 1, "kind": "cloud_search", "status": "done", "done_at": "2026-10-10T10:00:00",
+         "summary": "Облачный поиск: 40 лидов с аккаунта «Main», 12 источников парсера",
+         "result": "Облачный поиск запущен (12 источников). Ход — в «Облачном парсере»."},
+        {"id": 2, "kind": "cloud_outreach", "status": "pending", "done_at": None, "result": "",
+         "summary": "Облачная рассылка: 27 новым лидам облачного парсера с аккаунта «Main»"},
+    ],
+    "usage": {"today": 0.0123, "month": 0.41, "by_model": {"Haiku 5.5": 0.18, "Sonnet 5.5": 0.23}},
+}
+CORE["cloud.telegram"] = {"linked": True, "username": "artist_hunter", "notify": True, "bot": "alf_leads_bot"}
+CORE["cloud.sessions"] = [{"profile_id": "a" * 32, "name": "Dmitrii", "has_proxy": True,
+                           "updated_at": "2026-10-09T18:00:00+00:00"}]
+CORE["cloud.job"] = {"job": CLOUD_JOB, "page": 0, "page_size": 100, "items": [
+    {"id": i, "username": name, "instagram_id": None, "via": ["posts"],
+     "origins": [{"via": "posts", "source": "rapgoat.tv", "post": "https://www.instagram.com/p/C1/"}],
+     "profile": {"full_name": name.title(), "followers": 1200 + i * 37, "emails": mails, "phones": []},
+     "category": cat, "confidence": conf, "reason": reason, "outcome": out, "note": None,
+     "contact_id": None, "updated_at": "2026-10-09T18:10:00+00:00"}
+    for i, (name, mails, cat, conf, reason, out) in enumerate([
+        ("jay.carter", ["jay@music.com"], "ARTIST", 92, "streaming links; release wording", "added"),
+        ("beatz.by.max", [], "PRODUCER", 81, "beat store link", "added"),
+        ("lil.wave", [], "MEDIA", 74, "repost page", "filtered"),
+        ("kid.vibes", [], "ARTIST", 66, "music video", "updated"),
+    ])]}
+
 MOCK = """
 (() => {
   const core = %s;
@@ -422,13 +497,19 @@ def main():
                 page.screenshot(path=str(out / "state-drawer.png"))
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(300)
-                page.locator("nav button", has_text="Первичная рассылка").click()
+                page.locator("nav button", has_text="Парсер и рассылка").click()
+                page.wait_for_timeout(500)
+                page.locator("[role=tab]", has_text="Рассылка по списку").click()
                 page.wait_for_timeout(700)
                 page.eval_on_selector(".main", "el => el.scrollTo(0, 0)")
                 page.screenshot(path=str(out / "state-outreach.png"))
                 page.eval_on_selector(".main", "el => el.scrollTo(0, 10000)")
                 page.screenshot(path=str(out / "state-outreach-2.png"))
-                page.locator(".outreach-board button", has_text="Настройки").click()
+                page.locator("[role=tab]", has_text="Найти и написать").click()
+                page.wait_for_timeout(500)
+                page.locator(".scout-board button", has_text="Настройки").click()
+                page.wait_for_timeout(300)
+                page.locator("[role=tab]", has_text="Аккаунты и рассылка").click()
                 page.wait_for_timeout(500)
                 page.screenshot(path=str(out / "state-outreach-settings.png"))
                 page.keyboard.press("Escape")

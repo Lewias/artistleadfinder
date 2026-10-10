@@ -266,6 +266,9 @@ class CrmSync:
             setattr(local, field, value if isinstance(value, list) else [])
         for field in DATES:
             setattr(local, field, parse(item.get(field)))
+        # Written by the cloud parser on the server; the app never sends them back.
+        local.source = str(item.get("source") or "")[:40]
+        local.cloud = item.get("cloud") if isinstance(item.get("cloud"), dict) else None
         local.owner_id = item.get("owner_id")
         local.owner_name = names.get(local.owner_id, local.owner_name or "")
         local.dirty = False

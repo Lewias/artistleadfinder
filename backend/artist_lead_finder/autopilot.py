@@ -1,10 +1,11 @@
-"""«Найти и написать»: one account finds N new leads, then the primary outreach writes to them.
+"""«Найти и написать»: the chosen accounts find N new leads each, then the primary outreach
+writes to all of them.
 
-The window starts the parser the usual way (`browser_action` «scout»); the core only
+The windows start the parser the usual way (`browser_action` «scout»); the core only
 remembers what was asked and watches it. `tick` runs with the outreach queue every few
-seconds: when that account's parser run is completed, the leads it created are put in the
-outreach list and «Рассылка» starts with the list's messages, as if started by hand. A
-parser run stopped by the user or failed starts nothing.
+seconds: when every account's parser run is over, the leads the completed runs created are
+put in the outreach list and «Рассылка» starts with the list's messages, as if started by
+hand. Runs stopped by the user or failed add nothing; when none completed, nothing is sent.
 
 The state lives in one settings row, so a restart of the app keeps watching.
 """
@@ -31,13 +32,27 @@ from .outreach.workspace import WorkspaceService, add_to_list
 log = logging.getLogger(__name__)
 
 KEY = "autopilot"
-# The window has this long to start the parser after «Найти и написать».
+# The windows have this long to start the parser after «Найти и написать».
 START_GRACE = timedelta(minutes=3)
 ACTIVE = ("starting", "scouting", "sending")
+RUNNING_JOB = ("queued", "running", "paused")
+MAX_PROFILES = 20
 
 
 def _parse(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
+
+
+def _profiles(current: dict) -> list[str]:
+    """The accounts of a run; a state saved before several accounts had one."""
+    return list(current.get("profile_ids") or [current.get("profile_id") or ""])
+
+
+def _after(current: dict, profile: str) -> int:
+    after = current.get("after")
+    if isinstance(after, dict):
+        return int(after.get(profile) or 0)
+    return int(current.get("after_job") or 0)
 
 
 class Autopilot:
@@ -64,10 +79,26 @@ class Autopilot:
         row.value = value
         session.add(row)
 
+    @staticmethod
+    def _latest_job(session, profile: str, after: int) -> SearchJob | None:
+        return session.scalar(
+            select(SearchJob)
+            .join(BrowserQueue, BrowserQueue.job_id == SearchJob.id)
+            .where(BrowserQueue.profile_id == profile, SearchJob.id > after)
+            .order_by(SearchJob.id.desc())
+            .limit(1)
+        )
+
     def start(self, params: dict) -> dict:
-        profile = str(params.get("profile_id") or "")
-        if profile not in self.sender_names():
-            raise UserError("Выберите аккаунт.")
+        names = self.sender_names()
+        raw = params.get("profile_ids")
+        if raw is None and params.get("profile_id"):
+            raw = [params["profile_id"]]
+        profiles = list(dict.fromkeys(str(item) for item in (raw or [])))
+        if not profiles or any(profile not in names for profile in profiles):
+            raise UserError("Выберите аккаунты.")
+        if len(profiles) > MAX_PROFILES:
+            raise UserError(f"Не больше {MAX_PROFILES} аккаунтов за раз.")
         target = int(params.get("target") or 0)
         if not 1 <= target <= 1000:
             raise UserError("Сколько лидов найти: от 1 до 1000.")
@@ -85,31 +116,35 @@ class Autopilot:
                 raise UserError("Рассылка уже идёт. Дождитесь конца или остановите её.")
             if not workspace.messages:
                 raise UserError("Добавьте хотя бы одно сообщение для рассылки.")
+            after = {}
+            for profile in profiles:
+                job = self._latest_job(session, profile, 0)
+                if job and job.status in RUNNING_JOB and job.stage != "interrupted":
+                    raise UserError(
+                        f"На аккаунте {names[profile]} уже идёт парсинг. "
+                        "Остановите его или дождитесь конца."
+                    )
+                after[profile] = job.id if job else 0
             if not workspace.sender_ids:
-                # The account that finds the leads writes to them.
-                workspace.sender_ids = [profile]
-            after = session.scalar(
-                select(BrowserQueue.job_id)
-                .where(BrowserQueue.profile_id == profile)
-                .order_by(BrowserQueue.job_id.desc())
-                .limit(1)
-            )
+                # The accounts that find the leads write to them.
+                workspace.sender_ids = profiles
             self._save(
                 session,
                 {
                     "status": "starting",
-                    "profile_id": profile,
+                    "profile_ids": profiles,
                     "target": target,
-                    "after_job": after or 0,
-                    "job_id": None,
+                    "after": after,
+                    "jobs": {},
                     "campaign_id": None,
                     "message": "",
                     "started_at": self.now().isoformat(),
                 },
             )
-        # Found counts from zero: the goal is N new leads of this run.
-        self.set_target({"profile_id": profile, "target": target, "reset": True})
-        log.info("autopilot_started", extra={"detail": f"target {target}"})
+        # Found counts from zero: the goal is N new leads of this run on each account.
+        for profile in profiles:
+            self.set_target({"profile_id": profile, "target": target, "reset": True})
+        log.info("autopilot_started", extra={"detail": f"{len(profiles)} x {target}"})
         return self.state({})
 
     def cancel(self, params: dict) -> dict:
@@ -137,34 +172,34 @@ class Autopilot:
                         {**current, "status": "done", "message": f"Готово: отправлено {sent}."},
                     )
                 return
-            job = session.scalar(
-                select(SearchJob)
-                .join(BrowserQueue, BrowserQueue.job_id == SearchJob.id)
-                .where(
-                    BrowserQueue.profile_id == current["profile_id"],
-                    SearchJob.id > current["after_job"],
-                )
-                .order_by(SearchJob.id.desc())
-                .limit(1)
-            )
-            if job is None:
-                started = _parse(current["started_at"])
-                if started and self.now() - started > START_GRACE:
+            jobs = {
+                profile: self._latest_job(session, profile, _after(current, profile))
+                for profile in _profiles(current)
+            }
+            started = _parse(current["started_at"])
+            late = bool(started and self.now() - started > START_GRACE)
+            if not any(jobs.values()):
+                if late:
                     self._save(
                         session,
                         {
                             **current,
                             "status": "failed",
-                            "message": "Парсинг не запустился. Откройте окно аккаунта и повторите.",
+                            "message": "Парсинг не запустился. Откройте окна и повторите.",
                         },
                     )
                 return
-            if current["status"] == "starting":
-                current = {**current, "status": "scouting", "job_id": job.id}
+            current = {
+                **current,
+                "status": "scouting",
+                "jobs": {profile: job.id if job else None for profile, job in jobs.items()},
+            }
+            waiting = any(job is None for job in jobs.values()) and not late
+            if waiting or any(job and job.status in RUNNING_JOB for job in jobs.values()):
                 self._save(session, current)
-            if job.status in ("queued", "running", "paused"):
                 return
-            if job.status != "completed":
+            completed = [job.id for job in jobs.values() if job and job.status == "completed"]
+            if not completed:
                 self._save(
                     session,
                     {
@@ -174,12 +209,16 @@ class Autopilot:
                     },
                 )
                 return
-            # The run's new leads go to the list even when adding them is off in Scout.
+            # The runs' new leads go to the list even when adding them is off in Scout.
             names = list(
-                session.scalars(
-                    select(ScoutDecision.username).where(
-                        ScoutDecision.job_id == job.id,
-                        ScoutDecision.decision == "lead_created",
+                dict.fromkeys(
+                    session.scalars(
+                        select(ScoutDecision.username)
+                        .where(
+                            ScoutDecision.job_id.in_(completed),
+                            ScoutDecision.decision == "lead_created",
+                        )
+                        .order_by(ScoutDecision.id)
                     )
                 )
             )
@@ -210,18 +249,26 @@ class Autopilot:
             current = self._load(session)
             if not current:
                 return {"status": "idle"}
-            job = session.get(SearchJob, current["job_id"]) if current.get("job_id") else None
+            profiles = _profiles(current)
             campaign = (
                 session.get(OutreachCampaign, current["campaign_id"])
                 if current.get("campaign_id")
                 else None
             )
-            account = session.get(ScoutAccount, current["profile_id"])
+            found = 0
+            for profile in profiles:
+                account = session.get(ScoutAccount, profile)
+                found += account.found if account else 0
+            names = self.sender_names()
             return {
-                **current,
-                "account": self.sender_names().get(current["profile_id"], ""),
-                "scout_found": account.found if account else 0,
-                "scout_status": job.status if job else None,
+                "status": current["status"],
+                "message": current.get("message") or "",
+                "profile_ids": profiles,
+                "accounts": [names.get(profile, "") for profile in profiles],
+                "target": current.get("target") or 0,
+                "goal": (current.get("target") or 0) * len(profiles),
+                "found": current.get("found"),
+                "scout_found": found,
                 "sent": campaign.sent_count if campaign else 0,
                 "total": campaign.total_recipients if campaign else 0,
             }

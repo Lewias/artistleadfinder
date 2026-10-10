@@ -22,7 +22,7 @@ import { Modal } from './Modal';
 import { parseScoutSources, sourceEntries, sourceHandle } from './scoutSources';
 import { SourceTable } from './ScoutSourceTable';
 import { sourceStatusLabels } from './scoutStatus';
-import { ScoutSettingsPanel } from './ScoutSettingsPanel';
+import { WorkSettingsModal } from './WorkSettings';
 import { controlScout, errorText, scoutActive, scoutRunsLabel, startScout } from './accountRuns';
 
 type Dialog = 'settings' | 'stats' | 'clear' | null;
@@ -157,7 +157,7 @@ export function ScoutBoard({
   const launch = chosen.length ? chosen : accounts.length === 1 ? accounts : [];
   const parse = () =>
     act(async () => {
-      if (!launch.length) throw new Error('Отметьте аккаунты для парсинга на вкладке «Аккаунты».');
+      if (!launch.length) throw new Error('Отметьте аккаунты в «Настройках» → «Аккаунты и рассылка».');
       for (const row of launch) await startScout(row);
     });
   const stop = () =>
@@ -168,6 +168,10 @@ export function ScoutBoard({
 
   return (
     <section className="panel board scout-board">
+      <div className="board-heading">
+        <h2>Где искать</h2>
+        <span className="helper">SMM-источники: паблики и медиа, где выкладывают артистов</span>
+      </div>
       {bulk === null ? (
         <div className="chip-cloud board-chips" aria-label="SMM-источники">
           {list.map(row => (
@@ -290,7 +294,7 @@ export function ScoutBoard({
             title={enabled ? 'Запустить на отмеченных аккаунтах' : 'Включите хотя бы один источник'}
             onClick={() => void parse()}
           >
-            <Radar size={15} /> Парсинг
+            <Radar size={15} /> Только парсинг
           </Button>
         )}
       </div>
@@ -305,11 +309,7 @@ export function ScoutBoard({
         )}
       </p>
 
-      {dialog === 'settings' && (
-        <Modal title="Настройки парсера" wide onClose={() => setDialog(null)}>
-          <ScoutSettingsPanel />
-        </Modal>
-      )}
+      {dialog === 'settings' && <WorkSettingsModal onClose={() => setDialog(null)} />}
       {dialog === 'stats' && (
         <Modal
           title={`Источники · включено ${enabled} из ${list.length}`}

@@ -2,7 +2,7 @@ import { ErrorToast } from '../Toaster';
 import { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { useResource } from '../../hooks/useResource';
-import type { OutreachSender, OutreachTemplate } from '../../services/types';
+import type { OutreachSender, OutreachTemplate, OutreachWorkspace } from '../../services/types';
 import { statusLabels } from '../../lib/format';
 import { Button } from '../ui/button';
 import { Modal } from '../Modal';
@@ -183,22 +183,27 @@ const regions = [
   ['KZ', 'Казахстан'],
 ] as const;
 
-/** Sender accounts for the list, their health, and pacing settings. */
-export function OutreachSettingsModal({
-  selected,
-  senders,
-  onSelect,
-  onClose,
-}: {
-  selected: string[];
-  senders: { data?: OutreachSender[]; refresh: () => void };
-  onSelect: (ids: string[]) => void;
-  onClose: () => void;
-}) {
+/** The accounts that parse and write, their health, and the outreach and Direct pacing. */
+export function OutreachSettingsPanel() {
+  const workspace = useResource<OutreachWorkspace>('outreach.workspace');
+  const senders = useResource<OutreachSender[]>('outreach.senders', {}, 5000);
+  const [selected, setSelected] = useState<string[]>([]);
+  useEffect(() => {
+    if (workspace.data) setSelected(workspace.data.sender_ids);
+  }, [workspace.data]);
   const settings = useResource<Settings>('settings.get');
   const [form, setForm] = useState<Settings>();
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const onSelect = async (ids: string[]) => {
+    setError('');
+    try {
+      const next = await api.request<OutreachWorkspace>('outreach.workspace_update', { sender_ids: ids });
+      setSelected(next.sender_ids);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  };
   useEffect(() => {
     if (settings.data) setForm(settings.data);
   }, [settings.data]);
@@ -221,12 +226,12 @@ export function OutreachSettingsModal({
     }
   };
   return (
-    <Modal title="Настройки рассылки" onClose={onClose}>
-      <h3>Аккаунты-отправители</h3>
+    <div className="settings-panel">
+      <h3>Аккаунты</h3>
       <p className="helper">
-        Отметьте аккаунты, с которых писать; несколько — по очереди. Окно аккаунта должно быть открыто на
-        instagram.com. При входе, checkpoint или ограничении Instagram аккаунт останавливается, сообщения ждут
-        — на другие аккаунты они не переносятся.
+        Отмеченные аккаунты ищут артистов и пишут им; несколько — по очереди. Окно аккаунта должно быть
+        открыто на instagram.com. При входе, checkpoint или ограничении Instagram аккаунт останавливается,
+        сообщения ждут — на другие аккаунты они не переносятся.
       </p>
       <div className="sender-pick">
         {(senders.data ?? []).map(sender => (
@@ -236,7 +241,7 @@ export function OutreachSettingsModal({
                 type="checkbox"
                 checked={selected.includes(sender.id)}
                 onChange={event =>
-                  onSelect(
+                  void onSelect(
                     event.target.checked
                       ? [...selected, sender.id]
                       : selected.filter(item => item !== sender.id),
@@ -343,10 +348,7 @@ export function OutreachSettingsModal({
         <Button disabled={!form} onClick={() => void saveSettings()}>
           Сохранить настройки
         </Button>
-        <Button variant="outline" onClick={onClose}>
-          Готово
-        </Button>
       </div>
-    </Modal>
+    </div>
   );
 }

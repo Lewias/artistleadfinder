@@ -8,7 +8,7 @@ import { genres } from '../lib/format';
 import { DataState } from '../components/DataState';
 import { JobProgress } from '../components/JobProgress';
 import { Button } from '../components/ui/button';
-import { ScoutDiscovery } from '../components/ScoutDiscovery';
+import { ScoutDiscovery, type WorkTab } from '../components/ScoutDiscovery';
 import { BrowserDiscovery } from '../components/BrowserDiscovery';
 
 const split = (value: string) =>
@@ -16,12 +16,15 @@ const split = (value: string) =>
     .split(/[,\n]/)
     .map(item => item.trim())
     .filter(Boolean);
-export function Discovery() {
+export function Discovery({ tab, onTab }: { tab: WorkTab; onTab: (tab: WorkTab) => void }) {
+  return <ScoutDiscovery tab={tab} onTab={onTab} extra={<ExtraTools />} />;
+}
+
+function ExtraTools() {
   const settings = useResource<SettingsData>('settings.get');
   const jobs = useResource<SearchJob[]>('jobs.list', {}, 1000);
   return (
     <>
-      <ScoutDiscovery />
       <details className="extra-tools">
         <summary>Дополнительные инструменты: ручной сбор ссылок и демонстрационный поиск</summary>
         <BrowserDiscovery />
