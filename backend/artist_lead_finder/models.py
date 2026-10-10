@@ -1,6 +1,6 @@
 """Persistence only. No provider, analysis or scoring logic."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -976,3 +976,59 @@ class AssistantAction(Base):
     result: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     done_at: Mapped[datetime | None]
+
+
+class SpotifyArtist(Base):
+    """An artist the Spotify search looked at; checked once, so a run never asks again."""
+
+    __tablename__ = "spotify_artists"
+    __table_args__ = (
+        CheckConstraint("status IN ('found','out_of_range','no_instagram','old_release','known')"),
+        Index("ix_spotify_artists_status", "status", "checked_at"),
+        Index("ix_spotify_artists_instagram", "instagram"),
+    )
+    id: Mapped[str] = mapped_column(String(22), primary_key=True)
+    name: Mapped[str] = mapped_column(String(240), default="")
+    listeners: Mapped[int] = mapped_column(default=0)
+    followers: Mapped[int] = mapped_column(default=0)
+    instagram: Mapped[str | None] = mapped_column(String(30))
+    bio: Mapped[str] = mapped_column(String(2000), default="")
+    release_name: Mapped[str] = mapped_column(String(240), default="")
+    release_date: Mapped[date | None]
+    city: Mapped[str] = mapped_column(String(120), default="")
+    country: Mapped[str] = mapped_column(String(2), default="")
+    status: Mapped[str] = mapped_column(String(16))
+    # Where the search met the artist: «плейлист …», «похож на …», «поиск …».
+    source: Mapped[str] = mapped_column(String(240), default="")
+    # «Fans also like»: a later run goes on from here.
+    related: Mapped[list[str]] = mapped_column(JSON, default=list)
+    run_id: Mapped[int | None]
+    checked_at: Mapped[datetime] = mapped_column(default=utcnow)
+    outreach_at: Mapped[datetime | None]
+    crm_at: Mapped[datetime | None]
+
+
+class SpotifyPlaylist(Base):
+    """A playlist whose artists the search already took."""
+
+    __tablename__ = "spotify_playlists"
+    id: Mapped[str] = mapped_column(String(22), primary_key=True)
+    name: Mapped[str] = mapped_column(String(240), default="")
+    artists: Mapped[int] = mapped_column(default=0)
+    scanned_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class SpotifyRun(Base):
+    __tablename__ = "spotify_runs"
+    __table_args__ = (
+        CheckConstraint("status IN ('running','done','stopped','failed','interrupted')"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(12), default="running")
+    target: Mapped[int] = mapped_column(default=0)
+    checked: Mapped[int] = mapped_column(default=0)
+    found: Mapped[int] = mapped_column(default=0)
+    step: Mapped[str] = mapped_column(String(300), default="")
+    message: Mapped[str] = mapped_column(String(500), default="")
+    started_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None]

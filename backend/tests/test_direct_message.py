@@ -95,6 +95,59 @@ def test_someone_already_in_direct_is_not_written_to(browser):
     page.close()
 
 
+# Some accounts get the thread as a small chat window over the profile: the URL stays on
+# the profile, and the profile's own texts sit left and right of the window's middle.
+POPUP = """<!doctype html><meta charset="utf-8"><body><main>
+<h2>{name}</h2>
+<div style="display:flex;justify-content:space-between;width:1200px">
+  <div dir="auto">Rapper from Chicago</div><div dir="auto">1 200 followers</div>
+</div>
+<div style="display:flex;justify-content:space-between;width:1200px;height:400px">
+  <div dir="auto">new single out now</div><div dir="auto">link in bio</div>
+</div>
+<div role="button" tabindex="0">Отправить сообщение</div></main>
+<script>
+document.querySelector('main [role=button]').onclick = () => setTimeout(() => {{
+  const chat = document.createElement('div');
+  chat.style = 'position:fixed;right:20px;bottom:0;width:340px;height:430px;' +
+    'display:flex;flex-direction:column;background:#fff';
+  chat.innerHTML = '<div style="height:60px"><div dir="auto">{name}</div></div>' +
+    '<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end">' +
+    {history} + '</div>' +
+    '<div role="textbox" contenteditable="true" aria-label="Сообщение"></div>';
+  document.body.appendChild(chat);
+  const box = chat.querySelector('[role=textbox]');
+  box.addEventListener('keydown', event => {{
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    window.sent = (window.sent || []).concat(box.innerText);
+    box.innerHTML = '';
+  }});
+}}, 300);
+</script></body>"""
+POPUP_HISTORY = '\'<div style="align-self:flex-start"><div dir="auto">yo who dis</div></div>\''
+
+
+def popup_page(browser, username, history=False):
+    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    html = POPUP.format(name=username, history=POPUP_HISTORY if history else "''")
+    page.route("**/*", lambda route: route.fulfill(status=200, content_type="text/html", body=html))
+    page.goto(f"https://www.instagram.com/{username}/")
+    return page
+
+
+def test_a_chat_window_over_the_profile_is_read_on_its_own(browser):
+    """The profile's texts around the window are not taken for an earlier conversation."""
+    page = popup_page(browser, "jaycarter")
+    assert send_direct(page, "jaycarter", "Yo Jay") == {"outcome": "sent", "thread_id": ""}
+    assert page.evaluate("window.sent") == ["Yo Jay"]
+    page.close()
+    page = popup_page(browser, "jaycarter", history=True)
+    assert send_direct(page, "jaycarter", "Yo Jay")["error"] == "existing_thread"
+    assert page.evaluate("window.sent") is None
+    page.close()
+
+
 def test_follow_only_profile_is_not_written_to(browser):
     page = profile_page(browser, "followonly", FOLLOW)
     assert send_direct(page, "followonly", "hi")["error"] == "messages_closed"

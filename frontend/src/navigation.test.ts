@@ -5,6 +5,7 @@ describe('desktop navigation contract', () => {
     expect(pages.map(page => page.id)).toEqual([
       'discovery',
       'cloud',
+      'spotify',
       'profiles',
       'leads',
       'history',
@@ -25,7 +26,7 @@ describe('desktop navigation contract', () => {
       'admin',
       'settings',
     ]);
-    expect(new Set(pages.map(page => page.id)).size).toBe(16);
+    expect(new Set(pages.map(page => page.id)).size).toBe(17);
   });
   it('splits the main sections between the two channels', () => {
     const main = (channel: string) =>
@@ -37,7 +38,7 @@ describe('desktop navigation contract', () => {
       'imessage-crm',
       'imessage-crm-users',
     ]);
-    expect(main('instagram')).toHaveLength(8);
+    expect(main('instagram')).toHaveLength(9);
     // CRM and the other users' CRM close the list of each channel.
     expect(main('instagram').slice(-2)).toEqual(['crm', 'crm-users']);
   });

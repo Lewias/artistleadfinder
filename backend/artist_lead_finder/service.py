@@ -58,6 +58,8 @@ from .providers import ImportedDatasetProvider, MockProvider
 from .schemas import SearchConfiguration
 from .scoring import ScoringWeights
 from .scouting import ScoutService
+from .spotify.client import SpotifyWeb
+from .spotify.service import SpotifyService
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +236,13 @@ class ApplicationService:
             core=self.call,
             add_usernames=self.workspace.add_usernames,
         )
+        # «Spotify»: small artists with an Instagram, then «Рассылка» to them.
+        self.spotify = SpotifyService(
+            sessions,
+            self.workspace.add_usernames,
+            self.crm.merge,
+            web_factory=lambda: SpotifyWeb(ready=lambda: self.chromium._ready(wait=20)),
+        )
         # «Найти и написать»: the parser's new leads, then «Рассылка» to them.
         self.autopilot = Autopilot(
             sessions, self.scout.set_target, self.workspace.start, self._sender_names
@@ -257,6 +266,8 @@ class ApplicationService:
     def call(self, method: str, params: dict) -> Any:
         if method.startswith("assistant."):
             return self.assistant.call(method, params)
+        if method.startswith("spotify."):
+            return self.spotify.call(method, params)
         handler = self.handlers.get(method)
         if handler is None:
             if method.startswith("browser.runtime."):
@@ -931,6 +942,7 @@ class ApplicationService:
     def shutdown(self) -> None:
         # A running assistant stops after its current step.
         self.assistant.stopping.set()
+        self.spotify.shutdown()
         self.imessage.shutdown()
         self.chromium.shutdown()
         self.manager.shutdown()

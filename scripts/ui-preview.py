@@ -382,6 +382,33 @@ CORE["assistant.state"] = {
     ],
     "usage": {"today": 0.0123, "month": 0.41, "by_model": {"Haiku 5.5": 0.18, "Sonnet 5.5": 0.23}},
 }
+CORE["spotify.state"] = {
+    "running": True,
+    "settings": {"min_listeners": 0, "max_listeners": 10000,
+                 "queries": ["underground rap", "new rap artists", "unsigned rappers", "rage rap"],
+                 "seeds": [], "use_playlists": True, "use_search": True, "use_related": True,
+                 "release_days": 0, "target": 50},
+    "run": {"id": 3, "status": "running", "target": 50, "checked": 64, "found": 5,
+            "step": "Проверяю артистов: Mike Dece", "message": "",
+            "started_at": "2026-10-10T17:05:40+00:00", "finished_at": None},
+    "totals": {"found": 17, "new": 12, "checked": 412},
+}
+CORE["spotify.results"] = {"total": 4, "rows": [
+    {"id": f"{i:022d}", "name": name, "url": f"https://open.spotify.com/artist/{i:022d}",
+     "listeners": listeners, "followers": listeners // 3, "instagram": ig,
+     "release_name": release, "release_date": when, "city": city, "country": "US",
+     "status": "found", "status_text": "Подходит", "source": source,
+     "checked_at": "2026-10-10T17:07:00+00:00", "outreach_at": sent, "crm_at": crm}
+    for i, (name, listeners, ig, release, when, city, source, sent, crm) in enumerate([
+        ("Mike Dece", 6328, "mikexdece", "Back Again", "2026-09-29", "Barre",
+         "похож на Mont Merlino", None, None),
+        ("Papo2oo4", 9458, "papo2oo4", "Late Nights", "2026-09-18", "New York City",
+         "похож на Mont Merlino", None, "2026-10-10T17:10:00+00:00"),
+        ("sayli", 86, "heysayli", "first", "2026-10-02", "London",
+         "плейлист «HARDEST underground rap»", None, None),
+        ("Leota", 4650, "okayleota", "Leota", "2026-05-01", "Los Angeles",
+         "поиск «rage rap»", "2026-10-10T17:12:00+00:00", None),
+    ])]}
 CORE["cloud.telegram"] = {"linked": True, "username": "artist_hunter", "notify": True, "bot": "alf_leads_bot"}
 CORE["cloud.sessions"] = [{"profile_id": "a" * 32, "name": "Dmitrii", "has_proxy": True,
                            "updated_at": "2026-10-09T18:00:00+00:00"}]

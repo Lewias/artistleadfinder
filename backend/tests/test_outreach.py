@@ -19,6 +19,7 @@ from artist_lead_finder.models import (
     OutboundMessageJob,
     OutreachCampaign,
     OutreachEvent,
+    SchemaMigration,
     utcnow,
 )
 from artist_lead_finder.outreach import reasons
@@ -384,6 +385,28 @@ def test_someone_already_in_direct_is_skipped_and_kept_out_of_later_outreach(app
     with sessions() as session:
         check = can_send_initial_outreach(session, known, campaign_id + 1)
     assert not check.allowed and check.reason == reasons.ALREADY_CONTACTED
+
+
+def test_leads_held_back_only_by_an_empty_chat_window_get_their_status_back(app, tmp_path):
+    """Schema 23: the old check took an empty chat window over a profile for a thread."""
+    service, sessions, clock, senders, _ = app
+    misread, written = add_lead(sessions, "misread", "M"), add_lead(sessions, "written", "W")
+    campaign_id = campaign(service, [misread, written], senders[:1])
+    service.call("outreach.campaign_start", {"id": campaign_id})
+    drive(service, clock, lambda job: {"outcome": "error", "error": "existing_thread"})
+    with sessions.begin() as session:
+        # Someone we did write to earlier by other means stays held back.
+        conversation = Conversation(lead_id=written, sender_account_id=senders[0])
+        session.add(conversation)
+        session.flush()
+        session.add(Message(conversation_id=conversation.id, direction="outbound", type="initial"))
+        session.execute(SchemaMigration.__table__.delete().where(SchemaMigration.version == 23))
+    open_database(tmp_path / "outreach.db")[0].dispose()
+    with sessions() as session:
+        assert session.get(Lead, misread).status == "new"
+        assert session.get(Lead, written).status == "contacted"
+        check = can_send_initial_outreach(session, misread, campaign_id + 1)
+    assert check.allowed
 
 
 def test_refusal_details_keep_the_http_status(app):
@@ -811,8 +834,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 21
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (22, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 23
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (24, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):

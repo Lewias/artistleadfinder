@@ -14,12 +14,15 @@ kinds of `outreach.worker.OUTCOMES`. Failures before Enter never sent anything; 
 Enter anything unclear is "unconfirmed", which the core never resends.
 """
 
+import logging
 import re
 import time
 from collections.abc import Callable
 from urllib.parse import urlparse
 
 from .message_typer import MessageTyper, MessageTypingMismatch
+
+log = logging.getLogger(__name__)
 
 USERNAME = re.compile(r"^[a-z0-9_.]{1,30}$")
 MAX_TEXT = 1000
@@ -40,26 +43,42 @@ SEND_FAILED = re.compile(
 COMPOSER = '[role="textbox"][contenteditable="true"]'
 THREAD = re.compile(r"^/direct/t/([0-9A-Za-z_-]{1,80})/?")
 
+# The open thread's own messages. The thread is the message box's nearest ancestor that is
+# a floating chat window (fixed or a dialog: Instagram opens one over the profile on some
+# accounts) or a column at least 60% of the window tall (the /direct/ page). Text counts
+# only above the message box, below the thread header.
 COLLECT = """([header, center]) => {
   const box = [...document.querySelectorAll('[role="textbox"][contenteditable="true"]')].pop();
   if (!box) return null;
+  const floating = node =>
+    node.getAttribute('role') === 'dialog' || getComputedStyle(node).position === 'fixed';
   let pane = box;
-  while (pane.parentElement && pane.getBoundingClientRect().height < innerHeight * 0.6)
+  let via = 'page';
+  while (pane.parentElement && pane !== document.body) {
+    if (floating(pane)) { via = 'window'; break; }
+    if (pane.getBoundingClientRect().height >= innerHeight * 0.6) { via = 'column'; break; }
     pane = pane.parentElement;
+  }
   const area = pane.getBoundingClientRect();
+  const bottom = box.getBoundingClientRect().top;
   const middle = area.left + area.width / 2;
   const messages = [];
   for (const node of pane.querySelectorAll('[dir="auto"]')) {
     if (node.querySelector('[dir="auto"]') || node.closest('[role="textbox"]')) continue;
     const rect = node.getBoundingClientRect();
-    if (!rect.width || !rect.height || rect.top < area.top + header) continue;
+    if (!rect.width || !rect.height || rect.top < area.top + header || rect.top >= bottom) continue;
     const text = (node.innerText || '').trim();
     if (!text) continue;
     const offset = (rect.left + rect.right) / 2 - middle;
     const side = Math.abs(offset) < area.width * center ? 'middle' : offset < 0 ? 'in' : 'out';
     messages.push({ text, side });
   }
-  return messages;
+  return {
+    messages,
+    via,
+    pane: [Math.round(area.width), Math.round(area.height)],
+    view: [innerWidth, innerHeight],
+  };
 }"""
 HEADER = 72  # px: the thread header with the name and buttons
 CENTER = 0.06  # share of the column width around the middle: dates and notices
@@ -88,8 +107,20 @@ def has_history(page, clock: Callable[[], float] = time.monotonic) -> bool:
     """Messages in the open thread: ours or the other person's, on either side."""
     deadline = clock() + HISTORY_WAIT
     while True:
-        messages = page.evaluate(COLLECT, [HEADER, CENTER]) or []
-        if any(item.get("side") in ("in", "out") for item in messages):
+        found = page.evaluate(COLLECT, [HEADER, CENTER]) or {}
+        sides = [item.get("side") for item in found.get("messages") or []]
+        if "in" in sides or "out" in sides:
+            # Sizes only, no text: enough to tell a real thread from a misread layout.
+            log.info(
+                "direct_existing_thread",
+                extra={
+                    "detail": (
+                        f"via={found.get('via')} pane={found.get('pane')} "
+                        f"view={found.get('view')} in={sides.count('in')} "
+                        f"out={sides.count('out')}"
+                    )
+                },
+            )
             return True
         if clock() > deadline:
             return False

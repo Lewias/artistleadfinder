@@ -940,3 +940,50 @@ export interface AdminOverview {
   keys: AdminKey[];
   key?: string;
 }
+export interface SpotifySettings {
+  min_listeners: number;
+  max_listeners: number;
+  queries: string[];
+  seeds: string[];
+  use_playlists: boolean;
+  use_search: boolean;
+  use_related: boolean;
+  release_days: number;
+  target: number;
+}
+export interface SpotifyRun {
+  id: number;
+  status: 'running' | 'done' | 'stopped' | 'failed' | 'interrupted';
+  target: number;
+  checked: number;
+  found: number;
+  step: string;
+  message: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+export interface SpotifyState {
+  running: boolean;
+  settings: SpotifySettings;
+  run: SpotifyRun | null;
+  totals: { found: number; new: number; checked: number };
+}
+export interface SpotifyArtist {
+  id: string;
+  name: string;
+  url: string;
+  listeners: number;
+  followers: number;
+  instagram: string | null;
+  release_name: string;
+  release_date: string | null;
+  city: string;
+  country: string;
+  status: 'found' | 'out_of_range' | 'no_instagram' | 'old_release' | 'known';
+  status_text: string;
+  source: string;
+  checked_at: string | null;
+  outreach_at: string | null;
+  crm_at: string | null;
+}
+export type SpotifyView = 'new' | 'found' | 'skipped';

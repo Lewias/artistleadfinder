@@ -212,6 +212,9 @@ class FakeEngine:
             return {"open": True}
         return {"ok": True}
 
+    def open_window(self, profile):
+        return self.call("browser.runtime.open", {"id": profile})
+
     def close(self):
         self.closed = True
 

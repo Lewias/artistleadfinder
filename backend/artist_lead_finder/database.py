@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 21 for version in versions):
+        if any(version > 23 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -231,4 +231,24 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # assistant_actions); new tables only.
         if session.get(SchemaMigration, 21) is None:
             session.add(SchemaMigration(version=21))
+        # Schema 22: the Spotify search (spotify_artists, spotify_playlists, spotify_runs);
+        # new tables only.
+        if session.get(SchemaMigration, 22) is None:
+            session.add(SchemaMigration(version=22))
+        # Schema 23: «уже есть переписка в Директе» was also found in empty chat windows
+        # over a profile. Leads marked written to only by such a skip, never sent anything,
+        # get their status back; a real thread is seen again before any send.
+        if session.get(SchemaMigration, 23) is None:
+            session.execute(
+                text(
+                    "UPDATE leads SET status = 'new' WHERE status = 'contacted'"
+                    " AND last_contacted_at IS NULL"
+                    " AND id IN (SELECT lead_id FROM campaign_recipients"
+                    " WHERE skip_reason = 'ALREADY_IN_DIRECT')"
+                    " AND id NOT IN (SELECT conversations.lead_id FROM conversations"
+                    " JOIN messages ON messages.conversation_id = conversations.id"
+                    " WHERE messages.direction = 'outbound')"
+                )
+            )
+            session.add(SchemaMigration(version=23))
     return engine, factory

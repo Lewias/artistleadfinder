@@ -7,6 +7,7 @@ import {
   CloudCog,
   Contact,
   Database,
+  Disc3,
   History,
   LayoutTemplate,
   MessageSquareText,
@@ -33,6 +34,7 @@ import { number } from './lib/format';
 import { Dashboard } from './pages/Dashboard';
 import { Discovery } from './pages/Discovery';
 import { Cloud } from './pages/Cloud';
+import { Spotify } from './pages/Spotify';
 import type { WorkTab } from './components/ScoutDiscovery';
 import { Leads } from './pages/Leads';
 import { SearchHistory } from './pages/SearchHistory';
@@ -53,6 +55,7 @@ import { useUpdater } from './hooks/useUpdater';
 const icons: Record<PageId, LucideIcon> = {
   discovery: ScanSearch,
   cloud: CloudCog,
+  spotify: Disc3,
   profiles: UserRound,
   leads: Database,
   history: History,
@@ -236,6 +239,8 @@ function Workspace({
                 <Discovery tab={workTab} onTab={setWorkTab} />
               ) : active === 'cloud' ? (
                 <Cloud />
+              ) : active === 'spotify' ? (
+                <Spotify onWrite={writeTo} />
               ) : active === 'leads' ? (
                 <Leads
                   onCampaign={async ids => {

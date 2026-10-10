@@ -173,7 +173,7 @@ class OutreachRunner(Runner):
                     return "fatal", view
             opened = engine.call("browser.runtime.is_open", {"id": profile}) or {}
             if opened.get("open") is not True:
-                engine.call("browser.runtime.open", {"id": profile})
+                engine.open_window(profile)
             item = engine.call("outreach.next_internal", {}) or {}
             if item.get("job_id"):
                 self.send_one(engine, item)

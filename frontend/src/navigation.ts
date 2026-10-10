@@ -21,6 +21,16 @@ export const pages = [
     channel: 'instagram',
   },
   {
+    id: 'spotify',
+    label: 'Spotify',
+    eyebrow: 'ИСТОЧНИК',
+    title: 'Артисты из Spotify',
+    description:
+      'Небольшие артисты из плейлистов, поиска и «Похожих»: остаются только те, у кого в Spotify указан Instagram. Им пишем через нашу рассылку в Direct.',
+    placement: 'main',
+    channel: 'instagram',
+  },
+  {
     id: 'profiles',
     label: 'Аккаунты',
     eyebrow: 'INSTAGRAM',

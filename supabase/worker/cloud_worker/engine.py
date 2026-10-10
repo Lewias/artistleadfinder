@@ -15,6 +15,8 @@ from artist_lead_finder.models import Lead, LeadScoutProfile, ScoutDecision
 from artist_lead_finder.service import ApplicationService
 from sqlalchemy import select
 
+from .proxy_relay import ProxyRelay
+
 log = logging.getLogger(__name__)
 
 PROFILE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -38,6 +40,8 @@ class Engine:
         self.seen = 0
         # The core method in progress, for the watchdog's log when a call hangs.
         self.calling: str | None = None
+        # Loopback bridges for account proxies with a login, by profile.
+        self.relays: dict[str, ProxyRelay] = {}
 
     def call(self, method: str, params: dict):
         self.calling = method
@@ -50,7 +54,30 @@ class Engine:
         try:
             self.service.shutdown()
         finally:
+            for relay in self.relays.values():
+                relay.stop()
+            self.relays.clear()
             self.engine.dispose()
+
+    def open_window(self, profile_id: str) -> dict:
+        """The account's browser window. A proxy with a login goes through a loopback
+        bridge, as in the desktop app: Chromium cannot log in to a SOCKS5 proxy itself."""
+        old = self.relays.pop(profile_id, None)
+        if old is not None:
+            old.stop()
+        proxy = self.service.browser_sessions.read(profile_id).get("proxy")
+        if not (isinstance(proxy, dict) and proxy.get("password")):
+            return self.call("browser.runtime.open", {"id": profile_id})
+        relay = ProxyRelay(proxy)
+        try:
+            result = self.call(
+                "browser.runtime.open", {"id": profile_id, "proxy_override": relay.url}
+            )
+        except Exception:
+            relay.stop()
+            raise
+        self.relays[profile_id] = relay
+        return result
 
     # ---------- preparing ----------
 
@@ -111,7 +138,7 @@ class Engine:
         self.call(
             "scout.account_target", {"profile_id": profile_id, "target": target, "reset": True}
         )
-        self.call("browser.runtime.open", {"id": profile_id})
+        self.open_window(profile_id)
         created = self.call("scout.start_internal", {"profile_id": profile_id, "sources": sources})
         job_id = int(created["id"])
         with self.sessions() as session:

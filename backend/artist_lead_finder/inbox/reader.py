@@ -142,7 +142,7 @@ def collect(page, outbound: list[str]) -> list[dict]:
     seen: set[tuple[str, str]] = set()
     for round_ in range(SCROLL_ROUNDS + 1):
         reached = False
-        for item in page.evaluate(COLLECT, [HEADER, CENTER]) or []:
+        for item in (page.evaluate(COLLECT, [HEADER, CENTER]) or {}).get("messages") or []:
             text = str(item.get("text") or "")[:MAX_TEXT]
             side = item.get("side")
             flat = " ".join(text.split())

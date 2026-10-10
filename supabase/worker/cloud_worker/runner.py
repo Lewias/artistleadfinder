@@ -313,7 +313,7 @@ class Runner:
         profile = state.get("profile_id") or ""
         opened = engine.call("browser.runtime.is_open", {"id": profile}) or {}
         if opened.get("open") is not True:
-            engine.call("browser.runtime.open", {"id": profile})
+            engine.open_window(profile)
         # A rate limit set the pacer's break: the resumed queue waits it out by itself.
         engine.call("jobs.control", {"id": run_id, "action": "resume"})
         return "skip"
