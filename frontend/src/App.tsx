@@ -72,6 +72,9 @@ const icons: Record<PageId, LucideIcon> = {
   settings: SettingsIcon,
 };
 
+// Shown to admins and moderators only; a plain user does not see them at all.
+const staffPages: PageId[] = ['cloud', 'crm-users', 'imessage-crm-users', 'assistant'];
+
 function useNavCounts(): Partial<Record<PageId, number>> {
   const sources = useResource<string[]>('scout.sources', {}, 15000);
   const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 15000);
@@ -124,8 +127,9 @@ function Workspace({
 }) {
   const core = useResource<{ version: string }>('system.info');
   const admin = account?.role === 'admin' && account.configured;
-  // Admin and moderator see every user's CRM, signed with the owner.
-  const allCrm = (account?.role === 'admin' || account?.role === 'moderator') && account.configured;
+  // Admin and moderator see every user's CRM, signed with the owner, the cloud parser and the assistant.
+  const staff = (account?.role === 'admin' || account?.role === 'moderator') && account.configured;
+  const visible = (id: PageId) => staff || !staffPages.includes(id);
   const [active, setActive] = useState<PageId>('discovery');
   const [channel, setChannel] = useState<Channel>('instagram');
   // Each channel reopens on the section it was left on.
@@ -194,12 +198,14 @@ function Workspace({
               item =>
                 item.placement === 'main' &&
                 item.channel === channel &&
-                (allCrm || (item.id !== 'crm-users' && item.id !== 'imessage-crm-users')),
+                visible(item.id),
             )
             .map(navButton)}
         </nav>
         <nav className="sidebar-footer" aria-label="Параметры">
-          {pages.filter(item => item.placement === 'footer' && (item.id !== 'admin' || admin)).map(navButton)}
+          {pages
+            .filter(item => item.placement === 'footer' && visible(item.id) && (item.id !== 'admin' || admin))
+            .map(navButton)}
         </nav>
       </aside>
       <main className="main">
@@ -237,7 +243,7 @@ function Workspace({
                 <Dashboard navigate={navigate} />
               ) : active === 'discovery' ? (
                 <Discovery tab={workTab} onTab={setWorkTab} />
-              ) : active === 'cloud' ? (
+              ) : active === 'cloud' && staff ? (
                 <Cloud />
               ) : active === 'spotify' ? (
                 <Spotify onWrite={writeTo} />
@@ -262,11 +268,11 @@ function Workspace({
                 <Crm crm="instagram" onWrite={writeTo} />
               ) : active === 'imessage-crm' ? (
                 <Crm crm="imessage" onWrite={() => navigate('imessage')} />
-              ) : active === 'crm-users' && allCrm ? (
+              ) : active === 'crm-users' && staff ? (
                 <Crm key="crm-users" crm="instagram" others onWrite={writeTo} />
-              ) : active === 'imessage-crm-users' && allCrm ? (
+              ) : active === 'imessage-crm-users' && staff ? (
                 <Crm key="imessage-crm-users" crm="imessage" others onWrite={() => navigate('imessage')} />
-              ) : active === 'assistant' ? (
+              ) : active === 'assistant' && staff ? (
                 <Assistant />
               ) : active === 'admin' && admin ? (
                 <Admin />
