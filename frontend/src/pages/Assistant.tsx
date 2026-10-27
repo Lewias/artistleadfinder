@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   ChevronRight,
-  KeyRound,
   Laptop,
   MessageSquarePlus,
   Play,
@@ -28,6 +27,8 @@ import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
 import { chatBlocks } from '../components/assistant/chat';
+import { KeyForm } from '../components/assistant/AssistantSettings';
+import { dollars } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
@@ -40,47 +41,6 @@ const SUGGESTIONS = [
   'Подготовь ответы всем, кто ждёт больше дня',
   'Обнови статусы в CRM по последним перепискам',
 ];
-
-const dollars = (value: number) => (value < 0.01 && value > 0 ? '< $0.01' : `$${value.toFixed(2)}`);
-
-function KeyForm({ onSaved, compact }: { onSaved: () => void; compact?: boolean }) {
-  const [key, setKey] = useState('');
-  const [error, setError] = useState('');
-  const save = async () => {
-    setError('');
-    try {
-      await api.request('assistant.set_key', { key });
-      setKey('');
-      onSaved();
-    } catch (err) {
-      setError(errorText(err));
-    }
-  };
-  return (
-    <div className="assistant-key">
-      {!compact && (
-        <p className="helper">
-          Ассистент работает через API Anthropic. Создайте ключ на console.anthropic.com (раздел API Keys) и
-          вставьте сюда — он хранится зашифрованным на этом компьютере. Обычная работа на Haiku 5.5 стоит
-          центы в день; сложные ответы Haiku сам передаёт Sonnet 5.5.
-        </p>
-      )}
-      <div className="assistant-key-row">
-        <input
-          type="password"
-          placeholder="sk-ant-…"
-          value={key}
-          autoComplete="off"
-          onChange={event => setKey(event.target.value)}
-        />
-        <Button disabled={!key.trim()} onClick={() => void save()}>
-          <KeyRound size={14} /> Сохранить ключ
-        </Button>
-      </div>
-      <ErrorToast message={error} />
-    </div>
-  );
-}
 
 function DraftCard({
   draft,
@@ -328,7 +288,6 @@ export function Assistant() {
   const [chosen, setChosen] = useState<number[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [changingKey, setChangingKey] = useState(false);
   const [confirming, setConfirming] = useState<AssistantSendPreview | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const waiting = awaitingMessages(data?.sends ?? []);
@@ -501,7 +460,8 @@ export function Assistant() {
           </form>
           <p className="assistant-disclosure">
             Вопросы и фрагменты переписок, которые просматривает ассистент, отправляются в API Anthropic.
-            Ассистент готовит сообщения, но уходят они только после вашей кнопки.
+            Ассистент готовит сообщения, но уходят они только после вашей кнопки. Ключ, модели и расходы — в
+            «Настройках».
           </p>
           <ErrorToast message={error || state.error} />
         </section>
@@ -598,52 +558,6 @@ export function Assistant() {
               </div>
             </section>
           )}
-
-          <section className="panel assistant-settings">
-            <div className="board-heading">
-              <h2>Настройки и расходы</h2>
-            </div>
-            <div className="cloud-counters">
-              <div>
-                <span>Сегодня</span>
-                <b>{dollars(data.usage.today)}</b>
-              </div>
-              <div>
-                <span>30 дней</span>
-                <b>{dollars(data.usage.month)}</b>
-              </div>
-              {Object.entries(data.usage.by_model).map(([model, value]) => (
-                <div key={model}>
-                  <span>{model}</span>
-                  <b>{dollars(value)}</b>
-                </div>
-              ))}
-            </div>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={data.escalation}
-                onChange={event => void call('assistant.settings', { escalation: event.target.checked })}
-              />
-              {data.models.main} сам передаёт сложные ответы {data.models.strong}
-            </label>
-            <p className={data.messages.available ? 'helper' : 'board-warning'}>
-              {data.messages.available ? 'Переписка iMessage на этом Mac доступна.' : data.messages.reason}
-            </p>
-            {changingKey ? (
-              <KeyForm
-                compact
-                onSaved={() => {
-                  setChangingKey(false);
-                  state.refresh();
-                }}
-              />
-            ) : (
-              <Button variant="outline" onClick={() => setChangingKey(true)}>
-                <KeyRound size={14} /> Сменить ключ Anthropic
-              </Button>
-            )}
-          </section>
         </aside>
       </div>
       {confirming && (

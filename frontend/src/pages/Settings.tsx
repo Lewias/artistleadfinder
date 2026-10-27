@@ -11,6 +11,7 @@ import { Button } from '../components/ui/button';
 import { PageHeader } from '../components/PageHeader';
 import { UpdatesPanel } from '../components/UpdateNotice';
 import { MemoryReset } from '../components/MemoryReset';
+import { AssistantSettings } from '../components/assistant/AssistantSettings';
 import type { useUpdater } from '../hooks/useUpdater';
 
 type Updater = ReturnType<typeof useUpdater> & { version?: string };
@@ -24,7 +25,8 @@ const weightNames: Record<string, string> = {
   genre: 'Целевой жанр',
   strong_activity: 'Высокая активность',
 };
-export function Settings({ updater }: { updater: Updater }) {
+/** staff: admins and moderators, who have the assistant. */
+export function Settings({ updater, staff = false }: { updater: Updater; staff?: boolean }) {
   const resource = useResource<SettingsData>('settings.get');
   const health = useResource<ProviderHealth[]>('providers.health', {}, 5000);
   if (!resource.data)
@@ -38,6 +40,7 @@ export function Settings({ updater }: { updater: Updater }) {
   return (
     <SettingsForm
       updater={updater}
+      staff={staff}
       initial={resource.data}
       health={health.data || []}
       refresh={() => {
@@ -49,11 +52,13 @@ export function Settings({ updater }: { updater: Updater }) {
 }
 function SettingsForm({
   updater,
+  staff,
   initial,
   health,
   refresh,
 }: {
   updater: Updater;
+  staff: boolean;
   initial: SettingsData;
   health: ProviderHealth[];
   refresh: () => void;
@@ -106,6 +111,7 @@ function SettingsForm({
     <>
       <PageHeader page="settings" />
       <UpdatesPanel {...updater} />
+      {staff && <AssistantSettings />}
       <form onSubmit={event => void submit(event)} className="settings-layout">
         <section className="panel">
           <h2>Поиск по умолчанию</h2>

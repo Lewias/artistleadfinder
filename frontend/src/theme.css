@@ -5424,6 +5424,9 @@ button:active:not(:disabled) {
   display: grid;
   gap: 12px;
 }
+.assistant-settings > .button {
+  justify-self: start;
+}
 .assistant-action {
   display: grid;
   gap: 8px;

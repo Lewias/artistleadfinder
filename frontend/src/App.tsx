@@ -277,7 +277,7 @@ function Workspace({
               ) : active === 'admin' && admin ? (
                 <Admin />
               ) : (
-                <Settings updater={{ ...updater, version }} />
+                <Settings updater={{ ...updater, version }} staff={staff} />
               )}
             </ErrorBoundary>
           </SectionTransition>

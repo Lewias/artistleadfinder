@@ -45,3 +45,6 @@ export const relativeTime = (value: string | null, empty = 'Ещё не скан
   const hours = Math.round(minutes / 60);
   return hours < 48 ? `${hours} ч назад` : `${Math.round(hours / 24)} дн назад`;
 };
+
+/** Assistant spend: cents as «< $0.01», otherwise dollars with cents. */
+export const dollars = (value: number) => (value < 0.01 && value > 0 ? '< $0.01' : `$${value.toFixed(2)}`);
