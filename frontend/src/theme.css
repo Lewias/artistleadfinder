@@ -5320,3 +5320,54 @@ button:active:not(:disabled) {
     justify-content: stretch;
   }
 }
+
+/* ---------- «Ассистент»: sending through Messages on this Mac ---------- */
+.assistant-send-text {
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-send {
+  display: grid;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.assistant-send header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-send > small:first-of-type {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.send-state {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.send-state.good {
+  border-color: var(--green-line);
+  background: var(--green-bg);
+  color: var(--green);
+}
+.send-state.warn {
+  border-color: var(--amber);
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.send-state.bad {
+  border-color: var(--red-line);
+  background: var(--red-bg);
+  color: var(--red);
+}

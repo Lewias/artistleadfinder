@@ -68,6 +68,15 @@ def main() -> None:
             str(ROOT / "backend/artist_lead_finder/imessage/Verse iMessage.shortcut")
             + os.pathsep
             + "artist_lead_finder/imessage",
+            # The producer's sales skills, read by the assistant (assistant/skills.py).
+            "--add-data",
+            str(ROOT / "producer-sales-skills/skills")
+            + os.pathsep
+            + "artist_lead_finder/assistant/skills_library/skills",
+            "--add-data",
+            str(ROOT / "producer-sales-skills/reference")
+            + os.pathsep
+            + "artist_lead_finder/assistant/skills_library/reference",
             "--distpath",
             "src-tauri/core",
             "--workpath",

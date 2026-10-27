@@ -835,6 +835,27 @@ export interface AssistantAction {
   result: string;
   done_at: string | null;
 }
+/** A draft sent through Messages on this Mac; the state comes from chat.db. */
+export type MacSendState = 'queued' | 'dispatched' | 'sent' | 'delivered' | 'uncertain' | 'failed';
+export interface AssistantSend {
+  id: number;
+  draft_id: number;
+  handle: string;
+  contact_name: string;
+  text: string;
+  state: MacSendState;
+  note: string;
+  confirmed_at: string | null;
+  delivered_at: string | null;
+}
+/** What the confirmation shows; the token authorizes exactly this recipient and text. */
+export interface AssistantSendPreview {
+  draft_id: number;
+  contact: string;
+  recipient: string;
+  text: string;
+  token: string;
+}
 export interface AssistantState {
   configured: boolean;
   running: boolean;
@@ -847,6 +868,9 @@ export interface AssistantState {
   drafts: AssistantDraft[];
   actions: AssistantAction[];
   usage: { today: number; month: number; by_model: Record<string, number> };
+  /** Sending through Messages on this Mac: off outside macOS. */
+  mac_send: { enabled: boolean; description: string };
+  sends: AssistantSend[];
 }
 export interface TelegramStatus {
   linked: boolean;

@@ -1,0 +1,12 @@
+{
+  "name": "producer-sales-local",
+  "owner": { "name": "Kirill Badinger" },
+  "description": "Local marketplace for the producer-sales skills plugin.",
+  "plugins": [
+    {
+      "name": "producer-sales",
+      "source": "./",
+      "description": "Producer sales skills: qualification, conversation analysis, outreach, follow-up, objections, negotiation, closing."
+    }
+  ]
+}

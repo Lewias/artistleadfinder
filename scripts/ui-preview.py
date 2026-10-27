@@ -381,6 +381,21 @@ CORE["assistant.state"] = {
          "summary": "Облачная рассылка: 27 новым лидам облачного парсера с аккаунта «Main»"},
     ],
     "usage": {"today": 0.0123, "month": 0.41, "by_model": {"Haiku 5.5": 0.18, "Sonnet 5.5": 0.23}},
+    "mac_send": {"enabled": True, "description": "Черновик уходит через Сообщения на этом Mac."},
+    "sends": [
+        {"id": 2, "draft_id": 4, "handle": "+15555550123", "contact_name": "Lil Nova",
+         "text": "yo the hook on late nights stuck with me\nwant me to send a few that fit",
+         "state": "dispatched", "note": "", "confirmed_at": "2026-10-10T10:05:00Z",
+         "delivered_at": None},
+        {"id": 1, "draft_id": 3, "handle": "+15555550199", "contact_name": "Dre",
+         "text": "lease is $100 mp3 + wav\nhere's the pack {{PAY_LINK}}", "state": "delivered",
+         "note": "", "confirmed_at": "2026-10-10T09:00:00Z",
+         "delivered_at": "2026-10-10T09:00:04Z"},
+    ],
+}
+CORE["assistant.send_preview"] = {
+    "draft_id": 1, "contact": "Jay", "recipient": "+79991234567", "token": "0" * 64,
+    "text": "Понимаю вопрос про гарантии. Давай созвонимся на 10 минут — покажу кейсы.",
 }
 CORE["spotify.state"] = {
     "running": True,

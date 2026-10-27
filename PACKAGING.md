@@ -149,5 +149,11 @@ Chromium на macOS не вшивается в ядро: PyInstaller переп�
 открытие окна профиля отвечает «Chromium скачивается…». В CI Chromium ставится с
 `PLAYWRIGHT_BROWSERS_PATH=0` только на Windows; `build-core.py` на Mac отказывается
 собирать, если он лежит в пакете Playwright. Smoke на Mac проверяет и загрузку.
+Ассистент: `build-core.py` кладёт в ядро папку `producer-sales-skills/` (`skills/` и
+`reference/` → `artist_lead_finder/assistant/skills_library`). `src-tauri/Info.plist`
+Tauri сливает с Info.plist бандла: в нём `NSAppleEventsUsageDescription`, без которого macOS
+не покажет запрос «Автоматизация → Сообщения» для отправки с Mac. Подпись ad-hoc (`-`)
+меняется от сборки к сборке, поэтому после обновления macOS может спросить это разрешение
+(и «Полный доступ к диску») заново.
 Сборка macOS в этой среде не запускалась: проверяется первым прогоном workflow и на
 настоящем Mac (установка, Gatekeeper, ядро, Chromium, импорт сессии).

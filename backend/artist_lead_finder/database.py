@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 23 for version in versions):
+        if any(version > 24 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -251,4 +251,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
                 )
             )
             session.add(SchemaMigration(version=23))
+        # Schema 24: drafts sent through Messages on this Mac (assistant_sends); new table only.
+        if session.get(SchemaMigration, 24) is None:
+            session.add(SchemaMigration(version=24))
     return engine, factory

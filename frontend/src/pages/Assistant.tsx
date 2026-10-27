@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   KeyRound,
+  Laptop,
   MessageSquarePlus,
   Play,
   Send,
+  Smartphone,
   Sparkles,
   Square,
   Wrench,
@@ -12,8 +14,10 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
-import type { AssistantDraft, AssistantState } from '../services/types';
+import type { AssistantDraft, AssistantSendPreview, AssistantState } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
+import { Modal } from '../components/Modal';
+import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
 import { Button } from '../components/ui/button';
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
@@ -69,13 +73,18 @@ function KeyForm({ onSaved, compact }: { onSaved: () => void; compact?: boolean 
 function DraftCard({
   draft,
   chosen,
+  mac,
   onChoose,
   onChanged,
+  onSendMac,
 }: {
   draft: AssistantDraft;
   chosen: boolean;
+  /** Messages on this Mac can send it (after a confirmation). */
+  mac: boolean;
   onChoose: (value: boolean) => void;
   onChanged: () => void;
+  onSendMac: () => void;
 }) {
   const [text, setText] = useState(draft.text);
   const [error, setError] = useState('');
@@ -122,15 +131,77 @@ function DraftCard({
           <X size={14} /> Отклонить
         </Button>
         <Button
+          variant={mac ? 'outline' : undefined}
           disabled={edited}
-          title={edited ? 'Сначала сохраните правку' : undefined}
+          title={edited ? 'Сначала сохраните правку' : 'В очередь iMessage: отправит Команда на iPhone'}
           onClick={() => void act('assistant.drafts_send', { ids: [draft.id] })}
         >
-          <Send size={14} /> Отправить
+          <Smartphone size={14} /> В очередь iPhone
         </Button>
+        {mac && (
+          <Button
+            disabled={edited}
+            title={edited ? 'Сначала сохраните правку' : 'Через Сообщения на этом Mac, после подтверждения'}
+            onClick={onSendMac}
+          >
+            <Laptop size={14} /> Отправить с Mac
+          </Button>
+        )}
       </div>
       <ErrorToast message={error} />
     </article>
+  );
+}
+
+/** The last step before Messages sends: the exact recipient and text, one button. */
+function ConfirmSend({
+  preview,
+  onClose,
+  onSent,
+}: {
+  preview: AssistantSendPreview;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const send = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.request('assistant.send_confirm', { id: preview.draft_id, token: preview.token });
+      onSent();
+    } catch (err) {
+      setError(errorText(err));
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Отправить через Сообщения?"
+      narrow
+      icon={<Laptop size={18} />}
+      onClose={() => !busy && onClose()}
+    >
+      <p className="helper">
+        <b>Кому:</b> {preview.contact}
+        {preview.contact !== preview.recipient ? ` · ${preview.recipient}` : ''}
+      </p>
+      <div className="assistant-send-text">{preview.text}</div>
+      <p className="helper">
+        Сообщение уйдёт один раз, с этого Mac, ровно в таком виде. Статус придёт из базы Сообщений; если он
+        неизвестен, проверьте переписку — повторно приложение его не отправит.
+      </p>
+      <ErrorToast message={error} />
+      <div className="actions">
+        <Button disabled={busy} onClick={() => void send()}>
+          <Send size={14} /> Отправить
+        </Button>
+        <Button variant="outline" disabled={busy} onClick={onClose}>
+          Отмена
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -144,10 +215,12 @@ export function Assistant() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [changingKey, setChangingKey] = useState(false);
+  const [confirming, setConfirming] = useState<AssistantSendPreview | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const waiting = awaitingMessages(data?.sends ?? []);
 
-  // Often while it works, rarely otherwise.
-  useEffect(() => setPoll(data?.running ? 1500 : 10000), [data?.running]);
+  // Often while it works or Messages is sending, rarely otherwise.
+  useEffect(() => setPoll(data?.running ? 1500 : waiting ? 3000 : 10000), [data?.running, waiting]);
   useEffect(() => bottom.current?.scrollIntoView({ block: 'end' }), [data?.items.length, data?.running]);
   useEffect(() => {
     const ids = new Set(data?.drafts.map(draft => draft.id));
@@ -171,6 +244,15 @@ export function Assistant() {
     if (result) {
       setQuestion('');
       setPoll(1500);
+    }
+  };
+  const sendMac = async (draft: AssistantDraft) => {
+    setNotice('');
+    setError('');
+    try {
+      setConfirming(await api.request<AssistantSendPreview>('assistant.send_preview', { id: draft.id }));
+    } catch (err) {
+      setError(errorText(err));
     }
   };
   const sendChosen = async () => {
@@ -214,8 +296,8 @@ export function Assistant() {
             {!data.items.length && (
               <div className="assistant-empty">
                 <p className="helper">
-                  Спросите про CRM и переписку или дайте задачу. Ассистент меняет статусы и заметки сам, а
-                  сообщения только готовит — отправляете вы.
+                  Спросите про CRM и переписку или дайте задачу. Ассистент работает по вашим скиллам продаж,
+                  меняет статусы и заметки по вашей просьбе, а сообщения только готовит — отправляете вы.
                 </p>
                 <div className="assistant-suggestions">
                   {SUGGESTIONS.map(item => (
@@ -308,7 +390,7 @@ export function Assistant() {
               <h2>Черновики ({data.drafts.length})</h2>
               {chosen.length > 0 && (
                 <Button onClick={() => void sendChosen()}>
-                  <Send size={14} /> Отправить выбранные ({chosen.length})
+                  <Smartphone size={14} /> В очередь iPhone ({chosen.length})
                 </Button>
               )}
             </div>
@@ -324,14 +406,43 @@ export function Assistant() {
                   key={`${draft.id}:${draft.text}`}
                   draft={draft}
                   chosen={chosen.includes(draft.id)}
+                  mac={data.mac_send.enabled}
                   onChoose={value =>
                     setChosen(list => (value ? [...list, draft.id] : list.filter(id => id !== draft.id)))
                   }
                   onChanged={state.refresh}
+                  onSendMac={() => void sendMac(draft)}
                 />
               ))}
             </div>
           </section>
+
+          {data.sends.length > 0 && (
+            <section className="panel">
+              <div className="board-heading">
+                <h2>Отправлено с Mac</h2>
+                <span className="helper">Статус из базы Сообщений</span>
+              </div>
+              <div className="assistant-drafts">
+                {data.sends.map(send => (
+                  <article key={send.id} className="assistant-send">
+                    <header>
+                      <b>{send.contact_name || send.handle}</b>
+                      <span className={`send-state ${SEND_STATES[send.state].tone}`}>
+                        {SEND_STATES[send.state].label}
+                      </span>
+                    </header>
+                    <small className="helper">{send.text}</small>
+                    {send.note && (
+                      <small className={send.state === 'failed' ? 'board-warning' : 'helper'}>
+                        {send.note}
+                      </small>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="panel assistant-settings">
             <div className="board-heading">
@@ -380,6 +491,17 @@ export function Assistant() {
           </section>
         </aside>
       </div>
+      {confirming && (
+        <ConfirmSend
+          preview={confirming}
+          onClose={() => setConfirming(null)}
+          onSent={() => {
+            setConfirming(null);
+            setNotice('Передано в Сообщения. Статус появится в «Отправлено с Mac».');
+            state.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -834,8 +834,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 23
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (24, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 24
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (25, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):

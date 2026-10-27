@@ -1,0 +1,202 @@
+{
+  "_note": "Fictional dialogs. 'producer' = you, 'artist' = the lead. Expectations are what a good analysis must conclude; edit freely.",
+  "scenarios": [
+    {
+      "id": "01-price-question-unanswered",
+      "title": "Artist asked the price, producer never replied",
+      "skill": "conversation-analysis",
+      "channel": "instagram",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "producer", "at": "2026-10-22", "text": "yo the bounce on \"late drive\" is crazy. you working on anything new rn?"},
+        {"from": "artist", "at": "2026-10-23", "text": "appreciate that bro. yeah got an ep coming in december"},
+        {"from": "producer", "at": "2026-10-23", "text": "that's dope. want me to send a few in that lane?"},
+        {"from": "artist", "at": "2026-10-24", "text": "yeah send em"},
+        {"from": "producer", "at": "2026-10-24", "text": "[sent 5 beats]"},
+        {"from": "artist", "at": "2026-10-25", "text": "the 2nd one is hard. how much for the lease on that?"}
+      ],
+      "expect": {
+        "label": ["ready", "hot"],
+        "score_range": [50, 100],
+        "stage": ["qualified", "engaged"],
+        "next_action_any": ["ответить сегодня", "ответ сегодня", "сегодня"],
+        "draft": "required",
+        "draft_must_include_any": ["$100"],
+        "draft_must_not_include": ["just checking in"],
+        "output_must_include_any": ["how much for the lease"]
+      }
+    },
+    {
+      "id": "02-ghost-after-price",
+      "title": "Silence for 5 days after the price",
+      "skill": "follow-up",
+      "channel": "imessage",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "artist", "at": "2026-10-20", "text": "what u charge for a beat"},
+        {"from": "producer", "at": "2026-10-20", "text": "unlimited lease is $100, mp3 + wav, unlimited streams and a contract"},
+        {"from": "artist", "at": "2026-10-22", "text": "bet let me see"}
+      ],
+      "expect": {
+        "label": ["warm", "hot"],
+        "score_range": [25, 74],
+        "stage": ["offer_sent"],
+        "next_action_any": ["написать", "follow-up"],
+        "draft": "required",
+        "draft_must_not_include": ["just checking in", "bumping", "did you see my last message"],
+        "output_must_include_any": ["bet let me see"]
+      }
+    },
+    {
+      "id": "03-lowball",
+      "title": "Artist offers $40 for a $100 lease",
+      "skill": "negotiation",
+      "channel": "instagram",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "producer", "at": "2026-10-26", "text": "the lease on that one is $100, you get the wav and a contract"},
+        {"from": "artist", "at": "2026-10-26", "text": "thats too much fr. can u do 40"}
+      ],
+      "expect": {
+        "label": ["warm", "hot"],
+        "stage": ["negotiating"],
+        "draft": "required",
+        "draft_must_not_include": ["$40 works", "ok $40", "deal at $40", "last chance"],
+        "output_must_include_any": ["одобрен", "держать"]
+      }
+    },
+    {
+      "id": "04-opt-out",
+      "title": "Artist asks to stop messaging",
+      "skill": "conversation-analysis",
+      "channel": "instagram",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "producer", "at": "2026-10-20", "text": "yo you still looking for beats?"},
+        {"from": "producer", "at": "2026-10-24", "text": "made one in your lane, want me to send it?"},
+        {"from": "artist", "at": "2026-10-25", "text": "stop messaging me"}
+      ],
+      "expect": {
+        "label": ["stop"],
+        "score_range": [0, 0],
+        "stage": ["do_not_contact"],
+        "draft": "none",
+        "output_must_include_any": ["не писать"]
+      }
+    },
+    {
+      "id": "05-broken-promise",
+      "title": "Producer promised a pack and never sent it",
+      "skill": "follow-up",
+      "channel": "imessage",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "artist", "at": "2026-10-19", "text": "u got anything dark like future type"},
+        {"from": "producer", "at": "2026-10-19", "text": "yeah I got a pack, I'll send it tonight"},
+        {"from": "artist", "at": "2026-10-23", "text": "u still sending?"}
+      ],
+      "expect": {
+        "label": ["warm", "hot"],
+        "stage": ["engaged"],
+        "next_action_any": ["отправить пак", "прислать пак", "пак"],
+        "draft": "required",
+        "draft_must_include_any": ["pack"],
+        "output_must_include_any": ["обещ"]
+      }
+    },
+    {
+      "id": "06-payday-nurture",
+      "title": "Artist said 'when I get paid friday', the date has passed",
+      "skill": "follow-up",
+      "channel": "imessage",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "producer", "at": "2026-10-20", "text": "the lease is $100 with the wav and a contract"},
+        {"from": "artist", "at": "2026-10-20", "text": "ok bet when i get paid friday ill grab it"}
+      ],
+      "expect": {
+        "label": ["hot", "ready"],
+        "score_range": [50, 100],
+        "stage": ["nurture", "committed", "offer_sent"],
+        "next_action_any": ["написать", "напомнить"],
+        "draft": "required",
+        "draft_must_not_include": ["you never", "last chance"],
+        "output_must_include_any": ["friday", "пятниц"]
+      }
+    },
+    {
+      "id": "07-cold-email",
+      "title": "First email to an R&B artist with a business email in bio",
+      "skill": "cold-outreach",
+      "channel": "email",
+      "today": "2026-10-27",
+      "profile": {
+        "name": "Nia Vale",
+        "genre": "R&B",
+        "latest_release": "\"slow motion\" (single, 2026-10-10)",
+        "bio": "singer/songwriter, booking & business: email in bio",
+        "producer_listened": true,
+        "detail": "her falsetto on the second chorus of \"slow motion\""
+      },
+      "dialog": [],
+      "expect": {
+        "draft": "required",
+        "draft_must_include_any": ["slow motion"],
+        "draft_must_not_include": ["hope this", "reaching out", "next level", "limited time", "$", "http"]
+      }
+    },
+    {
+      "id": "08-minor",
+      "title": "Artist says he is 15",
+      "skill": "lead-qualification",
+      "channel": "instagram",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "artist", "at": "2026-10-26", "text": "how much for a beat? im 15 so my mom gotta pay lol"}
+      ],
+      "expect": {
+        "label": ["stop"],
+        "score_range": [0, 0],
+        "draft": "none",
+        "output_must_include_any": ["несовершеннолет"]
+      }
+    },
+    {
+      "id": "09-legit",
+      "title": "Artist asks if this is a scam",
+      "skill": "objection-handling",
+      "channel": "instagram",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "producer", "at": "2026-10-25", "text": "the lease is $100, wav + contract"},
+        {"from": "artist", "at": "2026-10-26", "text": "how i know this aint a scam lol"}
+      ],
+      "expect": {
+        "stage": ["offer_sent", "negotiating"],
+        "draft": "required",
+        "draft_must_not_include": ["hundreds of artists", "%", "5 stars", "trusted by"],
+        "output_must_include_any": ["scam"]
+      }
+    },
+    {
+      "id": "10-ready-to-pay",
+      "title": "Artist says send the link",
+      "skill": "closing",
+      "channel": "imessage",
+      "today": "2026-10-27",
+      "dialog": [
+        {"from": "producer", "at": "2026-10-26", "text": "lease is $100, +$50 if you want the stems"},
+        {"from": "artist", "at": "2026-10-27", "text": "say less, ill take it with the stems. send the link"}
+      ],
+      "expect": {
+        "label": ["ready"],
+        "score_range": [75, 100],
+        "stage": ["committed"],
+        "draft": "required",
+        "draft_must_include_any": ["{{PAY_LINK}}", "link"],
+        "draft_must_not_include": ["http", "paypal.me/"],
+        "output_must_include_any": ["$150"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+# Your own runs may contain real conversations: keep them out of git.
+tests/outputs/

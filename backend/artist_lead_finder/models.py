@@ -944,6 +944,34 @@ class AssistantDraft(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class AssistantSend(Base):
+    """A draft sent through Messages on this Mac after the user confirmed the recipient and
+    the exact text; its state is read back from the row Messages writes to chat.db."""
+
+    __tablename__ = "assistant_sends"
+    __table_args__ = (
+        CheckConstraint("state IN ('queued','dispatched','sent','delivered','uncertain','failed')"),
+        Index("ix_assistant_sends_state", "state"),
+        Index("ix_assistant_sends_confirmed", "confirmed_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # One send per draft: a new one only replaces a send that definitely failed.
+    draft_id: Mapped[int] = mapped_column(unique=True)
+    handle: Mapped[str] = mapped_column(String(200))
+    contact_name: Mapped[str] = mapped_column(String(160), default="")
+    text: Mapped[str] = mapped_column(String(2000))
+    # sha256 of the recipient and text the user confirmed.
+    token: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(12), default="queued")
+    note: Mapped[str] = mapped_column(String(300), default="")
+    # chat.db: the newest message row before sending, and the row Messages wrote for it.
+    after_rowid: Mapped[int] = mapped_column(default=0)
+    message_rowid: Mapped[int | None]
+    confirmed_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+    delivered_at: Mapped[datetime | None]
+
+
 class AssistantUsage(Base):
     """Tokens of one model request and what they cost, for the spend counter."""
 

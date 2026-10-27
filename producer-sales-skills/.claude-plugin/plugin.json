@@ -1,0 +1,6 @@
+{
+  "name": "producer-sales",
+  "description": "Personal sales system for a music producer selling beats and licenses to independent hip-hop and R&B artists: qualification, conversation analysis, cold outreach, follow-up, objections, negotiation, closing.",
+  "version": "0.1.0",
+  "author": { "name": "Kirill Badinger" }
+}
