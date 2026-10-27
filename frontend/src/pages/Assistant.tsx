@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   ChevronRight,
-  Laptop,
   MessageSquarePlus,
   Play,
   Send,
@@ -24,7 +23,6 @@ import type {
   AssistantState,
 } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
-import { Modal } from '../components/Modal';
 import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
 import { chatBlocks } from '../components/assistant/chat';
 import { KeyForm } from '../components/assistant/AssistantSettings';
@@ -41,89 +39,6 @@ const SUGGESTIONS = [
   'Подготовь ответы всем, кто ждёт больше дня',
   'Обнови статусы в CRM по последним перепискам',
 ];
-
-function DraftCard({
-  draft,
-  chosen,
-  mac,
-  onChoose,
-  onChanged,
-  onSendMac,
-}: {
-  draft: AssistantDraft;
-  chosen: boolean;
-  /** Messages on this Mac can send it (after a confirmation). */
-  mac: boolean;
-  onChoose: (value: boolean) => void;
-  onChanged: () => void;
-  onSendMac: () => void;
-}) {
-  const [text, setText] = useState(draft.text);
-  const [error, setError] = useState('');
-  const edited = text.trim() !== draft.text;
-  const act = async (method: string, params: object) => {
-    setError('');
-    try {
-      await api.request(method, params);
-      onChanged();
-    } catch (err) {
-      setError(errorText(err));
-    }
-  };
-  return (
-    <article className={`assistant-draft${chosen ? ' chosen' : ''}`}>
-      <header>
-        <label className="check-row">
-          <input type="checkbox" checked={chosen} onChange={event => onChoose(event.target.checked)} />
-          <b>{draft.contact_name || draft.handle}</b>
-        </label>
-        <span className={`assistant-model${draft.strong ? ' strong' : ''}`}>
-          {draft.strong && <Sparkles size={12} />} {draft.model}
-        </span>
-      </header>
-      <small className="helper">
-        {draft.handle}
-        {draft.reason ? ` · ${draft.reason}` : ''}
-      </small>
-      <textarea
-        rows={Math.min(8, Math.max(3, text.split('\n').length + 1))}
-        value={text}
-        onChange={event => setText(event.target.value)}
-      />
-      <div className="assistant-draft-actions">
-        {edited && (
-          <Button
-            variant="outline"
-            onClick={() => void act('assistant.draft_update', { id: draft.id, text })}
-          >
-            Сохранить правку
-          </Button>
-        )}
-        <Button variant="outline" onClick={() => void act('assistant.draft_reject', { id: draft.id })}>
-          <X size={14} /> Отклонить
-        </Button>
-        <Button
-          variant={mac ? 'outline' : undefined}
-          disabled={edited}
-          title={edited ? 'Сначала сохраните правку' : 'В очередь iMessage: отправит Команда на iPhone'}
-          onClick={() => void act('assistant.drafts_send', { ids: [draft.id] })}
-        >
-          <Smartphone size={14} /> В очередь iPhone
-        </Button>
-        {mac && (
-          <Button
-            disabled={edited}
-            title={edited ? 'Сначала сохраните правку' : 'Через Сообщения на этом Mac, после подтверждения'}
-            onClick={onSendMac}
-          >
-            <Laptop size={14} /> Отправить с Mac
-          </Button>
-        )}
-      </div>
-      <ErrorToast message={error} />
-    </article>
-  );
-}
 
 /** The answer as Markdown; links stay text (the app window must not navigate away). */
 function Markdown({ text }: { text: string }) {
@@ -164,22 +79,43 @@ function Steps({ steps, strong }: { steps: AssistantItem[]; strong: string }) {
   );
 }
 
-/** A draft the assistant made in this chat: it goes out only when the user presses a button here. */
+/** A draft the assistant made: the chat asks whether to send it, and nothing goes out
+ * without a button here. The card shows the exact recipient and text, so pressing
+ * «Отправить» is the confirmation; a text that changed meanwhile is refused. */
 function ChatDraftCard({
   draft,
   pending,
   send,
   mac,
-  onSendMac,
-  onAct,
+  onChanged,
 }: {
   draft: AssistantChatDraft;
   pending?: AssistantDraft;
   send?: AssistantSend;
   mac: boolean;
-  onSendMac: (draft: AssistantDraft) => void;
-  onAct: (method: string, params: object) => void;
+  onChanged: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const text = pending?.text ?? draft.text;
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true);
+    setError('');
+    try {
+      await work();
+    } catch (err) {
+      setError(errorText(err));
+    }
+    setBusy(false);
+    onChanged();
+  };
+  const sendMac = () =>
+    act(async () => {
+      const preview = await api.request<AssistantSendPreview>('assistant.send_preview', { id: draft.id });
+      if (preview.text !== text || preview.recipient !== draft.handle)
+        throw new Error('Черновик изменился. Проверьте текст и нажмите ещё раз.');
+      await api.request('assistant.send_confirm', { id: draft.id, token: preview.token });
+    });
   const state = send
     ? { label: SEND_STATES[send.state].label, tone: SEND_STATES[send.state].tone }
     : draft.status === 'queued'
@@ -200,106 +136,61 @@ function ChatDraftCard({
           </span>
         )}
       </header>
-      <div className="assistant-send-text">{pending?.text ?? draft.text}</div>
+      <div className="assistant-send-text">{text}</div>
       {send?.note && send.state !== 'sent' && send.state !== 'delivered' && (
-        <small className="helper">{send.note}</small>
+        <small className={send.state === 'failed' ? 'board-warning' : 'helper'}>{send.note}</small>
       )}
       {pending && (
-        <div className="assistant-card-actions">
-          {mac && (
-            <Button onClick={() => onSendMac(pending)}>
-              <Laptop size={14} /> Отправить с Mac
+        <>
+          <div className="assistant-card-actions">
+            <b className="assistant-card-question">Отправить?</b>
+            {mac && (
+              <Button disabled={busy} onClick={() => void sendMac()}>
+                <Send size={14} /> {busy ? 'Отправляю…' : 'Отправить'}
+              </Button>
+            )}
+            <Button
+              variant={mac ? 'outline' : undefined}
+              disabled={busy}
+              title="В очередь iMessage: отправит Команда на iPhone"
+              onClick={() => void act(() => api.request('assistant.drafts_send', { ids: [draft.id] }))}
+            >
+              <Smartphone size={14} /> {mac ? 'В очередь iPhone' : 'Отправить через iPhone'}
             </Button>
-          )}
-          <Button
-            variant={mac ? 'outline' : undefined}
-            onClick={() => onAct('assistant.drafts_send', { ids: [pending.id] })}
-          >
-            <Smartphone size={14} /> В очередь iPhone
-          </Button>
-          <Button variant="outline" onClick={() => onAct('assistant.draft_reject', { id: pending.id })}>
-            Не отправлять
-          </Button>
-          <small className="helper">Уйдёт ровно этот текст. Править — в «Черновиках» справа.</small>
-        </div>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void act(() => api.request('assistant.draft_reject', { id: draft.id }))}
+            >
+              Не отправлять
+            </Button>
+          </div>
+          <small className="helper">
+            {mac
+              ? 'Уйдёт один раз, ровно этот текст, через Сообщения на этом Mac. '
+              : 'Уйдёт ровно этот текст. '}
+            Чтобы изменить, попросите ассистента в чате.
+          </small>
+        </>
       )}
+      <ErrorToast message={error} />
     </article>
   );
 }
 
-/** The last step before Messages sends: the exact recipient and text, one button. */
-function ConfirmSend({
-  preview,
-  onClose,
-  onSent,
-}: {
-  preview: AssistantSendPreview;
-  onClose: () => void;
-  onSent: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const send = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      await api.request('assistant.send_confirm', { id: preview.draft_id, token: preview.token });
-      onSent();
-    } catch (err) {
-      setError(errorText(err));
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal
-      title="Отправить через Сообщения?"
-      narrow
-      icon={<Laptop size={18} />}
-      onClose={() => !busy && onClose()}
-    >
-      <p className="helper">
-        <b>Кому:</b> {preview.contact}
-        {preview.contact !== preview.recipient ? ` · ${preview.recipient}` : ''}
-      </p>
-      <div className="assistant-send-text">{preview.text}</div>
-      <p className="helper">
-        Сообщение уйдёт один раз, с этого Mac, ровно в таком виде. Статус придёт из базы Сообщений; если он
-        неизвестен, проверьте переписку — повторно приложение его не отправит.
-      </p>
-      <ErrorToast message={error} />
-      <div className="actions">
-        <Button disabled={busy} onClick={() => void send()}>
-          <Send size={14} /> Отправить
-        </Button>
-        <Button variant="outline" disabled={busy} onClick={onClose}>
-          Отмена
-        </Button>
-      </div>
-    </Modal>
-  );
-}
-
-/** «Ассистент»: the chat with Claude, its drafts waiting for the user, and what it costs. */
+/** «Ассистент»: the chat with Claude; the messages it prepares are asked about right in the chat. */
 export function Assistant() {
   const [poll, setPoll] = useState(10000);
   const state = useResource<AssistantState>('assistant.state', {}, poll);
   const data = state.data;
   const [question, setQuestion] = useState('');
-  const [chosen, setChosen] = useState<number[]>([]);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [confirming, setConfirming] = useState<AssistantSendPreview | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const waiting = awaitingMessages(data?.sends ?? []);
 
   // Often while it works or Messages is sending, rarely otherwise.
   useEffect(() => setPoll(data?.running ? 1500 : waiting ? 3000 : 10000), [data?.running, waiting]);
   useEffect(() => bottom.current?.scrollIntoView({ block: 'end' }), [data?.items.length, data?.running]);
-  useEffect(() => {
-    const ids = new Set(data?.drafts.map(draft => draft.id));
-    setChosen(value => value.filter(id => ids.has(id)));
-  }, [data?.drafts]);
-
   const call = async (method: string, params: object = {}) => {
     setError('');
     try {
@@ -319,28 +210,12 @@ export function Assistant() {
       setPoll(1500);
     }
   };
-  const sendMac = async (draft: AssistantDraft) => {
-    setNotice('');
-    setError('');
-    try {
-      setConfirming(await api.request<AssistantSendPreview>('assistant.send_preview', { id: draft.id }));
-    } catch (err) {
-      setError(errorText(err));
-    }
-  };
-  const sendChosen = async () => {
-    const result = await call('assistant.drafts_send', { ids: chosen });
-    if (result?.campaign_id) {
-      setNotice(
-        `Отправлено в очередь iMessage (рассылка №${result.campaign_id}). Запустите Команду на iPhone.`,
-      );
-      setChosen([]);
-    }
-  };
-
   if (!data) return <div className="screen">{state.error || 'Загрузка…'}</div>;
   const blocks = chatBlocks(data.items);
   const live = data.running;
+  const side = data.actions.length > 0 || data.sends.length > 0;
+  // Drafts still waiting from an earlier chat: asked about at the top of this one.
+  const earlier = data.drafts.filter(draft => !data.chat_drafts.some(item => item.id === draft.id));
   if (!data.configured)
     return (
       <div className="screen work-flow">
@@ -365,10 +240,10 @@ export function Assistant() {
           </Button>
         }
       />
-      <div className="assistant-layout">
+      <div className={`assistant-layout${side ? '' : ' single'}`}>
         <section className="assistant-chat">
           <div className="assistant-feed">
-            {!data.items.length && !data.running && (
+            {!data.items.length && !data.running && !earlier.length && (
               <div className="assistant-empty">
                 <div className="assistant-empty-title">Что хотите узнать?</div>
                 <div className="assistant-suggestions">
@@ -378,6 +253,22 @@ export function Assistant() {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+            {earlier.length > 0 && (
+              <div className="assistant-msg">
+                <div className="assistant-md">
+                  <p>Из прошлых чатов ещё не отправлено:</p>
+                </div>
+                {earlier.map(draft => (
+                  <ChatDraftCard
+                    key={draft.id}
+                    draft={{ ...draft, status: 'pending', campaign_id: null }}
+                    pending={draft}
+                    mac={data.mac_send.enabled}
+                    onChanged={state.refresh}
+                  />
+                ))}
               </div>
             )}
             {blocks.map((block, index) =>
@@ -402,8 +293,7 @@ export function Assistant() {
                           pending={data.drafts.find(item => item.id === id)}
                           send={data.sends.find(item => item.draft_id === id)}
                           mac={data.mac_send.enabled}
-                          onSendMac={pending => void sendMac(pending)}
-                          onAct={(method, params) => void call(method, params)}
+                          onChanged={state.refresh}
                         />
                       )
                     );
@@ -466,111 +356,70 @@ export function Assistant() {
           <ErrorToast message={error || state.error} />
         </section>
 
-        <aside className="assistant-side">
-          {data.actions.length > 0 && (
-            <section className="panel">
-              <div className="board-heading">
-                <h2>Действия</h2>
-                <span className="helper">Выполняются только по вашей кнопке</span>
-              </div>
-              <div className="assistant-drafts">
-                {data.actions.map(action => (
-                  <article key={action.id} className={`assistant-action ${action.status}`}>
-                    <p>{action.summary}</p>
-                    {action.status === 'pending' ? (
-                      <div className="assistant-draft-actions">
-                        <Button
-                          variant="outline"
-                          onClick={() => void call('assistant.action_reject', { id: action.id })}
-                        >
-                          <X size={14} /> Отклонить
-                        </Button>
-                        <Button onClick={() => void call('assistant.action_run', { id: action.id })}>
-                          <Play size={14} /> Выполнить
-                        </Button>
-                      </div>
-                    ) : (
-                      <small className={action.status === 'failed' ? 'board-warning' : 'helper'}>
-                        {action.status === 'failed' ? 'Не выполнено: ' : '✓ '}
-                        {action.result}
-                      </small>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-          <section className="panel">
-            <div className="board-heading">
-              <h2>Черновики ({data.drafts.length})</h2>
-              {chosen.length > 0 && (
-                <Button onClick={() => void sendChosen()}>
-                  <Smartphone size={14} /> В очередь iPhone ({chosen.length})
-                </Button>
-              )}
-            </div>
-            {notice && <p className="helper">{notice}</p>}
-            {!data.drafts.length && (
-              <p className="empty-copy">
-                Здесь появятся сообщения, которые подготовит ассистент. Ничего не уйдёт без вашей кнопки.
-              </p>
+        {side && (
+          <aside className="assistant-side">
+            {data.actions.length > 0 && (
+              <section className="panel">
+                <div className="board-heading">
+                  <h2>Действия</h2>
+                  <span className="helper">Выполняются только по вашей кнопке</span>
+                </div>
+                <div className="assistant-drafts">
+                  {data.actions.map(action => (
+                    <article key={action.id} className={`assistant-action ${action.status}`}>
+                      <p>{action.summary}</p>
+                      {action.status === 'pending' ? (
+                        <div className="assistant-draft-actions">
+                          <Button
+                            variant="outline"
+                            onClick={() => void call('assistant.action_reject', { id: action.id })}
+                          >
+                            <X size={14} /> Отклонить
+                          </Button>
+                          <Button onClick={() => void call('assistant.action_run', { id: action.id })}>
+                            <Play size={14} /> Выполнить
+                          </Button>
+                        </div>
+                      ) : (
+                        <small className={action.status === 'failed' ? 'board-warning' : 'helper'}>
+                          {action.status === 'failed' ? 'Не выполнено: ' : '✓ '}
+                          {action.result}
+                        </small>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
             )}
-            <div className="assistant-drafts">
-              {data.drafts.map(draft => (
-                <DraftCard
-                  key={`${draft.id}:${draft.text}`}
-                  draft={draft}
-                  chosen={chosen.includes(draft.id)}
-                  mac={data.mac_send.enabled}
-                  onChoose={value =>
-                    setChosen(list => (value ? [...list, draft.id] : list.filter(id => id !== draft.id)))
-                  }
-                  onChanged={state.refresh}
-                  onSendMac={() => void sendMac(draft)}
-                />
-              ))}
-            </div>
-          </section>
-
-          {data.sends.length > 0 && (
-            <section className="panel">
-              <div className="board-heading">
-                <h2>Отправлено с Mac</h2>
-                <span className="helper">Статус из базы Сообщений</span>
-              </div>
-              <div className="assistant-drafts">
-                {data.sends.map(send => (
-                  <article key={send.id} className="assistant-send">
-                    <header>
-                      <b>{send.contact_name || send.handle}</b>
-                      <span className={`send-state ${SEND_STATES[send.state].tone}`}>
-                        {SEND_STATES[send.state].label}
-                      </span>
-                    </header>
-                    <small className="helper">{send.text}</small>
-                    {send.note && (
-                      <small className={send.state === 'failed' ? 'board-warning' : 'helper'}>
-                        {send.note}
-                      </small>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-        </aside>
+            {data.sends.length > 0 && (
+              <section className="panel">
+                <div className="board-heading">
+                  <h2>Отправлено с Mac</h2>
+                  <span className="helper">Статус из базы Сообщений</span>
+                </div>
+                <div className="assistant-drafts">
+                  {data.sends.map(send => (
+                    <article key={send.id} className="assistant-send">
+                      <header>
+                        <b>{send.contact_name || send.handle}</b>
+                        <span className={`send-state ${SEND_STATES[send.state].tone}`}>
+                          {SEND_STATES[send.state].label}
+                        </span>
+                      </header>
+                      <small className="helper">{send.text}</small>
+                      {send.note && (
+                        <small className={send.state === 'failed' ? 'board-warning' : 'helper'}>
+                          {send.note}
+                        </small>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+          </aside>
+        )}
       </div>
-      {confirming && (
-        <ConfirmSend
-          preview={confirming}
-          onClose={() => setConfirming(null)}
-          onSent={() => {
-            setConfirming(null);
-            setNotice('Передано в Сообщения. Статус появится в «Отправлено с Mac».');
-            state.refresh();
-          }}
-        />
-      )}
     </div>
   );
 }

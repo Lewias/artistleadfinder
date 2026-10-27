@@ -5108,6 +5108,9 @@ button:active:not(:disabled) {
   gap: 24px;
   align-items: start;
 }
+.assistant-layout.single {
+  grid-template-columns: minmax(0, 1fr);
+}
 @media (max-width: 1100px) {
   .assistant-layout {
     grid-template-columns: 1fr;
@@ -5336,8 +5339,9 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 8px;
 }
-.assistant-card-actions small {
-  margin-left: auto;
+.assistant-card-question {
+  margin-right: 4px;
+  color: var(--ink);
 }
 .assistant-ask {
   display: flex;
@@ -5377,26 +5381,6 @@ button:active:not(:disabled) {
   display: grid;
   gap: 10px;
   margin-top: 10px;
-}
-.assistant-draft {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.assistant-draft.chosen {
-  border-color: var(--violet-line);
-}
-.assistant-draft header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-.assistant-draft textarea {
-  width: 100%;
-  resize: vertical;
 }
 .assistant-draft-actions {
   display: flex;
