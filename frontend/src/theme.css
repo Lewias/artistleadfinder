@@ -5104,8 +5104,8 @@ button:active:not(:disabled) {
 /* ---------- Assistant ---------- */
 .assistant-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: 24px;
   align-items: start;
 }
 @media (max-width: 1100px) {
@@ -5113,11 +5113,6 @@ button:active:not(:disabled) {
     grid-template-columns: 1fr;
   }
 }
-.assistant-chat {
-  display: grid;
-  gap: 12px;
-}
-.assistant-chat h2,
 .assistant-key-row {
   display: inline-flex;
   align-items: center;
@@ -5130,48 +5125,141 @@ button:active:not(:disabled) {
 .assistant-key-row input {
   min-width: 260px;
 }
+
+/* The chat, as in Beat Sales Assistant: one centered column, plain answers, a bubble for
+   each question, steps folded into a line, an input bar at the bottom. */
+.assistant-chat {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--topbar-height) - 230px);
+  min-height: 420px;
+}
 .assistant-feed {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 4px 4px 16px;
+  overflow-y: auto;
+}
+.assistant-msg {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 320px;
-  max-height: calc(100vh - 330px);
-  overflow-y: auto;
-  padding: 4px 2px;
+  animation: assistant-in 160ms ease-out;
 }
-.assistant-bubble {
-  max-width: 88%;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  line-height: 1.45;
+.assistant-msg.user {
+  align-items: flex-end;
+}
+.assistant-msg-bubble {
+  max-width: 75%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--ink);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  user-select: text;
 }
-.assistant-bubble.user {
-  align-self: flex-end;
-  background: var(--violet-bg);
-  border: 1px solid var(--violet-line);
-  color: var(--ink);
+@keyframes assistant-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
-.assistant-bubble.assistant {
-  align-self: flex-start;
-  background: var(--raised);
-  border: 1px solid var(--line);
+.assistant-md {
   color: var(--text);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
-.assistant-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  color: var(--faint);
+.assistant-md p {
+  margin: 0 0 8px;
+}
+.assistant-md > :last-child {
+  margin-bottom: 0;
+}
+.assistant-md ul,
+.assistant-md ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.assistant-md li {
+  margin: 2px 0;
+}
+.assistant-md h1,
+.assistant-md h2,
+.assistant-md h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+}
+.assistant-md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--raised);
   font-size: 12px;
 }
-.assistant-step.escalation {
+.assistant-md blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--muted);
+}
+.assistant-link {
+  color: var(--violet);
+  text-decoration: underline;
+}
+.assistant-steps {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 12px;
+}
+.assistant-steps summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  list-style: none;
+  cursor: pointer;
+}
+.assistant-steps summary::-webkit-details-marker {
+  display: none;
+}
+.assistant-steps .chevron {
+  flex: none;
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+.assistant-steps[open] .chevron {
+  transform: rotate(90deg);
+}
+.assistant-steps ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 12px 10px 31px;
+  list-style: none;
+}
+.assistant-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.assistant-steps li.escalation {
   color: var(--violet);
 }
-.assistant-step.running {
+.assistant-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
+  font-size: 12px;
 }
 .assistant-dot {
   width: 7px;
@@ -5186,41 +5274,100 @@ button:active:not(:disabled) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .assistant-dot {
+  .assistant-dot,
+  .assistant-msg {
     animation: none;
   }
 }
 .assistant-empty {
-  display: grid;
-  gap: 12px;
   margin: auto 0;
+  padding: 20px;
+  text-align: center;
+}
+.assistant-empty-title {
+  margin-bottom: 16px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
 }
 .assistant-suggestions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+  text-align: left;
 }
 .assistant-suggestions button {
-  padding: 7px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--raised);
-  color: var(--text);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--muted);
   font: inherit;
   font-size: 13px;
+  text-align: left;
   cursor: pointer;
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    color var(--motion-fast);
 }
 .assistant-suggestions button:hover:not(:disabled) {
-  background: var(--raised-hover);
+  border-color: var(--line-strong);
+  background: var(--raised);
+  color: var(--ink);
 }
-.assistant-input {
+.assistant-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.assistant-card header {
   display: flex;
-  gap: 10px;
-  align-items: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
-.assistant-input textarea {
+.assistant-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-card-actions small {
+  margin-left: auto;
+}
+.assistant-ask {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.assistant-ask textarea {
   flex: 1;
-  resize: vertical;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+}
+.assistant-ask textarea:focus {
+  box-shadow: none;
+  outline: none;
+}
+.assistant-disclosure {
+  max-width: 860px;
+  margin: 8px auto 0;
+  color: var(--faint);
+  font-size: 11px;
+  text-align: center;
 }
 .assistant-side {
   display: grid;

@@ -812,8 +812,19 @@ export interface CloudSession {
 // ---------- Assistant ----------
 export interface AssistantItem {
   /** user / assistant: messages; tool: a step; escalation: handed to the stronger model. */
-  kind: 'user' | 'assistant' | 'tool' | 'escalation';
+  kind: 'user' | 'assistant' | 'tool' | 'escalation' | 'draft';
   text: string;
+  /** draft: the draft this step made, shown as a send card under the answer. */
+  draft_id?: number;
+}
+/** A draft made in the current chat, in its state now. */
+export interface AssistantChatDraft {
+  id: number;
+  handle: string;
+  contact_name: string;
+  text: string;
+  status: 'pending' | 'queued' | 'rejected';
+  campaign_id: number | null;
 }
 export interface AssistantDraft {
   id: number;
@@ -865,6 +876,7 @@ export interface AssistantState {
   models: { main: string; strong: string };
   messages: { available: boolean; reason: string };
   items: AssistantItem[];
+  chat_drafts: AssistantChatDraft[];
   drafts: AssistantDraft[];
   actions: AssistantAction[];
   usage: { today: number; month: number; by_model: Record<string, number> };

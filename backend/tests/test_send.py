@@ -415,3 +415,33 @@ def test_old_chat_db_without_flags_counts_the_row_as_sent(tmp_path):
     assert db.find_outgoing(handle_key("+79990000000"), TEXT, after) is None
     assert db.find_outgoing(handle_key(JAY), "something else", after) is None
     assert handle_key("Kid@Example.com") == "kid@example.com"
+
+
+def test_a_draft_shows_as_a_card_under_the_answer_that_made_it(app):
+    service, sessions, tmp_path = app
+    claude = FakeClaude(
+        [
+            reply(tool("draft_imessage", handle=JAY, text=TEXT, reason="первое сообщение")),
+            reply(tool("draft_imessage", handle=STRANGER, text="yo", reason="чужой")),
+            reply(text("Готов черновик для Jay."), stop="end_turn"),
+        ]
+    )
+    helper = AssistantService(
+        sessions,
+        tmp_path / "data",
+        service.crm,
+        service.imessage,
+        messages_db=MessagesDb(tmp_path / "none.db"),
+        client_factory=lambda key: claude,
+        mac_transport=FakeTransport(),
+    )
+    helper.set_key({"key": KEY})
+    state = run(helper, "напиши Jay")
+    kinds = [item["kind"] for item in state["items"]]
+    # Only the draft that was made gets a card, right after its step.
+    assert kinds == ["user", "tool", "draft", "tool", "assistant"]
+    draft_id = state["items"][2]["draft_id"]
+    [card] = state["chat_drafts"]
+    assert card["id"] == draft_id and card["status"] == "pending" and card["text"] == TEXT
+    helper.call("assistant.draft_reject", {"id": draft_id})
+    assert helper.state({})["chat_drafts"][0]["status"] == "rejected"

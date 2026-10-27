@@ -907,8 +907,26 @@ class AssistantService(AppTools):
             },
         }
 
+    @staticmethod
+    def _drafted(turns: list[AssistantTurn]) -> dict[str, int]:
+        """tool_use id of each successful draft_imessage → the draft it made."""
+        drafted = {}
+        for turn in turns:
+            for block in turn.content:
+                if block.get("type") != "tool_result" or block.get("is_error"):
+                    continue
+                try:
+                    result = json.loads(block.get("content") or "")
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(result, dict) and isinstance(result.get("draft_id"), int):
+                    drafted[block.get("tool_use_id")] = result["draft_id"]
+        return drafted
+
     def _view(self, turns: list[AssistantTurn]) -> list[dict]:
-        """The conversation as the interface shows it: questions, answers, steps."""
+        """The conversation as the interface shows it: questions, answers, steps and the
+        drafts made along the way (shown as send cards under the answer)."""
+        drafted = self._drafted(turns)
         items = []
         for turn in turns:
             for block in turn.content:
@@ -926,7 +944,30 @@ class AssistantService(AppTools):
                             "text": TOOL_LABELS.get(name, name),
                         }
                     )
+                    if block.get("id") in drafted:
+                        items.append(
+                            {"kind": "draft", "text": "", "draft_id": drafted[block["id"]]}
+                        )
         return items
+
+    @staticmethod
+    def _chat_drafts(session, items: list[dict]) -> list[dict]:
+        """The drafts the chat shows, in whatever state they are now."""
+        ids = [item["draft_id"] for item in items if item["kind"] == "draft"]
+        if not ids:
+            return []
+        drafts = session.scalars(select(AssistantDraft).where(AssistantDraft.id.in_(ids)))
+        return [
+            {
+                "id": draft.id,
+                "handle": draft.handle,
+                "contact_name": draft.contact_name,
+                "text": draft.text,
+                "status": draft.status,
+                "campaign_id": draft.campaign_id,
+            }
+            for draft in drafts
+        ]
 
     def state(self, params: dict) -> dict:
         self.mac_send.refresh()
@@ -946,6 +987,8 @@ class AssistantService(AppTools):
                     .order_by(AssistantDraft.id)
                 )
             )
+            items = self._view(turns)
+            chat_drafts = self._chat_drafts(session, items)
             usage = self._usage(session)
             escalation = bool(self._setting(session, ESCALATION_KEY, True))
             actions = self.actions_view(session)
@@ -957,7 +1000,8 @@ class AssistantService(AppTools):
             "escalation": escalation,
             "models": {"main": MODEL_NAMES[MODEL], "strong": MODEL_NAMES[STRONG_MODEL]},
             "messages": self.messages_db.available(),
-            "items": self._view(turns),
+            "items": items,
+            "chat_drafts": chat_drafts,
             "drafts": [
                 {
                     "id": draft.id,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
+  ChevronRight,
   KeyRound,
   Laptop,
   MessageSquarePlus,
@@ -14,19 +15,30 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
-import type { AssistantDraft, AssistantSendPreview, AssistantState } from '../services/types';
+import ReactMarkdown from 'react-markdown';
+import type {
+  AssistantChatDraft,
+  AssistantDraft,
+  AssistantItem,
+  AssistantSend,
+  AssistantSendPreview,
+  AssistantState,
+} from '../services/types';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
+import { chatBlocks } from '../components/assistant/chat';
 import { Button } from '../components/ui/button';
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
 
 const SUGGESTIONS = [
   'Кто ждёт ответа в iMessage?',
+  'Кто из лидов может купить бит прямо сейчас?',
+  'Я кому-то обещал пак битов или файл и забыл отправить?',
+  'Кому стоит написать сегодня?',
   'Подготовь ответы всем, кто ждёт больше дня',
   'Обнови статусы в CRM по последним перепискам',
-  'Кому стоит написать повторно на этой неделе?',
 ];
 
 const dollars = (value: number) => (value < 0.01 && value > 0 ? '< $0.01' : `$${value.toFixed(2)}`);
@@ -153,6 +165,108 @@ function DraftCard({
   );
 }
 
+/** The answer as Markdown; links stay text (the app window must not navigate away). */
+function Markdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        a: ({ href, children }) => (
+          <span className="assistant-link" title={href}>
+            {children}
+          </span>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+/** What the assistant did for this answer, folded into one line. */
+function Steps({ steps, strong }: { steps: AssistantItem[]; strong: string }) {
+  if (!steps.length) return null;
+  const label = (step: AssistantItem) =>
+    step.kind === 'escalation' ? `Передал задачу ${strong}` : step.text;
+  return (
+    <details className="assistant-steps">
+      <summary>
+        <ChevronRight size={13} className="chevron" />
+        <span>Шаги · {[...new Set(steps.map(label))].join(' · ')}</span>
+      </summary>
+      <ul>
+        {steps.map((step, index) => (
+          <li key={index} className={step.kind}>
+            {step.kind === 'escalation' ? <ArrowUpRight size={12} /> : <Wrench size={11} />} {label(step)}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** A draft the assistant made in this chat: it goes out only when the user presses a button here. */
+function ChatDraftCard({
+  draft,
+  pending,
+  send,
+  mac,
+  onSendMac,
+  onAct,
+}: {
+  draft: AssistantChatDraft;
+  pending?: AssistantDraft;
+  send?: AssistantSend;
+  mac: boolean;
+  onSendMac: (draft: AssistantDraft) => void;
+  onAct: (method: string, params: object) => void;
+}) {
+  const state = send
+    ? { label: SEND_STATES[send.state].label, tone: SEND_STATES[send.state].tone }
+    : draft.status === 'queued'
+      ? { label: 'В очереди iPhone', tone: 'wait' }
+      : draft.status === 'rejected'
+        ? { label: 'Не отправлено', tone: 'idle' }
+        : null;
+  return (
+    <article className="assistant-card">
+      <header>
+        <span>
+          <b>{draft.contact_name || draft.handle}</b> <small className="helper">{draft.handle}</small>
+        </span>
+        {state && <span className={`send-state ${state.tone}`}>{state.label}</span>}
+        {!state && pending && (
+          <span className={`assistant-model${pending.strong ? ' strong' : ''}`}>
+            {pending.strong && <Sparkles size={12} />} {pending.model}
+          </span>
+        )}
+      </header>
+      <div className="assistant-send-text">{pending?.text ?? draft.text}</div>
+      {send?.note && send.state !== 'sent' && send.state !== 'delivered' && (
+        <small className="helper">{send.note}</small>
+      )}
+      {pending && (
+        <div className="assistant-card-actions">
+          {mac && (
+            <Button onClick={() => onSendMac(pending)}>
+              <Laptop size={14} /> Отправить с Mac
+            </Button>
+          )}
+          <Button
+            variant={mac ? 'outline' : undefined}
+            onClick={() => onAct('assistant.drafts_send', { ids: [pending.id] })}
+          >
+            <Smartphone size={14} /> В очередь iPhone
+          </Button>
+          <Button variant="outline" onClick={() => onAct('assistant.draft_reject', { id: pending.id })}>
+            Не отправлять
+          </Button>
+          <small className="helper">Уйдёт ровно этот текст. Править — в «Черновиках» справа.</small>
+        </div>
+      )}
+    </article>
+  );
+}
+
 /** The last step before Messages sends: the exact recipient and text, one button. */
 function ConfirmSend({
   preview,
@@ -266,6 +380,8 @@ export function Assistant() {
   };
 
   if (!data) return <div className="screen">{state.error || 'Загрузка…'}</div>;
+  const blocks = chatBlocks(data.items);
+  const live = data.running;
   if (!data.configured)
     return (
       <div className="screen work-flow">
@@ -281,73 +397,112 @@ export function Assistant() {
 
   return (
     <div className="screen work-flow">
-      <PageHeader page="assistant" count={`${dollars(data.usage.today)} сегодня`} />
+      <PageHeader
+        page="assistant"
+        count={`${dollars(data.usage.today)} сегодня`}
+        actions={
+          <Button variant="outline" disabled={data.running} onClick={() => void call('assistant.new_chat')}>
+            <MessageSquarePlus size={14} /> Новый чат
+          </Button>
+        }
+      />
       <div className="assistant-layout">
-        <section className="panel assistant-chat">
-          <div className="board-heading">
-            <h2>
-              <Sparkles size={16} /> Разговор
-            </h2>
-            <Button variant="outline" disabled={data.running} onClick={() => void call('assistant.new_chat')}>
-              <MessageSquarePlus size={14} /> Новый разговор
-            </Button>
-          </div>
+        <section className="assistant-chat">
           <div className="assistant-feed">
-            {!data.items.length && (
+            {!data.items.length && !data.running && (
               <div className="assistant-empty">
-                <p className="helper">
-                  Спросите про CRM и переписку или дайте задачу. Ассистент работает по вашим скиллам продаж,
-                  меняет статусы и заметки по вашей просьбе, а сообщения только готовит — отправляете вы.
-                </p>
+                <div className="assistant-empty-title">Что хотите узнать?</div>
                 <div className="assistant-suggestions">
                   {SUGGESTIONS.map(item => (
-                    <button key={item} type="button" onClick={() => void ask(item)} disabled={data.running}>
+                    <button key={item} type="button" onClick={() => void ask(item)}>
                       {item}
                     </button>
                   ))}
                 </div>
               </div>
             )}
-            {data.items.map((item, index) =>
-              item.kind === 'user' || item.kind === 'assistant' ? (
-                <div key={index} className={`assistant-bubble ${item.kind}`}>
-                  {item.text}
+            {blocks.map((block, index) =>
+              block.kind === 'user' ? (
+                <div key={index} className="assistant-msg user">
+                  <div className="assistant-msg-bubble">{block.text}</div>
                 </div>
               ) : (
-                <div key={index} className={`assistant-step ${item.kind}`}>
-                  {item.kind === 'escalation' ? <ArrowUpRight size={13} /> : <Wrench size={12} />}
-                  {item.kind === 'escalation' ? `Передал задачу ${data.models.strong}` : item.text}
+                <div key={index} className="assistant-msg">
+                  {block.texts.map((value, line) => (
+                    <div key={line} className="assistant-md">
+                      <Markdown text={value} />
+                    </div>
+                  ))}
+                  {block.drafts.map(id => {
+                    const draft = data.chat_drafts.find(item => item.id === id);
+                    return (
+                      draft && (
+                        <ChatDraftCard
+                          key={id}
+                          draft={draft}
+                          pending={data.drafts.find(item => item.id === id)}
+                          send={data.sends.find(item => item.draft_id === id)}
+                          mac={data.mac_send.enabled}
+                          onSendMac={pending => void sendMac(pending)}
+                          onAct={(method, params) => void call(method, params)}
+                        />
+                      )
+                    );
+                  })}
+                  {!(live && index === blocks.length - 1) && (
+                    <Steps steps={block.steps} strong={data.models.strong} />
+                  )}
+                  {live && index === blocks.length - 1 && (
+                    <div className="assistant-working">
+                      <span className="assistant-dot" /> {data.step || 'Думаю'}…
+                    </div>
+                  )}
                 </div>
               ),
             )}
-            {data.running && (
-              <div className="assistant-step running">
-                <span className="assistant-dot" /> {data.step || 'Думаю'}…
+            {data.running && data.items[data.items.length - 1]?.kind === 'user' && (
+              <div className="assistant-msg">
+                <div className="assistant-working">
+                  <span className="assistant-dot" /> {data.step || 'Думаю'}…
+                </div>
               </div>
             )}
+            {data.error && <p className="board-warning">{data.error}</p>}
             <div ref={bottom} />
           </div>
-          {data.error && <p className="board-warning">{data.error}</p>}
-          <div className="assistant-input">
+          <form
+            className="assistant-ask"
+            onSubmit={event => {
+              event.preventDefault();
+              void ask(question);
+            }}
+          >
             <textarea
               rows={2}
-              placeholder="Например: подготовь ответы всем, кто ждёт больше дня (Ctrl+Enter — отправить)"
+              placeholder="Спросите что угодно о лидах и переписке…"
               value={question}
               onChange={event => setQuestion(event.target.value)}
               onKeyDown={event => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(question);
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void ask(question);
+                }
               }}
             />
             {data.running ? (
-              <Button variant="outline" onClick={() => void call('assistant.stop')}>
+              <Button type="button" variant="outline" onClick={() => void call('assistant.stop')}>
                 <Square size={14} /> Остановить
               </Button>
             ) : (
-              <Button disabled={!question.trim()} onClick={() => void ask(question)}>
+              <Button type="submit" disabled={!question.trim()}>
                 <Send size={14} /> Спросить
               </Button>
             )}
-          </div>
+          </form>
+          <p className="assistant-disclosure">
+            Вопросы и фрагменты переписок, которые просматривает ассистент, отправляются в API Anthropic.
+            Ассистент готовит сообщения, но уходят они только после вашей кнопки.
+          </p>
           <ErrorToast message={error || state.error} />
         </section>
 
