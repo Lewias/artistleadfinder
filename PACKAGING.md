@@ -122,7 +122,7 @@ SHA256: `B845226FE057A71673C210DDC53F2E5646E03E772D1A004A865321AB096DE4FD`.
 из `rustc -vV` (`x86_64-pc-windows-msvc`, `aarch64-apple-darwin`) и smoke замороженного ядра
 с запуском комплектного Chromium. Его вызывают `package-windows.ps1` и `release.yml`.
 
-`release.yml` на тег `v*`: `windows-latest` → NSIS, `macos-14` (arm64) → `.app` и `.dmg`.
+`release.yml` на тег `v*`: `windows-latest` → NSIS, `macos-15` (arm64) → `.app` и `.dmg`.
 Перед сборкой — pytest, Ruff, tsc, ESLint, Vitest. `tauri-action` собирает бандлы с
 `createUpdaterArtifacts`, подписывает `.nsis.zip`/`.exe` и `.app.tar.gz` (`.sig`), создаёт
 черновик релиза и общий `latest.json` (`windows-x86_64`, `darwin-aarch64`). Endpoint
