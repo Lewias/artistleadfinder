@@ -4,6 +4,7 @@ import pytest
 
 from artist_lead_finder import chromium_runtime, secret_box
 from artist_lead_finder.account import project
+from artist_lead_finder.imessage import service as imessage_service
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +18,13 @@ def isolated_keychain(monkeypatch):
 def no_chromium_download(monkeypatch):
     """Tests never download Chromium (the macOS first-run path); they opt in with a fake."""
     monkeypatch.setattr(chromium_runtime, "DOWNLOADS_CHROMIUM", False)
+
+
+@pytest.fixture(autouse=True)
+def no_hostname_lookup(monkeypatch):
+    """Tests never resolve this computer's own name: on GitHub's macOS runners that lookup
+    can hang (mDNS). The address test patches the socket calls and restores the real one."""
+    monkeypatch.setattr(imessage_service, "lan_addresses", lambda: ["192.168.0.10"])
 
 
 @pytest.fixture(autouse=True)
