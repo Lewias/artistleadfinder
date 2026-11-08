@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from artist_lead_finder.database import open_database
-from artist_lead_finder.lead_scout.ai import OpenRouterClassifier, parse_answer
+from artist_lead_finder.lead_scout import ai as ai_module
+from artist_lead_finder.lead_scout.ai import (
+    CloudflareKeys,
+    OpenRouterClassifier,
+    error_text,
+    parse_answer,
+)
 from artist_lead_finder.lead_scout.classification import (
     CLASSIFIER_VERSION,
     AIClassificationError,
@@ -26,6 +32,7 @@ from artist_lead_finder.lead_scout.classification import (
     profile_hash,
 )
 from artist_lead_finder.lead_scout.classification.cache import MAX_ATTEMPTS
+from artist_lead_finder.lead_scout.settings import ScoutSettings
 from artist_lead_finder.models import utcnow
 
 FIXTURES = Path(__file__).parent / "fixtures" / "classification" / "profiles.json"
@@ -270,6 +277,103 @@ def test_ai_requires_a_key():
     with pytest.raises(AIClassificationError) as error:
         OpenRouterClassifier(NoKeys(), lambda *a: "").classify(ProfileText("x"), model="m")
     assert not error.value.transient
+
+
+ACCOUNT = "0123456789abcdef0123456789abcdef"
+
+
+class CloudKeys:
+    def configured(self):
+        return True
+
+    def load(self):
+        return {"account": ACCOUNT, "token": "cf-token"}
+
+
+def test_a_cloudflare_model_goes_to_workers_ai_with_its_token():
+    sent = []
+
+    def transport(url, headers, body, timeout):
+        sent.append((url, headers, json.loads(body)))
+        return chat('{"category":"artist","confidence":81}')
+
+    ai = OpenRouterClassifier(Keys(), transport, cloudflare=CloudKeys())
+    model = "@cf/google/gemma-4-26b-a4b-it"
+    result = ai.classify(ProfileText("x", biography="rapper"), model=model, timeout=9)
+    assert (result.category, result.confidence, result.model) == ("artist", 81, model)
+    url, headers, body = sent[0]
+    assert url == (
+        f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/ai/v1/chat/completions"
+    )
+    assert headers["Authorization"] == "Bearer cf-token" and "X-Title" not in headers
+    assert body["model"] == model and body["max_tokens"] == 60
+    # Thinking would eat the 60 answer tokens and leave the content empty.
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    # An OpenRouter model still goes to OpenRouter with its own key.
+    ai.classify(ProfileText("x"), model="google/gemma-4-26b-a4b-it", timeout=9)
+    assert sent[1][0] == "https://openrouter.ai/api/v1/chat/completions"
+    assert "chat_template_kwargs" not in sent[1][2]
+    assert sent[1][1]["Authorization"] == "Bearer sk-test"
+
+
+def test_cloudflare_without_an_account_is_not_retried():
+    for cloudflare in (None, CloudflareKeys(Path("/nonexistent-folder"))):
+        ai = OpenRouterClassifier(Keys(), lambda *a: "", cloudflare=cloudflare)
+        with pytest.raises(AIClassificationError) as error:
+            ai.classify(ProfileText("x"), model="@cf/google/gemma-4-26b-a4b-it")
+        assert not error.value.transient and "Cloudflare" in str(error.value)
+
+
+def test_a_refusal_says_what_the_provider_said(monkeypatch):
+    import io
+    import urllib.error
+
+    def refuse(code, body):
+        def urlopen(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, code, "x", {}, io.BytesIO(body))
+
+        monkeypatch.setattr(ai_module.urllib.request, "urlopen", urlopen)
+
+    limited = json.dumps(
+        {"error": {"message": "Provider returned error", "metadata": {"raw": "free tier busy"}}}
+    ).encode()
+    refuse(429, limited)
+    with pytest.raises(AITransientError) as error:
+        OpenRouterClassifier._post(ai_module.ENDPOINT, {}, b"{}", 5)
+    assert str(error.value) == "OpenRouter ответил 429: Provider returned error — free tier busy"
+
+    used_up = json.dumps({"errors": [{"message": "daily free allocation used", "code": 4006}]})
+    refuse(401, used_up.encode())
+    url = ai_module.CLOUDFLARE_ENDPOINT.format(account=ACCOUNT)
+    with pytest.raises(AIClassificationError) as error:
+        OpenRouterClassifier._post(url, {}, b"{}", 5)
+    assert not error.value.transient
+    assert str(error.value) == "Cloudflare ответил 401: daily free allocation used"
+    assert error_text(b"<html>") == "" and error_text(b"[1]") == ""
+
+
+def test_cloudflare_keys_are_checked_and_kept_encrypted(tmp_path, monkeypatch):
+    monkeypatch.setattr(ai_module, "protect", lambda data, decrypt=False: data[::-1])
+    keys = CloudflareKeys(tmp_path)
+    with pytest.raises(ai_module.UserError):
+        keys.save("not-an-id", "token")
+    with pytest.raises(ai_module.UserError):
+        keys.save(ACCOUNT, "two words")
+    keys.save(" " + ACCOUNT.upper() + " ", " cf-token ")
+    assert b"cf-token" not in keys.path.read_bytes()
+    assert keys.load() == {"account": ACCOUNT, "token": "cf-token"}
+    assert keys.account() == ACCOUNT
+    keys.save("", "")
+    assert not keys.configured() and keys.account() is None
+
+
+def test_the_provider_picks_its_own_model():
+    cloudflare = ScoutSettings(scout_ai_provider="cloudflare")
+    assert ClassificationSettings.from_scout(cloudflare).model == "@cf/google/gemma-4-26b-a4b-it"
+    openrouter = ScoutSettings(scout_ai_model="google/gemma-4-26b-a4b-it:free")
+    assert ClassificationSettings.from_scout(openrouter).model == "google/gemma-4-26b-a4b-it:free"
+    with pytest.raises(ValueError):
+        ScoutSettings(scout_ai_cloudflare_model="google/gemma")
 
 
 # ---------- Service: modes, cache, pending jobs ----------

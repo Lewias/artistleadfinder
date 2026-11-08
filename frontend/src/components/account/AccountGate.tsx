@@ -159,6 +159,17 @@ export function AccountGate({
       </Screen>
     );
   }
+  if (state.checking) {
+    return (
+      <Screen
+        icon={<RefreshCw size={20} className="spin" />}
+        title="Проверяем аккаунт"
+        hint="Связываемся с сервером. Окно откроется само, как только он ответит."
+      >
+        <div className="gate-actions">{logout}</div>
+      </Screen>
+    );
+  }
   if (!state.online) {
     return (
       <Screen
@@ -167,7 +178,7 @@ export function AccountGate({
         hint="Приложение работает только при связи с сервером. Проверьте интернет — окно откроется само, когда связь появится."
       >
         <div className="gate-actions">
-          <Button disabled={busy} onClick={() => void send('account.state')}>
+          <Button disabled={busy} onClick={() => void send('account.retry')}>
             <RefreshCw size={15} className={busy ? 'spin' : undefined} /> Повторить
           </Button>
           {logout}

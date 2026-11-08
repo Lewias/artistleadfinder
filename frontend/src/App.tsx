@@ -98,8 +98,9 @@ function useNavCounts(): Partial<Record<PageId, number>> {
 
 /** The sign-in comes first when accounts are on; the workspace opens once it is ready. */
 export function App() {
-  const resource = useResource<AccountState>('account.state', {}, 10000);
   const [account, setAccount] = useState<AccountState>();
+  // The first check runs in the background on start: look again soon while it is on its way.
+  const resource = useResource<AccountState>('account.state', {}, account?.checking ? 1000 : 10000);
   useEffect(() => {
     if (resource.data) setAccount(resource.data);
   }, [resource.data]);
@@ -232,6 +233,19 @@ function Workspace({
             <i />
             {core.error ? 'Ядро недоступно' : core.data ? 'Ядро подключено' : 'Подключение…'}
           </span>
+          {account?.configured && !account.online && account.offline_until && (
+            // The server is unreachable: the app works on its offline pass until then.
+            <span className="core-status pending" title={account.reason || undefined}>
+              <i />
+              Без сервера до{' '}
+              {new Date(account.offline_until).toLocaleString('ru-RU', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          )}
           {account?.configured && <AccountMenu state={account} onChange={onAccount} />}
         </header>
         {/* Board pages use the full window width, like the reference layout at 1920×1080. */}

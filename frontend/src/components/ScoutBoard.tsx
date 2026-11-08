@@ -21,7 +21,7 @@ import { Menu } from './Menu';
 import { Modal } from './Modal';
 import { parseScoutSources, sourceEntries, sourceHandle } from './scoutSources';
 import { SourceTable } from './ScoutSourceTable';
-import { sourceStatusLabels } from './scoutStatus';
+import { foundAsLabels, sourceStatusLabels } from './scoutStatus';
 import { WorkSettingsModal } from './WorkSettings';
 import { controlScout, errorText, scoutActive, scoutRunsLabel, startScout } from './accountRuns';
 
@@ -40,6 +40,11 @@ const chipTitle = (row: ScoutSourceRow) =>
   [
     sourceStatusLabels[row.status] || row.status,
     row.enabled ? null : 'выключен',
+    row.found_as
+      ? `добавлен парсером (${foundAsLabels[row.found_as] || row.found_as}${
+          row.found_via ? `, найден у @${row.found_via}` : ''
+        })`
+      : null,
     `кандидатов ${number(row.candidates_found ?? 0)}`,
     `лидов ${number(row.leads_found)}`,
     row.last_scanned_at ? `сканирован ${relativeTime(row.last_scanned_at)}` : null,

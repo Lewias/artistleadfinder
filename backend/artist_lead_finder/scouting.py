@@ -27,17 +27,20 @@ from .lead_scout.decision import (
     ALREADY_PROCESSED,
     CLASSIFICATION_FAILED,
     DUPLICATE_LEAD,
+    IGNORED_USERNAME,
     OTHER,
     PROFILE_NOT_FOUND,
     PROFILE_PARSE_FAILED,
     PROFILE_PRIVATE,
     PROFILE_UNAVAILABLE,
     RATE_LIMITED,
+    SOURCE_ACCOUNT,
     WRONG_PROFILE_TYPE,
     CandidateRef,
     FilterInput,
     LeadFilterDecision,
     decide,
+    hint_skip,
 )
 from .lead_scout.discovery import (
     GROUP_OF_METHOD,
@@ -61,6 +64,7 @@ from .lead_scout.profiles import (
     SqlProfileCache,
 )
 from .lead_scout.profiles import model as resolve_reasons
+from .lead_scout.profiles.page_data import clean_hint
 from .lead_scout.settings import ScoutSettings
 from .models import (
     BrowserQueue,
@@ -276,6 +280,8 @@ def add_lead_source(
 # was opened.
 ACCESS_OF_PHASE = {
     "browser": "navigate",
+    # Fast profile request from the open tab: no page is opened, the core asks itself.
+    "request": "request",
     "cache": "none",
     "invalid": "none",
     "filtered": "none",
@@ -390,13 +396,40 @@ def empty_stats(sources: list[str]) -> dict:
     }
 
 
+# The source list holds at most this many sources; one run adds at most AUTO_SOURCES_PER_RUN.
+MAX_SOURCES = 500
+AUTO_SOURCES_PER_RUN = 20
+# Skips after which a profile is not taken as a source: it is one already, the user
+# ignores it, or it was seen before (and got its chance then).
+NOT_A_NEW_SOURCE = {SOURCE_ACCOUNT, IGNORED_USERNAME, ALREADY_PROCESSED}
+CATEGORY_NAMES = {"producer": "продюсер", "media": "СМИ", "artist": "артист"}
+# Sources the user deleted: never added back by the scout (the last REMOVED_KEPT).
+REMOVED_SOURCES = "removed_sources"
+REMOVED_KEPT = 2000
+
+
+def _hint_id(task: dict) -> str | None:
+    """The candidate's user id from the discovery page's data, when it was there."""
+    return (clean_hint(task.get("hint")) or {}).get("id")
+
+
 class ScoutService:
     """Drives Lead Scout runs page by page; each stage lives in the lead_scout package."""
 
     def __init__(
-        self, sessions, capture, settings=lambda: {}, pacer_factory=Pacer, ai=None, debug_sink=None
+        self,
+        sessions,
+        capture,
+        settings=lambda: {},
+        pacer_factory=Pacer,
+        ai=None,
+        debug_sink=None,
+        browser=None,
     ):
         self.sessions, self.capture = sessions, capture
+        # Optional in-process browser runtime: page data (profile JSON, users on a page)
+        # and fast profile requests. None keeps the page-only path.
+        self.browser = browser
         self.settings = settings
         # Optional (job_id, step, payload) -> None; stores debug artifacts when enabled.
         self.debug_sink = debug_sink
@@ -512,6 +545,8 @@ class ScoutService:
                     "profiles_resolved": row.profiles_resolved,
                     "profiles_skipped": row.profiles_skipped,
                     "errors_count": row.errors_count,
+                    "found_as": row.found_as,
+                    "found_via": row.found_via,
                 }
                 for row in session.scalars(
                     select(ScoutSource).order_by(ScoutSource.added_at, ScoutSource.url)
@@ -532,9 +567,17 @@ class ScoutService:
                 if row is None:
                     # Keep the typed order for source rotation.
                     session.add(ScoutSource(url=url, added_at=now + timedelta(microseconds=index)))
+                    self._forget_removed(session, url)
                 else:
                     row.enabled = True
         return self.source_rows()
+
+    @staticmethod
+    def _forget_removed(session, url: str) -> None:
+        """Added again by hand: it is no longer a deleted source."""
+        removed = memory.state_get(session, REMOVED_SOURCES, [])
+        if url in removed:
+            memory.state_set(session, REMOVED_SOURCES, [u for u in removed if u != url])
 
     def update_source(self, params) -> list[dict]:
         with self.sessions.begin() as session:
@@ -546,9 +589,13 @@ class ScoutService:
 
     def remove_source(self, params) -> list[dict]:
         with self.sessions.begin() as session:
-            row = session.get(ScoutSource, profile_url(params["url"]))
+            url = profile_url(params["url"])
+            row = session.get(ScoutSource, url)
             if row is not None:
                 session.delete(row)
+                # The scout does not add a deleted source back by itself.
+                removed = [u for u in memory.state_get(session, REMOVED_SOURCES, []) if u != url]
+                memory.state_set(session, REMOVED_SOURCES, [*removed, url][-REMOVED_KEPT:])
         return self.source_rows()
 
     # ---------- Run lifecycle ----------
@@ -720,8 +767,18 @@ class ScoutService:
             self._add_metrics(stats, source, result.group, result.metrics)
             quota = MAX_NEW_CANDIDATES_PER_POST if task["kind"] in PAGE_KINDS_WITH_QUOTA else None
             observations = dict(run.observations)
+            people = self._page_people(queue.profile_id) if result.candidates else {}
             additions, summary = self.process_candidates(
-                session, job_id, run, observations, known, stats, result.candidates, quota, scout
+                session,
+                job_id,
+                run,
+                observations,
+                known,
+                stats,
+                result.candidates,
+                quota,
+                scout,
+                people,
             )
             if summary:
                 notices.append(summary)
@@ -779,13 +836,34 @@ class ScoutService:
         providers[source] = per_source
         stats["providers"] = providers
 
+    def _page_people(self, profile_id: str) -> dict[str, dict]:
+        if self.browser is None:
+            return {}
+        try:
+            return self.browser.page_people(profile_id) or {}
+        except Exception:  # noqa: BLE001 - candidates are then checked on their profile
+            return {}
+
     def process_candidates(
-        self, session, job_id, run, observations, known, stats, candidates, quota, scout
+        self,
+        session,
+        job_id,
+        run,
+        observations,
+        known,
+        stats,
+        candidates,
+        quota,
+        scout,
+        people=None,
     ):
         """Scout pipeline entry for discovered candidates: duplicate checks and page quota.
 
+        `people`: facts the page's data gave about its users (private, followers); they
+        travel with the profile task and let the step skip it without opening it.
         Returns profile tasks to queue and a summary; providers never reach the lead store.
         """
+        people = people or {}
         elsewhere = memory.queued_elsewhere(session, job_id)
         fresh, duplicates, limited, additions = 0, set(), False, []
         for candidate, observation in candidates:
@@ -826,7 +904,11 @@ class ScoutService:
                 continue
             fresh += 1
             known.add(url)
-            additions.append(candidate.task())
+            task = candidate.task()
+            hint = clean_hint(people.get(candidate.username))
+            if hint:
+                task["hint"] = hint
+            additions.append(task)
             leads.count(stats, session, profile_link(source), "discovered")
             self._add_metrics(stats, source, group, {"candidatesFound": 1})
             events.emit(
@@ -908,13 +990,21 @@ class ScoutService:
         task = run.tasks[queue.cursor]
         if task["kind"] != "profile" or "resolve" in task:
             return
-        early = self._filter(candidate_ref(task), self.scout_settings(), task, session=session)
+        scout = self.scout_settings()
+        early = self._filter(candidate_ref(task), scout, task, session=session)
+        # What the discovery page's own data said about the candidate (private,
+        # followers): the profile check would skip it as well, so it is never opened.
+        hinted = hint_skip(clean_hint(task.get("hint")), scout)
         if early.reason:
             data = {"phase": "filtered", "reason": early.reason, "details": early.details}
+        elif hinted:
+            data = {"phase": "filtered", "reason": hinted[0], "details": hinted[1]}
         else:
             username = task["url"].rstrip("/").split("/")[-1]
             first = self.resolver.begin(username, self._resolve_context())
             if isinstance(first, ResolveStep):
+                if self._fast_available(queue.profile_id, task):
+                    first.phase = "request"
                 data = first.as_dict()
             else:
                 data = {"phase": "cache" if first.ok else "invalid"}
@@ -933,10 +1023,18 @@ class ScoutService:
             task.get("resolve") or ResolveStep("browser", username, utcnow().isoformat()).as_dict()
         )
         before = data.get("phase")
+        profile_id = state.get("profile_id") or ""
         try:
             if before in {"cache", "invalid"}:
                 result = self.resolver.begin(username, ctx)
+            elif before == "request":
+                answer = self._fetch_profile(profile_id, username, _hint_id(task))
+                result = self.resolver.after_request(ResolveStep.from_dict(data), answer, ctx)
             else:
+                if self.browser is not None:
+                    # The JSON the profile page received; the DOM reading fills the gaps.
+                    user = self.browser.page_profile(profile_id, username)
+                    snapshot = {**snapshot, "profile_data": user} if user else snapshot
                 result = self.resolver.advance(ResolveStep.from_dict(data), snapshot, ctx)
         except ResolveCancelled:
             return "cancelled"
@@ -949,13 +1047,36 @@ class ScoutService:
                 tasks = list(run.tasks)
                 tasks[state["cursor"]] = {**tasks[state["cursor"]], "resolve": result.as_dict()}
                 run.tasks = tasks
+                if before == "request":
+                    health["request_fallback"] = health.get("request_fallback", 0) + 1
+                    # The refused request still reached Instagram: a short pause first.
+                    self.pacer_for(profile_id).page_done(self.pacing(), profile=False, fast=True)
             else:
                 key = result.profile.source if result.ok and before != "cache" else None
                 key = "cache" if result.ok and before == "cache" else key or "failed"
+                if result.ok and before == "request":
+                    key = "request"
                 health[key] = health.get(key, 0) + 1
             stats["resolver"] = health
             run.stats = stats
         return None if pending else result
+
+    def _fast_available(self, profile_id: str, task: dict) -> bool:
+        if self.browser is None or profile_id == GUEST_ID:
+            return False
+        if not self.scout_settings().scout_fast_profiles:
+            return False
+        try:
+            return bool(self.browser.can_fetch_profile(profile_id, _hint_id(task)))
+        except Exception:  # noqa: BLE001 - the page path always works
+            return False
+
+    def _fetch_profile(self, profile_id: str, username: str, user_id: str | None) -> dict:
+        try:
+            return self.browser.fetch_profile(profile_id, username, user_id)
+        except Exception as error:  # noqa: BLE001 - the profile page is opened instead
+            log.warning("fast_profile_failed: %s", type(error).__name__)
+            return {"fallback": "browser_error"}
 
     def halt(self, job_id: int, reason: str) -> bool:
         """Page error of a queue: scout retry/skip first, otherwise pause with a typed reason.
@@ -1060,6 +1181,9 @@ class ScoutService:
         if checked.reason:
             # Cheap filters failed: the local result goes to the log, AI is not asked.
             classification = self.classification.local_only(profile, local, "not needed (filtered)")
+            if checked.reason not in NOT_A_NEW_SOURCE:
+                # A big music page past the followers range is still a good source.
+                self._auto_source(job_id, ref, profile, classification, scout)
             return self._skip(
                 job_id,
                 task,
@@ -1100,6 +1224,7 @@ class ScoutService:
         if not self._running(job_id):
             # The AI answer is cached: the step is repeated cheaply after resume.
             return {"saved": False}
+        self._auto_source(job_id, ref, profile, classification, scout)
         decision = self._filter(ref, scout, task, profile, classification)
         if decision.reason and decision.reason != DUPLICATE_LEAD:
             return self._skip(
@@ -1125,6 +1250,54 @@ class ScoutService:
             observations,
             resolve_log,
         )
+
+    def _auto_source(self, job_id, ref, profile, classification, scout) -> bool:
+        """A producer or a music page (as set in scout_auto_sources) found by the scout joins
+        the source list, so later runs read its posts and tags. A source the user deleted
+        is never brought back, and one switched off stays off."""
+        category = classification.category if classification else None
+        if category not in scout.scout_auto_sources or profile.is_private:
+            return False
+        if classification.confidence < scout.scout_auto_source_min_confidence:
+            return False
+        followers = profile.followers_count
+        if followers is None or followers < scout.scout_auto_source_min_followers:
+            return False
+        try:
+            url = profile_url("@" + ref.username)
+        except ValueError:
+            return False
+        try:
+            with self.sessions.begin() as session:
+                run = session.get(ScoutRun, job_id)
+                stats = {**empty_stats([]), **(run.stats or {})}
+                if session.get(ScoutSource, url) is not None:
+                    return False
+                if url in memory.state_get(session, REMOVED_SOURCES, []):
+                    return False
+                if stats.get("sources_added", 0) >= AUTO_SOURCES_PER_RUN:
+                    return False
+                if session.scalar(select(func.count()).select_from(ScoutSource)) >= MAX_SOURCES:
+                    return False
+                session.add(
+                    ScoutSource(
+                        url=url,
+                        found_as=category,
+                        found_via=(ref.source_username or "")[:80] or None,
+                    )
+                )
+                stats["sources_added"] = stats.get("sources_added", 0) + 1
+                run.stats = stats
+                via = f" (найден у @{ref.source_username})" if ref.source_username else ""
+                run.notices = [
+                    *run.notices,
+                    f"@{ref.username}: {CATEGORY_NAMES.get(category, category)},"
+                    f" добавлен в источники{via}.",
+                ][-30:]
+        except IntegrityError:
+            return False  # added by another run meanwhile
+        log.info("scout_source_added", extra={"detail": f"{ref.username}: {category}"})
+        return True
 
     def _filter(
         self, ref, scout, task, profile=None, classification=None, session=None
@@ -1508,9 +1681,13 @@ class ScoutService:
         account = session.get(ScoutAccount, queue.profile_id)
         pacing = self.pacing()
         done = run.tasks[queue.cursor]
-        # A profile served from the cache opened nothing, so it costs no pace.
-        if (done.get("resolve") or {}).get("phase") not in NO_PAGE_PHASES:
-            self.pacer_for(queue.profile_id).page_done(pacing, profile=done["kind"] == "profile")
+        # A profile served from the cache opened nothing, so it costs no pace; a fast
+        # request is one call instead of a page, so it waits a shorter pause.
+        phase = (done.get("resolve") or {}).get("phase")
+        if phase not in NO_PAGE_PHASES:
+            self.pacer_for(queue.profile_id).page_done(
+                pacing, profile=done["kind"] == "profile", fast=phase == "request"
+            )
         if found:
             run.found += 1
             if account:

@@ -64,6 +64,8 @@ def test_run_metrics_skip_reasons_and_decision_log(scout):  # noqa: F811
             "scout_min_followers": 100,
             "scout_only_contacts": True,
             "scout_lead_status": "reviewed",
+            # The producer would join the sources and be read in the same run.
+            "scout_auto_sources": [],
         },
         coauthors(profiles, list(profiles)),
     )

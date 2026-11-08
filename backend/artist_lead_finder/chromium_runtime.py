@@ -5,17 +5,21 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
+from . import profile_requests
 from .browser_sessions import BrowserSessions
 from .database import application_data_dir
 from .direct_message import send_direct
 from .inbox.reader import read_thread
 from .lead_scout import feed as grid_feed
-from .lead_scout.candidates import parse_instagram_post_url
+from .lead_scout.candidates import normalize_instagram_username, parse_instagram_post_url
+from .lead_scout.profiles import page_data
+from .profile_requests import ProfileTemplate
 
 # Windows: Chromium is frozen into the core (Playwright's "0" location). macOS: PyInstaller
 # cannot re-sign Chromium's app bundle, so it is downloaded once into the app data folder,
@@ -47,6 +51,22 @@ class Window:
     rate_limited: bool = False
     # Instagram data answers since the last navigation (a grid's posts arrive this way).
     data_responses: list = field(default_factory=list)
+    # Bodies of data_responses already read, by response identity (cleared on navigation).
+    bodies: dict = field(default_factory=dict)
+    # Fast profile requests: the learned template, borrowed session headers, and until
+    # when the fast path stays off after Instagram refused it (monotonic seconds).
+    profile_template: ProfileTemplate | None = None
+    session_headers: dict | None = None
+    fast_off_until: float = 0.0
+    fast_failures: int = 0
+    # `web_profile_info` answered 404: this session has no such address; not tried again.
+    borrowed_off: bool = False
+    # Profile pages whose own request was not learned yet (reported once).
+    unlearned: int = 0
+    # The app worked in this window (a parser run, a send, Direct reading); since when it
+    # has had nothing more to do (monotonic seconds). See browser_idle.
+    worked: bool = False
+    idle_since: float | None = None
 
 
 def watch_rate_limits(window: Window) -> None:
@@ -92,6 +112,45 @@ def watch_data(window: Window) -> None:
     window.context.on("response", on_response)
 
 
+PRELOADED_WITH = """(needle) => [...document.querySelectorAll('script[type="application/json"]')]
+  .map(script => script.textContent || '')
+  .filter(text => text.includes(needle) && text.length < 4000000)
+  .slice(0, 60)"""
+
+
+def response_texts(window: Window) -> list[tuple[object, str]]:
+    """(response, body text) of the data answers since the last navigation. Makes no
+    requests; a body the browser already evicted is skipped."""
+    found, size = [], 0
+    for response in list(window.data_responses):
+        key = id(response)
+        text = window.bodies.get(key)
+        if text is None:
+            try:
+                if response.status != 200:
+                    continue
+                body = response.body()
+            except Exception:  # noqa: BLE001 - a body evicted by the browser is just skipped
+                continue
+            if len(body) > MAX_DATA_BYTES:
+                continue
+            text = body.decode("utf-8", "replace")
+            window.bodies[key] = text
+        size += len(text)
+        if size > MAX_DATA_BYTES * 4:
+            break
+        found.append((response, text))
+    return found
+
+
+def preloaded(window: Window, needle: str) -> list[str]:
+    """JSON the page got with its HTML (relay preloads) that mentions `needle`."""
+    try:
+        return [str(text) for text in window.page.evaluate(PRELOADED_WITH, needle)]
+    except Exception:  # noqa: BLE001 - the page may be navigating; the DOM reading still works
+        return []
+
+
 def grid_facts(window: Window, posts: list) -> dict:
     """Author and collaborators of the grid's publications, from data the
     page already received. Makes no requests; unreadable answers are skipped."""
@@ -102,24 +161,66 @@ def grid_facts(window: Window, posts: list) -> dict:
     }
     if not wanted:
         return {}
-    texts, size = [], 0
-    for response in list(window.data_responses):
-        try:
-            if response.status != 200:
-                continue
-            body = response.body()
-        except Exception:  # noqa: BLE001 - a body evicted by the browser is just skipped
-            continue
-        size += len(body)
-        if len(body) > MAX_DATA_BYTES or size > MAX_DATA_BYTES * 4:
-            continue
-        texts.append(body.decode("utf-8", "replace"))
+    texts = [text for _, text in response_texts(window)]
     try:
         texts += [str(text) for text in window.page.evaluate(PRELOADED_DATA)]
     except Exception:  # noqa: BLE001 - the page may be navigating; the grid still works
         pass
     facts = grid_feed.collect_texts(texts)
     return {code: item.as_dict() for code, item in facts.items() if code in wanted}
+
+
+def _request_parts(response) -> tuple[str, str, dict, str | None] | None:
+    try:
+        request = response.request
+        try:
+            headers = request.all_headers()
+        except Exception:  # noqa: BLE001 - older drivers: the headers the page set
+            headers = request.headers
+        return request.url, request.method, dict(headers or {}), request.post_data
+    except Exception:  # noqa: BLE001 - a request without readable parts teaches nothing
+        return None
+
+
+def learn_profile_request(window: Window, username: str, user: dict | None) -> None:
+    """Remember how this page asked for its owner's data, for fast requests later."""
+    if user is None:
+        return
+    uid = page_data.user_id(user)
+    for response, text in response_texts(window):
+        parts = _request_parts(response)
+        if parts is None:
+            continue
+        url, method, headers, body = parts
+        if window.session_headers is None and "x-ig-app-id" in {k.lower() for k in headers}:
+            window.session_headers = headers
+        if username not in text.lower() or not page_data.profile_user([text], username):
+            continue
+        template = profile_requests.learn(url, method, headers, body, username, uid)
+        if template is not None:
+            learned = window.profile_template is None or window.profile_template.kind != (
+                template.kind
+            )
+            window.profile_template = template
+            window.fast_failures = 0
+            if learned:
+                log.info("profile_request_learned", extra={"detail": template.kind})
+            return
+    window.unlearned += 1
+    if window.unlearned == 3:
+        # Why nothing was learned: the paths of the data requests the page made.
+        paths = sorted({urlsplit(response.url).path for response, _ in response_texts(window)})[:12]
+        log.info("profile_request_not_learned", extra={"detail": ", ".join(paths) or "none"})
+    if (
+        window.profile_template is None
+        and window.session_headers is not None
+        and not window.borrowed_off
+    ):
+        window.profile_template = profile_requests.borrowed(window.session_headers, username)
+
+
+FAST_OFF_SECONDS = 3600
+FAST_MAX_FAILURES = 3
 
 
 def install_chromium() -> bool:
@@ -240,6 +341,10 @@ class ChromiumRuntime:
             log.warning("session_autosave_failed", extra={"error_type": type(error).__name__})
             return {"ok": False}
 
+    def close(self, identifier: str) -> None:
+        """Close the window, keeping its session cookies."""
+        self._close(identifier)
+
     def is_open(self, identifier: str) -> bool:
         return self._window(identifier) is not None
 
@@ -342,6 +447,7 @@ class ChromiumRuntime:
             raise ValueError("Only Instagram profile pages are supported")
         window.rate_limited = False
         window.data_responses.clear()
+        window.bodies.clear()
         try:
             window.page.goto(url, wait_until="domcontentloaded", timeout=12000)
         except Exception:
@@ -390,6 +496,105 @@ class ChromiumRuntime:
             except Exception:  # noqa: BLE001 - publications are then opened as before
                 log.warning("grid_feed_failed")
         return result
+
+    # ---------- Page data and fast profile requests (called by the core in-process) ----------
+
+    def page_profile(self, identifier: str, username: str) -> dict | None:
+        """The opened profile's owner from the JSON the page received (no request), and
+        the page's own profile request learned for fast requests."""
+        window = self._window(identifier)
+        name = normalize_instagram_username(username)
+        if not window or not name:
+            return None
+        try:
+            texts = [text for _, text in response_texts(window)] + preloaded(window, name)
+            user = page_data.profile_user(texts, name)
+            learn_profile_request(window, name, user)
+            return user
+        except Exception:  # noqa: BLE001 - the DOM reading is used alone then
+            log.warning("page_profile_failed")
+            return None
+
+    def page_people(self, identifier: str) -> dict[str, dict]:
+        """Light facts of the users the current page's data shows (private, followers)."""
+        window = self._window(identifier)
+        if not window:
+            return {}
+        try:
+            texts = [text for _, text in response_texts(window)] + preloaded(window, '"username"')
+            return page_data.people(texts)
+        except Exception:  # noqa: BLE001 - candidates are then checked on their profile
+            log.warning("page_people_failed")
+            return {}
+
+    def can_fetch_profile(self, identifier: str, user_id: str | None = None) -> bool:
+        """A fast request can be made for this candidate (a "page_query" needs its id)."""
+        window = self.windows.get(identifier)
+        template = window.profile_template if window else None
+        return bool(
+            template is not None
+            and time.monotonic() >= window.fast_off_until
+            and (not template.user_id or (user_id and user_id.isdigit()))
+        )
+
+    def fetch_profile(self, identifier: str, username: str, user_id: str | None = None) -> dict:
+        """One profile through the learned request, from the open tab without loading a
+        page. {"user": {...}} or {"fallback": reason}; a refusal turns the fast path off
+        for an hour (the profile page is opened instead, no run pause)."""
+        window = self._window(identifier)
+        name = normalize_instagram_username(username)
+        template = window.profile_template if window else None
+        if not window or not name or template is None:
+            return {"fallback": "no_template"}
+        if template.user_id and not (user_id and user_id.isdigit()):
+            return {"fallback": "no user id"}
+        url, body, count = profile_requests.retarget(template, name, user_id)
+        if not count:
+            window.profile_template = None
+            return {"fallback": "no_template"}
+        flagged = window.rate_limited
+        try:
+            answer = window.page.evaluate(
+                profile_requests.REPLAY,
+                {
+                    "url": url,
+                    "method": template.method,
+                    "headers": template.headers,
+                    "body": body,
+                    "referrer": f"https://www.instagram.com/{name}/",
+                },
+            )
+        except Exception:  # noqa: BLE001 - the tab may be navigating; open the page instead
+            return {"fallback": "browser_error"}
+        finally:
+            # A refused fast request is not the page's 429: the run is not paused for it.
+            window.rate_limited = flagged
+        verdict = profile_requests.outcome(answer)
+        said = profile_requests.describe(answer)
+        if verdict == "limited":
+            window.fast_off_until = time.monotonic() + FAST_OFF_SECONDS
+            log.info("fast_profile_refused", extra={"detail": f"{template.kind}: {said}"})
+            return {"fallback": f"refused, {said}", "status": (answer or {}).get("status")}
+        user = page_data.profile_user([answer.get("text") or ""], name) if verdict == "ok" else None
+        if user is not None and user_id and page_data.user_id(user) not in (None, user_id):
+            user = None  # another user under this name: the page decides
+        if user is None:
+            reason = "no user in the answer" if verdict == "ok" else said
+            log.info("fast_profile_unused", extra={"detail": f"{template.kind}: {reason}"})
+            if template.kind == "web_profile_info" and (answer or {}).get("status") == 404:
+                # The address does not exist for this session: page requests only.
+                window.borrowed_off = True
+                window.profile_template = None
+                window.fast_failures = 0
+                return {"fallback": reason, "status": 404}
+            window.fast_failures += 1
+            if window.fast_failures >= FAST_MAX_FAILURES:
+                # Answers without the user: the template no longer fits; learn it again.
+                window.profile_template = None
+                window.fast_failures = 0
+            return {"fallback": reason, "status": (answer or {}).get("status")}
+        window.fast_failures = 0
+        return {"user": user, "kind": template.kind}
 
     def shutdown(self) -> None:
         for identifier in list(self.windows):

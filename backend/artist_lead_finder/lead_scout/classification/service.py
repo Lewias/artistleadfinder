@@ -39,7 +39,11 @@ class ClassificationSettings:
     def from_scout(cls, scout) -> "ClassificationSettings":
         return cls(
             mode=scout.scout_ai_mode,
-            model=scout.scout_ai_model,
+            model=(
+                scout.scout_ai_cloudflare_model
+                if scout.scout_ai_provider == "cloudflare"
+                else scout.scout_ai_model
+            ),
             timeout_seconds=scout.scout_ai_timeout_seconds,
             concurrency=scout.scout_ai_concurrency,
             min_confidence=scout.scout_ai_min_confidence,

@@ -17,6 +17,7 @@ from . import lead_removal, memory_reset
 from .assistant.service import AssistantService
 from .autopilot import Autopilot
 from .browser_capture import BrowserCaptureService
+from .browser_idle import IdleCloser
 from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
 from .crm.service import CrmService
@@ -28,7 +29,7 @@ from .inbox.service import InboxService
 from .inbox.settings import InboxSettings
 from .jobs import DiscoveryManager
 from .lead_scout import leads as scout_leads
-from .lead_scout.ai import AIKeyStore, OpenRouterClassifier
+from .lead_scout.ai import AIKeyStore, CloudflareKeys, OpenRouterClassifier
 from .lead_scout.decision import normalized_username
 from .lead_scout.settings import ScoutSettings
 from .models import (
@@ -202,12 +203,14 @@ class ApplicationService:
         self.manager = DiscoveryManager(sessions, self.discovery, self.pipeline)
         self.browser_capture = BrowserCaptureService(sessions)
         self.ai_keys = AIKeyStore(data_dir)
+        self.cloudflare_keys = CloudflareKeys(data_dir)
         self.scout = ScoutService(
             sessions,
             self.browser_capture,
             self.settings,
-            ai=OpenRouterClassifier(self.ai_keys),
+            ai=OpenRouterClassifier(self.ai_keys, cloudflare=self.cloudflare_keys),
             debug_sink=self._save_scout_debug,
+            browser=self.chromium,
         )
         # The job manager marked runs cut off by a crash as interrupted; finish that here.
         self.scout.recover_interrupted()
@@ -247,6 +250,9 @@ class ApplicationService:
         self.autopilot = Autopilot(
             sessions, self.scout.set_target, self.workspace.start, self._sender_names
         )
+        self.idle_closer = IdleCloser(
+            sessions, self.chromium, lambda: self.scout.scout_settings().scout_close_browser
+        )
         self.imessage.prune()
         self.imessage.remove_orphan_files()
         self.imessage.restore()
@@ -282,6 +288,7 @@ class ApplicationService:
         return {
             "browser.runtime.self_test": lambda p: chromium.self_test(),
             "browser.runtime.is_open": lambda p: {"open": chromium.is_open(p["id"])},
+            "browser.runtime.close_idle": self.idle_closer.tick,
             "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
@@ -384,8 +391,9 @@ class ApplicationService:
             "imessage.shortcut_guide": lambda p: imessage_shortcut.guide(),
             "imessage.shortcut_save": self.imessage.shortcut_save,
             "imessage.shortcut_export": lambda p: imessage_shortcut.export(str(p["path"])),
-            "ai.status": lambda p: {"configured": self.ai_keys.configured()},
+            "ai.status": self._ai_status,
             "ai.set_key": self._set_ai_key,
+            "ai.set_cloudflare": self._set_cloudflare,
             "scout.account_target": self.scout.set_target,
             "capture.start_internal": lambda p: self.browser_capture.start(p, self.settings()),
             "capture.commit_internal": lambda p: self.browser_capture.capture(
@@ -498,9 +506,20 @@ class ApplicationService:
         except Exception:
             log.warning("scout_debug_screenshot_failed")
 
+    def _ai_status(self, params: dict | None = None) -> dict:
+        return {
+            "configured": self.ai_keys.configured(),
+            "cloudflare": self.cloudflare_keys.configured(),
+            "cloudflare_account": self.cloudflare_keys.account(),
+        }
+
     def _set_ai_key(self, params: dict) -> dict:
         self.ai_keys.save(str(params.get("key", "")))
-        return {"configured": self.ai_keys.configured()}
+        return self._ai_status()
+
+    def _set_cloudflare(self, params: dict) -> dict:
+        self.cloudflare_keys.save(str(params.get("account", "")), str(params.get("token", "")))
+        return self._ai_status()
 
     def _capture_latest(self, params: dict) -> dict | None:
         """Latest manual link queue; scout runs are shown per account."""

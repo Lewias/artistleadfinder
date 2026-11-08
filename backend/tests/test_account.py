@@ -63,7 +63,9 @@ def make(server, tmp_path, clock=None):
         opened.append(service)
         return service, lambda: setattr(service, "closed", True)
 
-    runtime = Runtime(tmp_path, account, open_service, lambda: {"version": "test"})
+    runtime = Runtime(
+        tmp_path, account, open_service, lambda: {"version": "test"}, background=False
+    )
     return account, runtime, opened
 
 
@@ -188,14 +190,17 @@ def test_no_server_locks_the_app_until_it_answers(server, tmp_path):
     _, account, runtime, opened = signed_in(server, tmp_path, clock)
     server.down = True
     clock.value += CHECK_SECONDS + 1
-    runtime.call("dashboard.get", {})  # one failed check is tolerated
+    runtime.tick()  # one failed check is tolerated
+    runtime.call("dashboard.get", {})
     clock.value += 31
+    runtime.tick()
     with pytest.raises(UserError, match="Нет связи с сервером"):
         runtime.call("dashboard.get", {})
     assert opened[0].imessage.stopped == 1
     assert runtime.call("account.state", {})["online"] is False
     server.down = False
-    clock.value += 31
+    runtime.call("account.retry", {})  # «Повторить» does not wait for the interval
+    runtime.tick()
     assert runtime.call("account.state", {})["ready"] is True
     assert opened[0].imessage.restored == 1
     assert runtime.call("dashboard.get", {})["method"] == "dashboard.get"
@@ -206,11 +211,13 @@ def test_blocked_or_revoked_ends_the_session(server, tmp_path):
     user, account, runtime, opened = signed_in(server, tmp_path, clock)
     server.keys[KEY]["revoked"] = True
     clock.value += CHECK_SECONDS + 1
+    runtime.tick()
     with pytest.raises(UserError, match="ключ"):
         runtime.call("dashboard.get", {})
     server.keys[KEY]["revoked"] = False
     server.users[user]["blocked"] = True
     clock.value += CHECK_SECONDS + 1
+    runtime.tick()
     with pytest.raises(UserError, match="Войдите"):
         runtime.call("dashboard.get", {})
     state = runtime.call("account.state", {})
@@ -224,6 +231,12 @@ def test_session_survives_a_restart_and_logout_closes_the_data(server, tmp_path)
     assert opened[0].closed
     again, runtime2, opened2 = make(server, tmp_path)
     runtime2.start()
+    # The start does not wait for the server: the first check comes on the tick.
+    state = runtime2.call("account.state", {})
+    assert state["checking"] and not state["ready"]
+    with pytest.raises(UserError, match="Проверяем аккаунт"):
+        runtime2.call("dashboard.get", {})
+    runtime2.tick()
     assert again.ready and again.device_id == account.device_id
     assert opened2[0].folder == tmp_path / "accounts" / user
     state = runtime2.call("account.logout", {})
@@ -307,3 +320,238 @@ def test_key_grants_its_role_on_activation(server, tmp_path):
     assert state["ready"] and state["role"] == "moderator" and account.sees_all_crm
     overview = admin_runtime.call("admin.overview", {})
     assert {k["role"] for k in overview["keys"] if k["note"] == "модер"} == {"moderator"}
+
+
+# ---------- working without the server on an offline pass ----------
+
+
+class Wall:
+    """Wall clock of the app and of the fake server, moved by the test."""
+
+    def __init__(self):
+        self.value = 1_800_000_000.0
+
+    def __call__(self):
+        return self.value
+
+
+def offline_pair():
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    signer = Ed25519PrivateKey.generate()
+    raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    return signer, base64.b64encode(raw).decode()
+
+
+def make_offline(server, tmp_path, clock, wall, public):
+    account = AccountService(
+        tmp_path,
+        SupabaseClient(server.url, "anon"),
+        clock=clock,
+        protect=identity,
+        offline_key=public,
+        wall=wall,
+    )
+    opened = []
+
+    def open_service(folder):
+        service = FakeService(folder)
+        opened.append(service)
+        return service, lambda: setattr(service, "closed", True)
+
+    runtime = Runtime(
+        tmp_path, account, open_service, lambda: {"version": "test"}, background=False
+    )
+    return account, runtime, opened
+
+
+def offline_signed_in(server, tmp_path, role="user"):
+    clock, wall = Clock(), Wall()
+    signer, public = offline_pair()
+    server.offline_signer, server.offline_now = signer, wall
+    user = server.add_user(f"{role}@example.com", role=role)
+    server.add_key(KEY, user)
+    account, runtime, opened = make_offline(server, tmp_path, clock, wall, public)
+    runtime.start()
+    runtime.call("account.login", {"email": f"{role}@example.com", "password": "secret-pass"})
+    runtime.call("account.activate", {"key": KEY})
+    return user, account, runtime, opened, clock, wall, public
+
+
+def go_offline(server, runtime, clock):
+    server.down = True
+    for _ in range(2):
+        clock.value += CHECK_SECONDS + 1
+        runtime.tick()
+
+
+def test_an_offline_pass_keeps_the_app_working_without_the_server(server, tmp_path):
+    user, account, runtime, opened, clock, wall, _ = offline_signed_in(server, tmp_path)
+    assert server.offline_issued == 1 and (tmp_path / "account.offline").exists()
+    go_offline(server, runtime, clock)
+    state = runtime.call("account.state", {})
+    assert state["online"] is False and state["ready"] is True
+    assert state["offline_until"] and "доступна до" in state["reason"]
+    assert runtime.call("dashboard.get", {})["folder"] == tmp_path / "accounts" / user
+    assert opened[0].imessage.stopped == 0
+    # Requests never wait for the server while the pass holds.
+    before = len(server.requests)
+    clock.value += 31
+    runtime.call("dashboard.get", {})
+    runtime.call("account.state", {})
+    assert len(server.requests) == before
+    # The pass runs out: the app locks until the server answers.
+    wall.value += 7 * 86400 + 1
+    with pytest.raises(UserError, match="срок работы без сервера закончился"):
+        runtime.call("dashboard.get", {})
+    assert opened[0].imessage.stopped == 1
+    server.down = False
+    clock.value += 31
+    runtime.tick()
+    assert runtime.call("account.state", {})["ready"] is True
+    assert runtime.call("account.state", {})["online"] is True
+
+
+def test_the_app_starts_without_the_server_on_its_pass(server, tmp_path):
+    user, account, runtime, _, clock, wall, public = offline_signed_in(
+        server, tmp_path, role="moderator"
+    )
+    runtime.shutdown()
+    server.down = True
+    again, runtime2, opened2 = make_offline(server, tmp_path, Clock(), wall, public)
+    runtime2.start()
+    # The pass opens the app at once, before any word from the server.
+    assert again.ready and opened2
+    before = len(server.requests)
+    runtime2.call("dashboard.get", {})
+    assert len(server.requests) == before
+    runtime2.tick()  # the server does not answer: offline on the pass
+    assert again.ready and not again.online
+    assert opened2[0].folder == tmp_path / "accounts" / user
+    # The role comes from the pass: a moderator still sees every CRM.
+    assert again.sees_all_crm and runtime2.call("account.state", {})["role"] == "moderator"
+    runtime2.shutdown()
+
+
+def test_a_pass_cannot_be_forged_moved_or_stretched(server, tmp_path):
+    from artist_lead_finder.account import offline
+
+    user, account, runtime, _, clock, wall, public = offline_signed_in(server, tmp_path)
+    token = (tmp_path / "account.offline").read_text()
+    key = offline.public_key(public)
+    now = wall()
+    assert offline.verify(token, key, user, account.device_id, now)
+    body, signature = token.split(".")
+    import base64
+    import json
+
+    data = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    data["exp"] += 365 * 86400
+    forged = base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
+    assert offline.verify(f"{forged}.{signature}", key, user, account.device_id, now) is None
+    assert offline.verify(token, key, user, "f" * 32, now) is None
+    assert offline.verify(token, key, "someone-else", account.device_id, now) is None
+    other_key = offline.public_key(offline_pair()[1])
+    assert offline.verify(token, other_key, user, account.device_id, now) is None
+    assert offline.public_key("") is None and offline.public_key("not base64!") is None
+    # A clock set back below what the app has already seen does not reopen it.
+    wall.value += 3 * 86400
+    account._now()
+    go_offline(server, runtime, clock)
+    wall.value -= 2 * 86400
+    with pytest.raises(UserError, match="Нет связи с сервером"):
+        runtime.call("dashboard.get", {})
+
+
+def test_a_server_that_answers_ends_the_pass(server, tmp_path):
+    user, account, runtime, _, clock, wall, _ = offline_signed_in(server, tmp_path)
+    server.keys[KEY]["revoked"] = True
+    clock.value += CHECK_SECONDS + 1
+    runtime.tick()
+    with pytest.raises(UserError, match="ключ"):
+        runtime.call("dashboard.get", {})
+    assert not (tmp_path / "account.offline").exists()
+    go_offline(server, runtime, clock)
+    with pytest.raises(UserError, match="Нет связи с сервером"):
+        runtime.call("dashboard.get", {})
+
+
+def test_logout_removes_the_pass_and_it_is_renewed_while_online(server, tmp_path):
+    user, account, runtime, _, clock, wall, _ = offline_signed_in(server, tmp_path)
+    clock.value += CHECK_SECONDS + 1
+    runtime.tick()
+    assert server.offline_issued == 1  # still fresh
+    wall.value += 6 * 3600 + 1
+    clock.value += CHECK_SECONDS + 1
+    runtime.tick()
+    assert server.offline_issued == 2
+    runtime.call("account.logout", {})
+    assert not (tmp_path / "account.offline").exists()
+
+
+def test_a_server_without_the_function_works_as_before(server, tmp_path):
+    clock, wall = Clock(), Wall()
+    _, public = offline_pair()
+    user = server.add_user("user@example.com")
+    server.add_key(KEY, user)
+    account, runtime, _ = make_offline(server, tmp_path, clock, wall, public)
+    runtime.start()
+    runtime.call("account.login", {"email": "user@example.com", "password": "secret-pass"})
+    assert runtime.call("account.activate", {"key": KEY})["ready"]
+    assert not (tmp_path / "account.offline").exists()
+    go_offline(server, runtime, clock)
+    with pytest.raises(UserError, match="Нет связи с сервером"):
+        runtime.call("dashboard.get", {})
+
+
+def test_a_hanging_server_never_slows_the_interface(server, tmp_path):
+    """The server takes the connection and says nothing: requests still answer at once."""
+    import socket
+    import threading
+    import time
+
+    clock = Clock()
+    _, account, runtime, _ = signed_in(server, tmp_path, clock)
+    hole = socket.socket()
+    hole.bind(("127.0.0.1", 0))
+    hole.listen(8)
+    account.client.url = f"http://127.0.0.1:{hole.getsockname()[1]}"
+    account.access_until = 0  # the check also needs a token refresh
+    clock.value += CHECK_SECONDS + 1
+    checking = threading.Thread(target=runtime.tick, daemon=True)
+    checking.start()
+    time.sleep(0.3)
+    try:
+        assert checking.is_alive()  # stuck on the server
+        started = time.monotonic()
+        assert runtime.call("account.state", {})["ready"] is True
+        assert runtime.call("dashboard.get", {})["method"] == "dashboard.get"
+        assert time.monotonic() - started < 0.5
+    finally:
+        hole.close()
+        checking.join(10)
+
+
+def test_calls_to_a_server_in_doubt_fail_at_once(server, tmp_path):
+    """The core answers one request at a time: a cloud call must not hold the rest."""
+    from artist_lead_finder.account.client import OfflineError
+
+    clock = Clock()
+    _, account, runtime, _ = signed_in(server, tmp_path, clock)
+    server.down = True
+    with pytest.raises(OfflineError):
+        runtime.call("cloud.jobs", {})  # reaches for the server once
+    assert account.doubtful and account.wake.is_set()
+    before = len(server.requests)
+    with pytest.raises(OfflineError):
+        runtime.call("cloud.telegram", {})
+    assert len(server.requests) == before  # no second wait on the network
+    assert runtime.call("dashboard.get", {})["method"] == "dashboard.get"
+    server.down = False
+    runtime.call("account.retry", {})
+    runtime.tick()
+    assert not account.doubtful
+    assert runtime.call("cloud.jobs", {}) == []

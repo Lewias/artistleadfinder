@@ -22,6 +22,7 @@ from .model import (
     NETWORK_ERROR,
     NEVER_ABORTED,
     NOT_FOUND,
+    PARSER_ERROR,
     PRIVATE,
     AbortSignal,
     NormalizedInstagramProfile,
@@ -32,6 +33,7 @@ from .model import (
     ProfileResolveSuccess,
 )
 from .normalize import normalize_instagram_username
+from .page_data import merge_partials, partial_from_user
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +61,8 @@ class ProfileResolveContext:
 class ResolveStep:
     """The next page the resolver needs; stored in the queue between browser steps."""
 
-    phase: str  # always "browser": the profile page is the only source
+    # "request": the fast in-tab request first; "browser": the profile page.
+    phase: str
     username: str
     started_at: str
     attempts: int = 0
@@ -121,14 +124,52 @@ class InstagramProfileResolver:
             return step
         return self._fail(step, NETWORK_ERROR, message)
 
+    def after_request(
+        self, step: ResolveStep, answer: dict, ctx: ProfileResolveContext
+    ) -> "ResolveStep | ProfileResolveResult":
+        """Fast request phase: the profile from the replayed page request, or the step
+        goes on to the profile page (never a failure of its own)."""
+        ctx.signal.throw_if_aborted()
+        user = answer.get("user") if isinstance(answer, dict) else None
+        partial = self._from_user(step.username, user, ctx) if isinstance(user, dict) else None
+        if partial is None:
+            reason = (answer or {}).get("fallback") or (
+                "the answer is not this profile" if isinstance(user, dict) else "no_user"
+            )
+            step.log += ["", "Fast request:", f"not used ({reason}); opening the profile page"]
+            step.phase = "browser"
+            return step
+        step.log += ["", "Fast request:", f"success ({(answer or {}).get('kind') or 'request'})"]
+        return self._finish(step, partial, ctx)
+
+    @staticmethod
+    def _from_user(username: str, user: dict | None, ctx) -> PartialProfile | None:
+        """Page JSON user -> PartialProfile; None unless it is this user with real data."""
+        if not isinstance(user, dict):
+            return None
+        partial = partial_from_user(user, ctx.max_recent_captions)
+        if partial.username != username:
+            return None
+        if partial.followers_count is None and partial.biography is None:
+            return None
+        return partial
+
     def _after_browser(self, step, snapshot, ctx):
+        data = self._from_user(step.username, snapshot.get("profile_data"), ctx)
         try:
             partial = self.browser.get_profile(
                 step.username, snapshot, profile_url(f"@{step.username}"), ctx.max_recent_captions
             )
         except ProfileResolveError as error:
-            return self._fail(step, error.reason, error.message, source="Browser")
-        step.log += ["", "Browser:", "success"]
+            if data is None or error.reason != PARSER_ERROR:
+                return self._fail(step, error.reason, error.message, source="Browser")
+            # The header could not be read, but the page's own data has the profile.
+            step.log += ["", "Browser:", f"DOM failed ({error.message}); page data used"]
+            return self._finish(step, data, ctx)
+        if data is not None:
+            step.log += ["", "Browser:", "success (page data + DOM)"]
+            return self._finish(step, merge_partials(data, partial), ctx, source="merged")
+        step.log += ["", "Browser:", "success (DOM)"]
         return self._finish(step, partial, ctx)
 
     def _normalize(self, partial: PartialProfile, source: str, now) -> NormalizedInstagramProfile:
@@ -162,9 +203,9 @@ class InstagramProfileResolver:
             recent_captions=partial.recent_captions,
         )
 
-    def _finish(self, step, browser: PartialProfile, ctx):
+    def _finish(self, step, browser: PartialProfile, ctx, source: str | None = None):
         now = ctx.now()
-        profile = self._normalize(browser, browser.source, now)
+        profile = self._normalize(browser, source or browser.source, now)
         profile.username = step.username
         elapsed = self._elapsed(step, now)
         step.log += [

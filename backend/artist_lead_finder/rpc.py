@@ -160,7 +160,7 @@ def open_service(folder: Path, log_dir: Path):
 def build_runtime(data_dir: Path, log_dir: Path) -> Runtime:
     url, key = project.SUPABASE_URL, project.SUPABASE_ANON_KEY
     client = SupabaseClient(url, key) if url and key else None
-    account = AccountService(data_dir, client)
+    account = AccountService(data_dir, client, offline_key=project.OFFLINE_PUBLIC_KEY)
     return Runtime(
         data_dir,
         account,

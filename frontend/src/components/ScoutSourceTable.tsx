@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import type { ScoutSourceRow } from '../services/types';
 import { Button } from './ui/button';
 import { number, relativeTime } from '../lib/format';
-import { sourceStatusLabels } from './scoutStatus';
+import { foundAsLabels, sourceStatusLabels } from './scoutStatus';
 
 /** Per-source statistics with the on/off switch; shown in the board's «…» menu. */
 export function SourceTable({
@@ -53,6 +53,14 @@ export function SourceTable({
               <i />
             </label>
             @{row.username}
+            {row.found_as && (
+              <span
+                className="scout-badge"
+                title={`Добавлен парсером${row.found_via ? `: найден у @${row.found_via}` : ''}`}
+              >
+                авто · {foundAsLabels[row.found_as] || row.found_as}
+              </span>
+            )}
           </span>
           <span role="cell" className="helper">
             {relativeTime(row.last_scanned_at)}

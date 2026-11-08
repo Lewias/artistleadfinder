@@ -241,13 +241,35 @@ INSTAGRAM_CATEGORIES = {
     "radio station": "media",
     "music chart": "media",
     "podcast": "media",
-    # Russian interface labels of the same categories.
+    "recording studio": "media",
+    "news/media website": "media",
+    "magazine": "media",
+    "fan page": "other",
+    # Russian interface labels of the same categories (as Instagram spells them:
+    # "Рэппер" with a double п).
     "музыкант/группа": "artist",
     "музыкант": "artist",
     "исполнитель": "artist",
+    "рэппер": "artist",
+    "рэпер": "artist",
+    "певец": "artist",
+    "певица": "artist",
+    "диджей": "artist",
+    "группа": "artist",
     "музыкальный продюсер": "producer",
+    "студия музыкального производства": "producer",
     "звукозаписывающая компания": "media",
+    "студия звукозаписи": "media",
     "радиостанция": "media",
+    "сми/информационное агентство": "media",
+    "сми": "media",
+    "новостной сайт": "media",
+    "сайт новостей и сми": "media",
+    "журнал": "media",
+    "подкаст": "media",
+    "музыкальный чарт": "media",
+    # A fan page of someone else is never the artist.
+    "страница поклонников": "other",
 }
 # Categories that only hint: "Artist" may be a visual artist, "Producer" a film producer.
 INSTAGRAM_WEAK_CATEGORIES = {

@@ -5,6 +5,7 @@ Run with the project's virtual environment Python from the repository root.
 """
 
 import os
+import ssl
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,9 @@ def main() -> None:
     # about 5 s before the app answers; on macOS the one-file loader also needs a System V
     # semaphore that some Macs deny ("Failed to initialize sync semaphore").
     name = "artist-core"
+    # Codex's Python loads this file when constructing every SSLContext, before
+    # certifi is used. PyInstaller does not discover it as a dependency of ssl.py.
+    ssl_support = Path(ssl.__file__).with_name("codex-rejected-cas.pem")
     subprocess.run(
         [
             sys.executable,
@@ -61,6 +65,11 @@ def main() -> None:
             name,
             "--paths",
             "backend",
+            *(
+                ["--add-data", str(ssl_support) + os.pathsep + "."]
+                if ssl_support.is_file()
+                else []
+            ),
             # The assistant imports the SDK on first use; it must be in the build anyway.
             "--hidden-import",
             "anthropic",

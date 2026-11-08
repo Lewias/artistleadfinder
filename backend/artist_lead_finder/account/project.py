@@ -13,3 +13,6 @@ SUPABASE_ANON_KEY = (
     "eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkxMTk3NTI4LCJleHAiOjE5NDg4Nzc1Mjh9."
     "97jsEKTQOD2HzknS_FzPZdjJIIWjcTmKIvPciCFeCz8"
 )
+# Public half of the server's Ed25519 key that signs offline passes (base64 of 32 bytes,
+# printed by supabase/vds/setup.sh). Public by design; empty turns offline work off.
+OFFLINE_PUBLIC_KEY = "vEGNFzyilzpDc7vZquIeuO8eihvrrtf3G+9cDp2zZb4="

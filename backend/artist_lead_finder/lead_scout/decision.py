@@ -248,6 +248,29 @@ FILTERS: tuple[LeadFilter, ...] = (
 )
 
 
+def hint_skip(hint: dict | None, settings: ScoutSettings) -> Outcome:
+    """Skip before the profile is opened, from what a discovery page's own data said
+    about the candidate. Only skips the profile filters would make anyway (private,
+    followers out of range); anything unknown is left to the profile check."""
+    if not hint:
+        return None
+    if hint.get("is_private") is True:
+        return PROFILE_PRIVATE, "private account (from the source page data, not opened)"
+    followers = hint.get("followers")
+    if isinstance(followers, int) and settings.scout_use_followers_range:
+        if followers < settings.scout_min_followers:
+            return (
+                FOLLOWERS_TOO_LOW,
+                f"{followers} < min {settings.scout_min_followers} (from page data, not opened)",
+            )
+        if followers > settings.scout_max_followers:
+            return (
+                FOLLOWERS_TOO_HIGH,
+                f"{followers} > max {settings.scout_max_followers} (from page data, not opened)",
+            )
+    return None
+
+
 def decide(data: FilterInput, settings: ScoutSettings) -> LeadFilterDecision:
     """Apply FILTERS strictly in order; the first failing filter decides.
 

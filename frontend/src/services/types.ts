@@ -165,8 +165,14 @@ export interface SettingsData {
   scout_follow_delay_seconds: number;
   scout_followers_max: number;
   scout_following_max: number;
+  scout_close_browser: boolean;
+  scout_auto_sources: Array<'producer' | 'media' | 'artist'>;
+  scout_auto_source_min_followers: number;
+  scout_auto_source_min_confidence: number;
   scout_ai_mode: 'off' | 'uncertain' | 'always';
+  scout_ai_provider: 'openrouter' | 'cloudflare';
   scout_ai_model: string;
+  scout_ai_cloudflare_model: string;
   scout_ai_timeout_seconds: number;
   scout_ai_concurrency: number;
   scout_ai_min_confidence: number;
@@ -189,6 +195,7 @@ export interface SettingsData {
   scout_ignore_usernames: string[];
   scout_profile_cache_hours: number;
   scout_recent_captions: number;
+  scout_fast_profiles: boolean;
 }
 export interface DiscoveryMetrics {
   itemsSeen: number;
@@ -227,6 +234,9 @@ export interface ScoutSourceRow {
   profiles_resolved?: number;
   profiles_skipped?: number;
   errors_count?: number;
+  /** Added by the scout itself: the profile's category and where it was found. */
+  found_as?: 'producer' | 'media' | 'artist' | null;
+  found_via?: string | null;
 }
 export type ScoutEventType =
   | 'scout:run-started'
@@ -942,9 +952,13 @@ export interface AccountState {
   licensed: boolean;
   online: boolean;
   ready: boolean;
+  /** Signed in and the first status check since the start is still on its way. */
+  checking?: boolean;
   user: { id: string; email: string; display_name: string; role: Role } | null;
   role: Role | null;
   reason: string | null;
+  /** While the server is unreachable: until when the offline pass keeps the app open. */
+  offline_until?: string | null;
 }
 
 /** admin: everything; moderator: every CRM; user: own CRM. */

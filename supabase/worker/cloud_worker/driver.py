@@ -116,11 +116,19 @@ class Driver:
             if int(state.get("attempt") or 0) != attempt:
                 attempt = int(state.get("attempt") or 0)
                 target = ""
-            if state.get("access") == "none":
-                # Served from the core's cache: no page, no pacing.
+            access = state.get("access")
+            if access == "request" and (
+                self.clock() - cooldown < COOLDOWN or float(state.get("wait_seconds") or 0) > 0
+            ):
+                # The core paces its fast profile request like a page open.
+                continue
+            if access in ("none", "request"):
+                # Served by the core (cache or its own request from the tab): no page.
                 snapshot = {"url": url, "ready": True, "blocked": False}
                 if self._try("scout.commit_internal", {"id": job_id, "snapshot": snapshot}) is None:
                     self.error(job_id, "save")
+                if access == "request":
+                    cooldown = self.clock()
                 target = ""
                 continue
             if target != url:

@@ -401,11 +401,15 @@ enum Access {
     Navigate,
     /// Nothing to open: the core answers from its cache.
     None,
+    /// Nothing to open, but the core makes one request from the open tab (fast profile
+    /// request), so the step waits its pause like a page.
+    Request,
 }
 
 fn access(state: &Value) -> Access {
     match state["access"].as_str() {
         Some("none") => Access::None,
+        Some("request") => Access::Request,
         _ => Access::Navigate,
     }
 }
@@ -515,8 +519,15 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
             target.clear();
         }
         let step_access = access(&state);
-        if step_access == Access::None {
-            // Served from the core's cache: no page, no pacing.
+        if step_access == Access::Request
+            && (cooldown.elapsed() < Duration::from_secs(3)
+                || state["wait_seconds"].as_f64().unwrap_or(0.0) > 0.0)
+        {
+            // The core paces its fast request like a page open.
+            continue;
+        }
+        if step_access == Access::None || step_access == Access::Request {
+            // Served by the core (cache or its own request): no page to open.
             if request(
                 "scout.commit_internal",
                 json!({"id":job_id,"snapshot":{"url":url,"ready":true,"blocked":false}}),
@@ -527,6 +538,9 @@ fn run_browser_queue(core: Core, job_id: i64, closing: BrowserClosing) {
                     "capture.error_internal",
                     json!({"id":job_id,"reason":"save"}),
                 );
+            }
+            if step_access == Access::Request {
+                cooldown = Instant::now();
             }
             target.clear();
             continue;
@@ -686,6 +700,8 @@ fn run_outreach_driver(core: Core, closing: BrowserClosing) {
         if closing.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
+        // A window the app has no more work for closes by itself (the core decides).
+        let _ = request("browser.runtime.close_idle", json!({}));
         let job = request("outreach.next_internal", json!({})).unwrap_or(Value::Null);
         let (Some(profile_id), Some(job_id)) = (job["profile_id"].as_str(), job["job_id"].as_i64())
         else {
@@ -834,6 +850,7 @@ mod tests {
     fn profile_steps_choose_page_access() {
         let profile = |access: &str| json!({"scout": true, "kind": "profile", "access": access});
         assert_eq!(access(&profile("none")), Access::None);
+        assert_eq!(access(&profile("request")), Access::Request);
         assert_eq!(access(&profile("navigate")), Access::Navigate);
         assert_eq!(access(&json!({"kind": "profile"})), Access::Navigate);
         assert_eq!(

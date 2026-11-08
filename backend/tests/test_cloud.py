@@ -75,6 +75,7 @@ def signed_in(server, tmp_path, email):
         account,
         lambda folder: (LocalCore(folder), lambda: None),
         lambda: {"version": "test"},
+        background=False,
     )
     runtime.start()
     runtime.call("account.login", {"email": email, "password": "secret-pass"})

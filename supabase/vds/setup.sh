@@ -76,13 +76,24 @@ if [ ! -f .env ]; then
   set_env POOLER_TENANT_ID "$(openssl rand -hex 8)"
   set_env DASHBOARD_USERNAME admin
 fi
+# Ed25519 key that signs offline passes (functions/offline-token), made once. Its public
+# half goes into the app (project.py OFFLINE_PUBLIC_KEY); a new key would void every pass.
+if ! grep -q '^OFFLINE_SIGNING_KEY=.' .env; then
+  set_env OFFLINE_SIGNING_KEY "$(openssl genpkey -algorithm ed25519 -outform DER | base64 -w0)"
+fi
+set_env OFFLINE_TOKEN_DAYS "$(grep '^OFFLINE_TOKEN_DAYS=' .env | cut -d= -f2- | grep . || echo 7)"
 chmod 600 .env
 # Studio on the server's own loopback: reachable only through an SSH tunnel (MCP, admin work).
+# The functions get the offline pass key and its lifetime.
 cat > docker-compose.alf.yml <<'YAML'
 services:
   studio:
     ports:
       - "127.0.0.1:3000:3000"
+  functions:
+    environment:
+      OFFLINE_SIGNING_KEY: ${OFFLINE_SIGNING_KEY}
+      OFFLINE_TOKEN_DAYS: ${OFFLINE_TOKEN_DAYS}
 YAML
 set_env COMPOSE_FILE "docker-compose.yml:docker-compose.caddy.yml:docker-compose.alf.yml"
 set_env PROXY_DOMAIN "$DOMAIN"
@@ -99,9 +110,11 @@ set_env OPENAI_API_KEY ""
 # The admin-users function checks the caller's session itself.
 set_env FUNCTIONS_VERIFY_JWT false
 
-step "Функция admin-users"
-mkdir -p volumes/functions/admin-users
-cp "$SRC/functions/admin-users/index.ts" volumes/functions/admin-users/index.ts
+step "Функции admin-users и offline-token"
+for name in admin-users offline-token; do
+  mkdir -p "volumes/functions/$name"
+  cp "$SRC/functions/$name/index.ts" "volumes/functions/$name/index.ts"
+done
 
 step "Запуск"
 docker compose pull -q $SERVICES
@@ -142,6 +155,8 @@ echo "30 3 * * * root /usr/local/bin/alf-backup >> /var/log/alf-backup.log 2>&1"
 
 step "Проверка HTTPS"
 anon="$(grep '^ANON_KEY=' .env | cut -d= -f2-)"
+offline_public="$(grep '^OFFLINE_SIGNING_KEY=' .env | cut -d= -f2- | base64 -d \
+  | openssl pkey -inform DER -pubout -outform DER | tail -c 32 | base64 -w0)"
 ok=""
 for _ in $(seq 1 30); do
   if curl -fsS -o /dev/null -H "apikey: $anon" "https://$DOMAIN/auth/v1/health"; then ok=1; break; fi
@@ -157,8 +172,11 @@ cat <<EOF
 Готово.
 
 Для приложения (backend/artist_lead_finder/account/project.py):
-  SUPABASE_URL      = "https://$DOMAIN"
-  SUPABASE_ANON_KEY = "$anon"
+  SUPABASE_URL       = "https://$DOMAIN"
+  SUPABASE_ANON_KEY  = "$anon"
+  OFFLINE_PUBLIC_KEY = "$offline_public"
+
+Работа без сервера: $(grep '^OFFLINE_TOKEN_DAYS=' .env | cut -d= -f2-) дн. (OFFLINE_TOKEN_DAYS в $TARGET/.env).
 
 Панель Supabase Studio: https://$DOMAIN
   логин:  $(grep '^DASHBOARD_USERNAME=' .env | cut -d= -f2-)

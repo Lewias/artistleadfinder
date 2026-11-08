@@ -132,13 +132,17 @@ SETTINGS = {"min_followers": 1000, "max_followers": 50000, "activity_days": 30, 
             "scout_follow_delay_seconds": 2, "scout_followers_max": 100, "scout_following_max": 100,
             "scout_use_followers_range": True, "scout_rotate_sources": True,
             "scout_add_to_outreach": True, "scout_ai_mode": "uncertain",
-            "scout_ai_model": "anthropic/claude-haiku-4.5", "scout_ai_timeout_seconds": 15,
+            "scout_close_browser": True, "scout_auto_sources": ["producer", "media"],
+            "scout_auto_source_min_followers": 1000, "scout_auto_source_min_confidence": 70,
+            "scout_ai_provider": "openrouter",
+            "scout_ai_model": "anthropic/claude-haiku-4.5",
+            "scout_ai_cloudflare_model": "@cf/google/gemma-4-26b-a4b-it", "scout_ai_timeout_seconds": 15,
             "scout_ai_concurrency": 2, "scout_ai_min_confidence": 55, "scout_max_posts_per_source": 120,
             "scout_max_scroll_rounds": 15, "scout_scroll_delay_ms": 1200, "scout_max_no_progress_rounds": 2,
             "scout_max_retries": 2, "scout_max_item_failures": 3,
             "scout_debug": False, "scout_ignore_usernames": [],
             "scout_profile_cache_hours": 12,
-            "scout_recent_captions": 3}
+            "scout_recent_captions": 3, "scout_fast_profiles": True}
 LOG = """[Scout][@rapgoat.tv][@lil_nova]
 
 method: comment

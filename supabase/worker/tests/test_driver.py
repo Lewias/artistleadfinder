@@ -104,6 +104,20 @@ def test_a_step_from_the_cache_opens_no_page():
     assert commit["snapshot"] == {"url": PROFILE, "ready": True, "blocked": False}
 
 
+def test_a_fast_request_opens_no_page_but_keeps_the_pace():
+    steps = [{"kind": "profile", "url": PROFILE, "access": "request"}] * 2
+    core = Core(steps)
+    _, time = drive(core)
+    assert core.methods().count("browser.runtime.navigate") == 0
+    assert core.methods().count("scout.commit_internal") == 2
+    # Requests are 3 s apart like pages.
+    assert time.now >= 6
+
+    core = Core([{"kind": "profile", "url": PROFILE, "access": "request", "wait_seconds": 40}])
+    drive(core, ticks=20)
+    assert "scout.commit_internal" not in core.methods()
+
+
 def test_the_core_waits_are_kept():
     core = Core([{"kind": "profile", "url": PROFILE, "wait_seconds": 40}])
     drive(core, ticks=20)

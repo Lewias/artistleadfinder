@@ -197,6 +197,10 @@ class ScoutSource(Base):
     profiles_resolved: Mapped[int] = mapped_column(default=0)
     profiles_skipped: Mapped[int] = mapped_column(default=0)
     errors_count: Mapped[int] = mapped_column(default=0)
+    # Schema 25: a source the scout added by itself: the category of the profile
+    # ("producer", "media", "artist") and the source it was found on (username).
+    found_as: Mapped[str | None] = mapped_column(String(20))
+    found_via: Mapped[str | None] = mapped_column(String(80))
 
 
 class ScoutRun(Base):

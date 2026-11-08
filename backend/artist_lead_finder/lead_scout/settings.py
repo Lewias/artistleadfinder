@@ -51,10 +51,32 @@ class ScoutSettings(BaseModel):
     scout_debug: bool = False
     # Profile resolver: profiles are read from their pages; resolved profiles are cached.
     scout_profile_cache_hours: int = Field(default=12, ge=0, le=24 * 7)
+    # Fast profile requests: the profile page's own data request repeated from the open
+    # tab for the next candidates (no page load). A refusal turns it off for an hour and
+    # the page is opened instead.
+    scout_fast_profiles: bool = True
+    # The account's browser window closes by itself (cookies kept) once the app has no more
+    # work for it: parser runs over, nothing left to send or to read in Direct.
+    scout_close_browser: bool = True
     scout_recent_captions: int = Field(default=3, ge=0, le=12)
     scout_ignore_usernames: list[str] = Field(default_factory=list, max_length=500)
+    # Profiles of these categories found by the scout join the source list by themselves
+    # (their posts and tags are then read like any source's): with enough followers and
+    # a confident classification. Empty turns it off.
+    scout_auto_sources: list[Literal["producer", "media", "artist"]] = Field(
+        default_factory=lambda: ["producer", "media"]
+    )
+    scout_auto_source_min_followers: int = Field(default=1000, ge=0, le=1_000_000_000)
+    scout_auto_source_min_confidence: int = Field(default=70, ge=0, le=100)
     scout_ai_mode: Literal["off", "uncertain", "always"] = "uncertain"
+    # Where AI requests go; each provider keeps its own model.
+    scout_ai_provider: Literal["openrouter", "cloudflare"] = "openrouter"
     scout_ai_model: str = Field(default="anthropic/claude-haiku-4.5", min_length=3, max_length=120)
+    scout_ai_cloudflare_model: str = Field(
+        default="@cf/google/gemma-4-26b-a4b-it",
+        max_length=120,
+        pattern=r"^@(?:cf|hf)/[\w.\-]+(?:/[\w.\-]+)+$",
+    )
     # AI requests: timeout, parallel requests, and "uncertain" mode also asks AI when the
     # local confidence is below scout_ai_min_confidence.
     scout_ai_timeout_seconds: int = Field(default=15, ge=5, le=60)

@@ -1,12 +1,18 @@
 """A loopback stand-in for the Supabase project: Auth tokens, the account RPCs of
 supabase/migrations and the CRM tables, with the same access rules. No network."""
 
+import base64
 import itertools
 import json
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+
+
+def b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
 def stamp() -> str:
@@ -28,6 +34,11 @@ class FakeSupabase:
         self.tg_links: dict[str, str] = {}
         self.tg_codes: dict[str, str] = {}
         self.down = False
+        # functions/offline-token: off until a test sets a signing key.
+        self.offline_signer = None
+        self.offline_days = 7
+        self.offline_now = time.time
+        self.offline_issued = 0
         self.counter = itertools.count(1)
         self.requests: list[str] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
@@ -94,6 +105,29 @@ class FakeSupabase:
         if self.users[user_id]["role"] != "admin":
             self.users[user_id]["role"] = found.get("role", "user")
         return 200, self._status(user_id)
+
+    def _offline_token(self, user_id, body):
+        """functions/offline-token: a signed pass for a licensed, active account."""
+        if self.offline_signer is None:
+            return 404, {"error": "Function not found"}
+        status = self._status(user_id)
+        if status["blocked"] or not status["licensed"]:
+            return 403, {"error": "Нет активного ключа доступа."}
+        now = int(self.offline_now())
+        payload = {
+            "v": 1,
+            "sub": user_id,
+            "dev": body["device"],
+            "role": status["role"],
+            "email": status["email"],
+            "name": status["display_name"],
+            "iat": now,
+            "exp": now + self.offline_days * 86400,
+        }
+        part = b64url(json.dumps(payload).encode())
+        signature = b64url(self.offline_signer.sign(part.encode()))
+        self.offline_issued += 1
+        return 200, {"token": f"{part}.{signature}", "expires_at": payload["exp"]}
 
     def _admin(self, user_id):
         user = self.users[user_id]
@@ -400,6 +434,8 @@ class FakeSupabase:
                     return self._send(
                         *fake._admin_rpc(user_id, url.path.removeprefix("/rest/v1/rpc/"), body)
                     )
+                if url.path == "/functions/v1/offline-token":
+                    return self._send(*fake._offline_token(user_id, body))
                 if url.path == "/functions/v1/admin-users":
                     if not fake._admin(user_id):
                         return self._send(403, {"error": "Доступно только админу."})

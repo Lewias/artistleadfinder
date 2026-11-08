@@ -129,6 +129,93 @@ def run_pages(service, settings, pages, sources=(SOURCE,)):
     return job, state, visited
 
 
+def test_producers_and_music_pages_found_join_the_sources(scout):
+    service, sessions = scout
+    post = "https://www.instagram.com/p/C1/"
+    profiles = {
+        "beat_maker": profile_page(
+            "beat_maker",
+            "Music producer, beatmaker. Beats for sale, type beats",
+            links=["https://beatstars.com/beat_maker"],
+        ),
+        # Past the followers range: not a lead, still a source.
+        "rap_news": profile_page(
+            "rap_news",
+            "Hip-hop music blog and news. Submit your music for a feature, promo for artists",
+            followers=250_000,
+        ),
+        "tiny_beats": profile_page(
+            "tiny_beats",
+            "Music producer, beatmaker. Beats for sale",
+            followers=300,
+            links=["https://beatstars.com/tiny"],
+        ),
+        "removed_beats": profile_page(
+            "removed_beats",
+            "Music producer, beatmaker. Beats for sale",
+            links=["https://beatstars.com/removed"],
+        ),
+        "artist_one": profile_page(
+            "artist_one", "Rapper. New single out now", links=["https://open.spotify.com/a"]
+        ),
+    }
+    # A source the user deleted earlier is not added back by the scout.
+    removed = "https://www.instagram.com/removed_beats/"
+    service.call("scout.source_add", {"values": [removed]})
+    service.call("scout.source_remove", {"url": removed})
+
+    def pages(state):
+        kind, url = state["kind"], state["url"]
+        if kind == "source":
+            return dict(url=url, ready=True, posts=[post])
+        if kind == "post":
+            return dict(url=url, ready=True, author="rapdaily", collaborators=list(profiles))
+        return profiles[url.rstrip("/").split("/")[-1]]
+
+    job, state, _ = run_pages(
+        service, {"scout_methods": ["posts"], "scout_max_followers": 50_000}, pages
+    )
+    assert state["status"] == "completed"
+    rows = {row["username"]: row for row in service.call("scout.source_list", {})}
+    assert set(rows) == {"rapdaily", "beat_maker", "rap_news"}
+    assert (rows["beat_maker"]["found_as"], rows["beat_maker"]["found_via"]) == (
+        "producer",
+        "rapdaily",
+    )
+    assert rows["rap_news"]["found_as"] == "media" and rows["rap_news"]["enabled"]
+    assert rows["rapdaily"]["found_as"] is None
+    assert state["stats"]["sources_added"] == 2
+    # A rotation run that read its sources takes the new ones in the same run.
+    assert "https://www.instagram.com/beat_maker/" in state["stats"]["sources"]
+    assert rows["beat_maker"]["last_scanned_at"] is not None
+    notices = service.call("capture.state", {"id": job})["notices"]
+    assert any("@beat_maker: продюсер, добавлен в источники" in n for n in notices)
+    with sessions() as session:
+        assert {lead.username for lead in session.scalars(select(Lead))} == {"artist_one"}
+    # Added by hand again, the source is no longer remembered as deleted.
+    service.call("scout.source_add", {"values": [removed]})
+    with sessions() as session:
+        assert removed not in memory.state_get(session, "removed_sources", [])
+
+
+def test_auto_sources_can_be_turned_off(scout):
+    service, _ = scout
+    producer = profile_page(
+        "beat_maker", "Music producer, beatmaker. Beats for sale", links=["https://beatstars.com/b"]
+    )
+
+    def pages(state):
+        kind, url = state["kind"], state["url"]
+        if kind == "source":
+            return dict(url=url, ready=True, posts=["https://www.instagram.com/p/C1/"])
+        if kind == "post":
+            return dict(url=url, ready=True, author="rapdaily", collaborators=["beat_maker"])
+        return producer
+
+    run_pages(service, {"scout_methods": ["posts"], "scout_auto_sources": []}, pages)
+    assert [row["username"] for row in service.call("scout.source_list", {})] == ["rapdaily"]
+
+
 def test_full_flow_posts_tagged_followers_to_leads(scout):
     service, sessions = scout
     post = "https://www.instagram.com/p/C1/"

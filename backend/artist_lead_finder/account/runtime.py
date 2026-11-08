@@ -15,6 +15,7 @@ from pathlib import Path
 from ..cloud import CloudService
 from ..crm.sync import CrmSync
 from .admin import AdminService
+from .client import OfflineError
 from .session import AccountService
 
 log = logging.getLogger(__name__)
@@ -54,8 +55,11 @@ class Runtime:
         open_service: Callable[[Path], tuple[object, Callable[[], None]]],
         info: Callable[[], dict],
         probe: Callable[[], object] | None = None,
+        background: bool = True,
     ):
         self.data_dir = data_dir
+        # Tests drive the ticks themselves (`tick`); the app runs them on a thread.
+        self.background = background
         self.account = account
         self.open_service = open_service
         self.info = info
@@ -78,21 +82,32 @@ class Runtime:
         if not self.account.configured:
             self._open(self.data_dir, None)
             return
-        self.account.restore()
+        # Nothing waits for the server here: the first check runs on the ticker at once,
+        # and a valid offline pass opens the app before it comes back.
+        self.account.restore(check=False)
         self.sync()
-        self.ticker = threading.Thread(target=self._tick, daemon=True)
-        self.ticker.start()
+        if self.background:
+            self.ticker = threading.Thread(target=self._tick, daemon=True)
+            self.ticker.start()
+
+    def tick(self) -> None:
+        """One background round: the account status when it is due, then the data it opens."""
+        self.account.check(force=self.account.take_retry())
+        self.sync()
 
     def _tick(self) -> None:
-        while not self.stopping.wait(TICK_SECONDS):
+        while not self.stopping.is_set():
             try:
-                self.account.check()
-                self.sync()
+                # The only place that talks to the server about the account status.
+                self.tick()
             except Exception:  # noqa: BLE001 - the next tick tries again
                 log.warning("account_tick_failed")
+            self.account.wake.wait(TICK_SECONDS)
+            self.account.wake.clear()
 
     def shutdown(self) -> None:
         self.stopping.set()
+        self.account.wake.set()
         with self.lock:
             self._close()
             if self.probe is not None:
@@ -168,11 +183,26 @@ class Runtime:
 
     # ---------- requests ----------
 
+    def _to_server(self, call, method: str, params: dict):
+        """A request that goes to the account server. The core answers one request at a
+        time, so while the server is in doubt it fails at once; a call that cannot reach
+        it counts as a failed check."""
+        if self.account.doubtful:
+            raise OfflineError()
+        try:
+            return call(method, params)
+        except OfflineError:
+            self.account.note_offline()
+            raise
+
     def call(self, method: str, params: dict):
         if method == "account.state":
             state = self.account.state()
             self.sync()
             return {**state, "ready": self.account.ready}
+        if method == "account.retry":
+            self.account.request_check()
+            return {**self.account.state(), "ready": self.account.ready}
         if method in ("account.login", "account.register", "account.activate", "account.logout"):
             action = getattr(self.account, method.removeprefix("account."))
             state = action(params)
@@ -180,20 +210,20 @@ class Runtime:
             return state
         if method.startswith("admin."):
             with self.lock:
-                self.account.check()
                 self.sync()
                 self.account.require_ready()
-                result = self.admin.call(method, params)
-            # Roles and blocks changed on the server: the next check picks them up.
+                result = self._to_server(self.admin.call, method, params)
+            # Roles and blocks changed on the server: the next tick picks them up.
             self.account.checked_at = None
+            self.account.wake.set()
             return result
         if method.startswith("cloud."):
             # Jobs live on the server: the account must be signed in and ready.
             with self.lock:
                 if self.account.configured:
-                    self.account.check()
                     self.sync()
                     self.account.require_ready()
+                    return self._to_server(self.cloud.call, method, params)
                 return self.cloud.call(method, params)
         if method == "system.info":
             return {**self.info(), "account": self.account.state()}
@@ -204,7 +234,6 @@ class Runtime:
             return self.probe.self_test()
         with self.lock:
             if self.account.configured:
-                self.account.check()
                 self.sync()
                 self.account.require_ready()
             result = self.service.call(method, params)

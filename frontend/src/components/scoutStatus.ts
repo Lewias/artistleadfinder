@@ -133,6 +133,13 @@ export function activityItem(event: ScoutEvent): ActivityItem | null {
   }
 }
 
+/** Who a source added by the scout itself was. */
+export const foundAsLabels: Record<string, string> = {
+  producer: 'продюсер',
+  media: 'СМИ',
+  artist: 'артист',
+};
+
 export const sourceStatusLabels: Record<string, string> = {
   new: 'Новый',
   queued: 'В очереди',

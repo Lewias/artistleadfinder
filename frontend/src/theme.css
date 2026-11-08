@@ -1957,10 +1957,18 @@ tbody tr:hover td {
 .scout-ai .segmented {
   align-self: end;
 }
+.scout-ai.cloudflare {
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+.scout-ai-provider {
+  margin-bottom: 12px;
+  width: fit-content;
+}
 @media (max-width: 1100px) {
   .scout-blocks,
   .scout-options,
-  .scout-ai {
+  .scout-ai,
+  .scout-ai.cloudflare {
     grid-template-columns: 1fr;
   }
 }

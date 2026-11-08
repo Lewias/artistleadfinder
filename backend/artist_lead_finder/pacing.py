@@ -30,6 +30,11 @@ class PacingSettings(BaseModel):
         return self
 
 
+# Fast profile requests: this share of the page delay, never below FAST_DELAY_MIN seconds.
+FAST_SHARE = 0.4
+FAST_DELAY_MIN = 1.5
+
+
 class Pacer:
     def __init__(
         self,
@@ -41,9 +46,15 @@ class Pacer:
         self.cooldown_until: datetime | None = None
         self.profile_visits: deque[datetime] = deque()
 
-    def page_done(self, settings: PacingSettings, profile: bool) -> None:
+    def page_done(self, settings: PacingSettings, profile: bool, fast: bool = False) -> None:
+        """`fast`: one in-tab request instead of a page load, so a shorter pause follows
+        (it still counts towards the hourly profile cap)."""
         now = self.now()
-        delay = self.jitter(settings.page_delay_min, settings.page_delay_max)
+        low, high = settings.page_delay_min, settings.page_delay_max
+        if fast:
+            low = max(FAST_DELAY_MIN, low * FAST_SHARE)
+            high = max(FAST_DELAY_MIN, high * FAST_SHARE)
+        delay = self.jitter(low, high)
         self.next_page_at = now + timedelta(seconds=delay)
         if profile:
             self.profile_visits.append(now)

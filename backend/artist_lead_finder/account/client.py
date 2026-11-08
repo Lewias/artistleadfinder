@@ -109,6 +109,18 @@ class SupabaseClient:
             return AuthError("Сессия истекла. Войдите снова.")
         return UserError("Сервер отклонил запрос.")
 
+    def reachable(self, timeout: float = 5) -> bool:
+        """A quick look whether the server answers (a gateway error counts as down)."""
+        request = urllib.request.Request(self.url + "/auth/v1/health", method="GET")
+        request.add_header("apikey", self.anon_key)
+        try:
+            with self.opener(request, timeout=timeout):
+                return True
+        except urllib.error.HTTPError as error:
+            return error.code < 500
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+            return False
+
     # ---------- auth ----------
 
     def sign_in(self, email: str, password: str) -> dict:

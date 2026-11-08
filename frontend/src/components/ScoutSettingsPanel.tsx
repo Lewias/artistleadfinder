@@ -33,6 +33,13 @@ const profileTypes = [
   { id: 'artists_producers', label: 'Артисты + продюсеры' },
   { id: 'everyone', label: 'Все' },
 ] as const;
+const aiProviders = [
+  { id: 'openrouter', label: 'OpenRouter' },
+  { id: 'cloudflare', label: 'Cloudflare' },
+] as const;
+
+type AIStatus = { configured: boolean; cloudflare?: boolean; cloudflare_account?: string | null };
+
 const aiModes = [
   { id: 'off', label: 'Выкл.' },
   { id: 'uncertain', label: 'Если не уверен' },
@@ -84,9 +91,11 @@ function Block({ title, wide, children }: { title: string; wide?: boolean; child
 
 export function ScoutSettingsPanel() {
   const resource = useResource<SettingsData>('settings.get');
-  const ai = useResource<{ configured: boolean }>('ai.status');
+  const ai = useResource<AIStatus>('ai.status');
   const [settings, setSettings] = useState<SettingsData>();
   const [key, setKey] = useState('');
+  const [cfAccount, setCfAccount] = useState('');
+  const [cfToken, setCfToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -101,6 +110,13 @@ export function ScoutSettingsPanel() {
     update(
       'scout_methods',
       on ? [...settings.scout_methods, method] : settings.scout_methods.filter(item => item !== method),
+    );
+  const toggleAuto = (kind: SettingsData['scout_auto_sources'][number], on: boolean) =>
+    update(
+      'scout_auto_sources',
+      on
+        ? [...settings.scout_auto_sources.filter(item => item !== kind), kind]
+        : settings.scout_auto_sources.filter(item => item !== kind),
     );
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -238,6 +254,13 @@ export function ScoutSettingsPanel() {
       <Block title="Память" wide>
         <div className="scout-options">
           <Option
+            checked={settings.scout_close_browser}
+            disabled={busy}
+            onChange={checked => update('scout_close_browser', checked)}
+            title="Закрывать браузер после работы"
+            text="Когда парсинг закончен или остановлен и аккаунту больше нечего отправлять и читать в Директе, его окно закрывается само через 30 секунд. Сессия сохраняется. На паузе окно остаётся открытым."
+          />
+          <Option
             checked={settings.scout_skip_recent_sources}
             disabled={busy}
             onChange={checked => update('scout_skip_recent_sources', checked)}
@@ -263,8 +286,63 @@ export function ScoutSettingsPanel() {
         </div>
       </Block>
 
+      <Block title="Пополнять источники" wide>
+        <p className="helper">
+          Найденные парсером профили этих типов сами добавляются в источники, и их посты и отметки читаются
+          как у любого источника — часто ещё в том же запуске. Удалённый вами источник обратно не добавляется.
+        </p>
+        <div className="scout-options">
+          <Option
+            checked={settings.scout_auto_sources.includes('producer')}
+            disabled={busy}
+            onChange={checked => toggleAuto('producer', checked)}
+            title="Продюсеров"
+            text="Их треки и отметки ведут к артистам, с которыми они работают."
+          />
+          <Option
+            checked={settings.scout_auto_sources.includes('media')}
+            disabled={busy}
+            onChange={checked => toggleAuto('media', checked)}
+            title="СМИ и паблики"
+            text="Музыкальные блоги, медиа и промо-страницы — даже если они больше лимита подписчиков."
+          />
+          <Option
+            checked={settings.scout_auto_sources.includes('artist')}
+            disabled={busy}
+            onChange={checked => toggleAuto('artist', checked)}
+            title="Артистов"
+            text="Отметки и соавторы артистов. Выключено по умолчанию: список растёт быстро."
+          />
+        </div>
+        <div className="field-row">
+          {numberField('scout_auto_source_min_followers', 'Не меньше подписчиков', 0, 1_000_000_000, {
+            hint: 'У маленьких страниц мало отметок. По умолчанию 1000.',
+            disabled: !settings.scout_auto_sources.length,
+          })}
+          {numberField('scout_auto_source_min_confidence', 'Уверенность классификации, %', 0, 100, {
+            hint: 'Ниже — профиль не добавляется. По умолчанию 70.',
+            disabled: !settings.scout_auto_sources.length,
+          })}
+        </div>
+      </Block>
+
       <Block title="AI-классификация" wide>
-        <div className="scout-ai">
+        <div className="segmented scout-ai-provider" role="radiogroup" aria-label="Провайдер AI">
+          {aiProviders.map(provider => (
+            <button
+              key={provider.id}
+              type="button"
+              role="radio"
+              aria-checked={settings.scout_ai_provider === provider.id}
+              className={settings.scout_ai_provider === provider.id ? 'active' : ''}
+              disabled={busy}
+              onClick={() => update('scout_ai_provider', provider.id)}
+            >
+              {provider.label}
+            </button>
+          ))}
+        </div>
+        <div className={`scout-ai${settings.scout_ai_provider === 'cloudflare' ? ' cloudflare' : ''}`}>
           <div className="segmented" role="radiogroup" aria-label="Режим AI">
             {aiModes.map(mode => (
               <button
@@ -280,66 +358,145 @@ export function ScoutSettingsPanel() {
               </button>
             ))}
           </div>
-          <label>
-            Модель OpenRouter
-            <input
-              value={settings.scout_ai_model}
-              maxLength={120}
-              disabled={busy}
-              onChange={event => update('scout_ai_model', event.target.value)}
-            />
-          </label>
-          <label>
-            <span>
-              Ключ OpenRouter {ai.data?.configured ? <small>· сохранён</small> : <small>· не задан</small>}
-            </span>
-            <span className="input-with-icon">
-              <KeyRound size={15} aria-hidden="true" />
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder={ai.data?.configured ? 'Введите новый ключ, чтобы заменить' : 'sk-or-…'}
-                value={key}
-                disabled={busy}
-                onChange={event => setKey(event.target.value)}
-              />
-            </span>
-          </label>
-          <div className="actions">
-            <Button
-              variant="outline"
-              disabled={busy || !key.trim()}
-              onClick={() =>
-                void run(async () => {
-                  await api.request('ai.set_key', { key });
-                  setKey('');
-                  ai.refresh();
-                  setMessage('Ключ сохранён в защищённом хранилище системы.');
-                })
-              }
-            >
-              Сохранить ключ
-            </Button>
-            {ai.data?.configured && (
-              <Button
-                variant="danger"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await api.request('ai.set_key', { key: '' });
-                    ai.refresh();
-                    setMessage('Ключ удалён.');
-                  })
-                }
-              >
-                Удалить ключ
-              </Button>
-            )}
-          </div>
+          {settings.scout_ai_provider === 'cloudflare' ? (
+            <>
+              <label>
+                Модель Cloudflare
+                <input
+                  value={settings.scout_ai_cloudflare_model}
+                  maxLength={120}
+                  disabled={busy}
+                  placeholder="@cf/google/gemma-4-26b-a4b-it"
+                  onChange={event => update('scout_ai_cloudflare_model', event.target.value)}
+                />
+              </label>
+              <label>
+                <span>
+                  Account ID {ai.data?.cloudflare ? <small>· сохранён</small> : <small>· не задан</small>}
+                </span>
+                <input
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={ai.data?.cloudflare_account ?? '32 символа с главной страницы аккаунта'}
+                  value={cfAccount}
+                  disabled={busy}
+                  onChange={event => setCfAccount(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Токен Workers AI</span>
+                <span className="input-with-icon">
+                  <KeyRound size={15} aria-hidden="true" />
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    placeholder={ai.data?.cloudflare ? 'Введите новый, чтобы заменить' : 'API Token'}
+                    value={cfToken}
+                    disabled={busy}
+                    onChange={event => setCfToken(event.target.value)}
+                  />
+                </span>
+              </label>
+              <div className="actions">
+                <Button
+                  variant="outline"
+                  disabled={busy || !cfAccount.trim() || !cfToken.trim()}
+                  onClick={() =>
+                    void run(async () => {
+                      await api.request('ai.set_cloudflare', { account: cfAccount, token: cfToken });
+                      setCfAccount('');
+                      setCfToken('');
+                      ai.refresh();
+                      setMessage('Account ID и токен сохранены в защищённом хранилище системы.');
+                    })
+                  }
+                >
+                  Сохранить
+                </Button>
+                {ai.data?.cloudflare && (
+                  <Button
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        await api.request('ai.set_cloudflare', { account: '', token: '' });
+                        ai.refresh();
+                        setMessage('Данные Cloudflare удалены.');
+                      })
+                    }
+                  >
+                    Удалить
+                  </Button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <label>
+                Модель OpenRouter
+                <input
+                  value={settings.scout_ai_model}
+                  maxLength={120}
+                  disabled={busy}
+                  onChange={event => update('scout_ai_model', event.target.value)}
+                />
+              </label>
+              <label>
+                <span>
+                  Ключ OpenRouter{' '}
+                  {ai.data?.configured ? <small>· сохранён</small> : <small>· не задан</small>}
+                </span>
+                <span className="input-with-icon">
+                  <KeyRound size={15} aria-hidden="true" />
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    placeholder={ai.data?.configured ? 'Введите новый ключ, чтобы заменить' : 'sk-or-…'}
+                    value={key}
+                    disabled={busy}
+                    onChange={event => setKey(event.target.value)}
+                  />
+                </span>
+              </label>
+              <div className="actions">
+                <Button
+                  variant="outline"
+                  disabled={busy || !key.trim()}
+                  onClick={() =>
+                    void run(async () => {
+                      await api.request('ai.set_key', { key });
+                      setKey('');
+                      ai.refresh();
+                      setMessage('Ключ сохранён в защищённом хранилище системы.');
+                    })
+                  }
+                >
+                  Сохранить ключ
+                </Button>
+                {ai.data?.configured && (
+                  <Button
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        await api.request('ai.set_key', { key: '' });
+                        ai.refresh();
+                        setMessage('Ключ удалён.');
+                      })
+                    }
+                  >
+                    Удалить ключ
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
         </div>
         <p className="helper">
           AI только уточняет категорию; решение о лиде принимают фильтры. Без ключа используется локальная
-          классификация. Профиль отправляется в OpenRouter только при включённом AI.
+          классификация. Профиль отправляется провайдеру только при включённом AI.{' '}
+          {settings.scout_ai_provider === 'cloudflare' &&
+            'Cloudflare Workers AI бесплатно даёт 10 000 нейронов в день — примерно 1000 проверок профилей. Токен: My Profile → API Tokens → шаблон «Workers AI».'}
         </p>
       </Block>
 
@@ -386,6 +543,21 @@ export function ScoutSettingsPanel() {
             <div className="field-row">
               {numberField('scout_profile_cache_hours', 'Кэш профиля, ч (0 — выкл.)', 0, 168)}
               {numberField('scout_recent_captions', 'Подписей к постам', 0, 12)}
+            </div>
+            <div className="check-list">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.scout_fast_profiles}
+                  disabled={busy}
+                  onChange={event => update('scout_fast_profiles', event.target.checked)}
+                />
+                Быстрая проверка профилей
+                <small>
+                  Повторяет запрос, которым Instagram сам загружает профиль, без открытия страницы. При отказе
+                  Instagram на час переключается на обычное открытие профиля.
+                </small>
+              </label>
             </div>
           </section>
           <section>
