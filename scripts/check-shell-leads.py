@@ -8,7 +8,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs/redesign/evidence/shell-leads/browser"
+OUT = ROOT / "build/quiet-leads-qa"
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 
@@ -27,10 +27,13 @@ def main():
         expect(page.get_by_text("Страница 1 из 54", exact=True)).to_be_visible()
         page.screenshot(path=str(OUT / "01-table.png"))
         # Real filters and pagination over the synthetic dataset.
+        filters = page.get_by_role("button", name="Фильтры", exact=True)
+        filters.click()
         page.get_by_role("combobox", name="Статус", exact=True).select_option("qualified")
         expect(table.locator("tbody tr").first).to_contain_text("Подходит")
         expect(table.locator("tbody tr")).to_have_count(30)
         page.get_by_role("combobox", name="Статус", exact=True).select_option("")
+        page.keyboard.press("Escape")
         page.get_by_role("button", name="Далее", exact=True).click()
         expect(page.get_by_text("Страница 2 из 54", exact=True)).to_be_visible()
         expect(table.locator("tbody input").first).not_to_have_attribute("aria-label", "Выбрать amara.sol")
@@ -76,9 +79,9 @@ def main():
         page.screenshot(path=str(OUT / "07-empty.png"))
         search.fill("")
         expect(table.locator("tbody tr")).to_have_count(30)
-        page.get_by_text("Ещё фильтры", exact=True).click()
+        filters.click()
         page.screenshot(path=str(OUT / "08-filters.png"))
-        page.get_by_text("Ещё фильтры", exact=True).click()
+        filters.click()
         for width, height in [(1024, 700), (1920, 1080)]:
             page.set_viewport_size({"width": width, "height": height})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
@@ -87,6 +90,19 @@ def main():
             expect(page.get_by_role("dialog")).to_contain_text("Подписчики не прочитаны")
             page.screenshot(path=str(OUT / f"10-inspector-{width}.png"))
             page.keyboard.press("Escape")
+        # Mutations are safe only after the fixture guard at startup.
+        expect(table.locator(".avatar")).to_have_count(0)
+        table.locator(".profile-cell").first.click()
+        dialog = page.get_by_role("dialog")
+        dialog.get_by_label("Статус CRM").select_option("qualified")
+        expect(table.locator("tbody tr").first).to_contain_text("Подходит")
+        expect(dialog.locator(".avatar")).to_have_count(0)
+        page.keyboard.press("Escape")
+        page.get_by_role("button", name="Удалить", exact=True).click()
+        page.get_by_role("dialog").get_by_role("button", name="Удалить", exact=True).click()
+        expect(page.get_by_role("dialog")).to_have_count(0)
+        expect(table.locator("tbody input").first).not_to_have_attribute("aria-label", "Выбрать amara.sol")
+        expect(page.get_by_role("region", name="Действия с выбранными")).to_have_count(0)
         assert not errors, errors
         print("PASS: filters, 54-page dataset, selection, menu keys, dialog focus/return, inspector, error recovery, empty state, 1024/1920 layouts; no page errors")
         browser.close()

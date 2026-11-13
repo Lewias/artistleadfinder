@@ -7,6 +7,7 @@ import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import type { LeadDetail as Detail } from '../services/types';
 import { number, activity, relativeTime, statusLabels } from '../lib/format';
+import { date } from '../lib/format';
 import { DataState } from './DataState';
 import { Button } from './ui/button';
 import { categoryLabels, methodLabel } from './scoutStatus';
@@ -113,8 +114,12 @@ export function LeadDetail({
             <DataState {...resource} retry={resource.refresh} />
           ) : (
             <>
-              <div className="avatar large">{lead.display_name.slice(0, 1) || lead.username.slice(0, 1)}</div>
-              <h2>{lead.display_name}</h2>
+              {!inspector && (
+                <div className="avatar large">
+                  {lead.display_name.slice(0, 1) || lead.username.slice(0, 1)}
+                </div>
+              )}
+              <h2>{lead.display_name || lead.username}</h2>
               <p>{lead.genres.join(' / ') || 'Жанр не определён'}</p>
               <p className="helper">
                 {capture?.unknown_fields.includes('followers') || lead.unknown_fields?.includes('followers')
@@ -123,6 +128,28 @@ export function LeadDetail({
                 · {lead.platform === 'mock' ? 'Демонстрационный профиль' : lead.platform}
                 {lead.is_private && ' · Закрытый аккаунт'}
               </p>
+              {inspector && (
+                <>
+                  <p className="helper">В базе с {date(lead.created_at)}</p>
+                  {lead.scout_profile && (
+                    <>
+                      <p className="helper">
+                        {categoryLabels[lead.scout_profile.profile_type]} · {lead.scout_profile.confidence}% ·
+                        @{lead.scout_profile.source_username} ·{' '}
+                        {methodLabel(lead.scout_profile.discovery_method)}
+                      </p>
+                      {!!(lead.scout_profile.emails.length || lead.scout_profile.phones.length) && (
+                        <>
+                          <h3>Контакты</h3>
+                          <p className="quiet-contact">
+                            {[...lead.scout_profile.emails, ...lead.scout_profile.phones].join(' · ')}
+                          </p>
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
               {capture && (
                 <>
                   <h3>Данные со страницы</h3>

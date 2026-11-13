@@ -1,16 +1,16 @@
 import { ErrorToast } from '../components/Toaster';
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { FilterX, RefreshCw, Search, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type { DashboardData, Lead, LeadQuery } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
 import { defaultQuery } from '../services/leadQuery';
-import { number, date, genres, sourceLabels, statusLabels } from '../lib/format';
+import { number, genres, statusLabels } from '../lib/format';
 import { DataState, StatusBadge } from '../components/DataState';
 import { LeadDetail } from '../components/LeadDetail';
 import { Button } from '../components/ui/button';
 import { ExportBar } from '../components/ExportBar';
-import { categoryLabels, methodLabel } from '../components/scoutStatus';
+import { categoryLabels } from '../components/scoutStatus';
 import { LeadDialog } from '../design/LeadDialog';
 import { ActionMenu } from '../design/ActionMenu';
 import { api } from '../services/api';
@@ -24,6 +24,30 @@ export function Leads({
   onCampaign?: (ids: number[]) => Promise<void>;
 }) {
   const [query, setQuery] = useState<LeadQuery>({ ...defaultQuery, ...(jobId ? { job_id: jobId } : {}) });
+  const filterId = useId();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filters = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const outside = (event: PointerEvent) => {
+      if (!filters.current?.contains(event.target as Node)) setFiltersOpen(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [filtersOpen]);
+  const filterKeys = [
+    'genre',
+    'status',
+    'source',
+    'min_followers',
+    'max_followers',
+    'minimum_score',
+    'activity_days',
+    'sort',
+    'descending',
+  ] as const;
+  const filterCount = filterKeys.filter(key => query[key] !== defaultQuery[key]).length;
   const [selected, setSelected] = useState<number[]>([]);
   const [detail, setDetail] = useState<number>();
   const [outreachError, setOutreachError] = useState('');
@@ -82,15 +106,163 @@ export function Leads({
         <div className="actions embedded-toolbar">{toolbar}</div>
       ) : (
         <>
-          <PageHeader page="leads" count={number(resource.data?.total || 0)} actions={toolbar} />
-          <LeadStats />
+          <PageHeader
+            page="leads"
+            count={resource.data ? number(resource.data.total) : undefined}
+            actions={toolbar}
+          />
         </>
       )}
-      <div className="lead-selection-bar" role="region" aria-label="Действия с выбранными">
-        <span aria-live="polite">
-          {selected.length ? `Выбрано: ${number(selected.length)}` : 'Выберите артистов для работы с базой'}
-        </span>
-        {selected.length > 0 && (
+      <section className="filter-bar" aria-label="Фильтры артистов">
+        <label className="search-filter">
+          <span className="input-with-icon">
+            <Search size={16} aria-hidden="true" />
+            <input
+              aria-label="Поиск профиля"
+              placeholder="Имя, username или биография"
+              value={query.search}
+              onChange={event => update('search', event.target.value)}
+            />
+          </span>
+        </label>
+        <div
+          className="filter-disclosure"
+          ref={filters}
+          onBlur={event => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setFiltersOpen(false);
+          }}
+          onKeyDown={event => {
+            if (event.key === 'Escape' && filtersOpen) {
+              setFiltersOpen(false);
+              trigger.current?.focus();
+            }
+          }}
+        >
+          <button
+            type="button"
+            ref={trigger}
+            className="filter-trigger"
+            aria-controls={filterId}
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen(value => !value)}
+          >
+            <SlidersHorizontal size={16} /> Фильтры {filterCount > 0 && <strong>{filterCount}</strong>}
+          </button>
+          <div id={filterId} hidden={!filtersOpen} className="quiet-filter-popover">
+            <div className="filter-grid">
+              <label>
+                Жанр
+                <select
+                  aria-label="Жанр"
+                  value={query.genre}
+                  onChange={event => update('genre', event.target.value)}
+                >
+                  <option value="">Все жанры</option>
+                  {genres.map(genre => (
+                    <option key={genre}>{genre}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Статус
+                <select
+                  aria-label="Статус"
+                  value={query.status}
+                  onChange={event => update('status', event.target.value)}
+                >
+                  <option value="">Все статусы</option>
+                  {['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(status => (
+                    <option key={status} value={status}>
+                      {statusLabels[status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Источник
+                <select
+                  aria-label="Источник"
+                  value={query.source}
+                  onChange={event => update('source', event.target.value)}
+                >
+                  <option value="">Все источники</option>
+                  <option value="mock">Демо</option>
+                  <option value="imported">Импорт</option>
+                  <option value="instagram_scout">Скаут-источники</option>
+                  <option value="instagram_browser">Instagram из браузера</option>
+                </select>
+              </label>
+              <label>
+                Подписчики от
+                <input
+                  type="number"
+                  min={0}
+                  value={query.min_followers}
+                  onChange={event => update('min_followers', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                Подписчики до
+                <input
+                  type="number"
+                  min={0}
+                  value={query.max_followers}
+                  onChange={event => update('max_followers', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                Оценка от
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={query.minimum_score}
+                  onChange={event => update('minimum_score', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                Активность
+                <select
+                  value={query.activity_days || ''}
+                  onChange={event =>
+                    update('activity_days', event.target.value ? Number(event.target.value) : null)
+                  }
+                >
+                  <option value="">Любая</option>
+                  {[7, 14, 30, 60, 90].map(days => (
+                    <option key={days} value={days}>
+                      {days} дней
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Сортировка
+                <select value={query.sort} onChange={event => update('sort', event.target.value)}>
+                  <option value="score">Оценка</option>
+                  <option value="followers">Подписчики</option>
+                  <option value="activity">Активность</option>
+                  <option value="created">Дата открытия</option>
+                </select>
+              </label>
+              <label>
+                Порядок
+                <select
+                  value={String(query.descending)}
+                  onChange={event => update('descending', event.target.value === 'true')}
+                >
+                  <option value="true">По убыванию</option>
+                  <option value="false">По возрастанию</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+      {selected.length > 0 && (
+        <div className="lead-selection-bar" role="region" aria-label="Действия с выбранными">
+          <span aria-live="polite">Выбрано: {number(selected.length)}</span>
+
           <>
             <button className="text-action" onClick={() => setSelected([])}>
               Снять выделение
@@ -115,122 +287,9 @@ export function Leads({
               <Trash2 size={14} /> Удалить
             </Button>
           </>
-        )}
-        <ErrorToast message={outreachError} />
-      </div>
-      <section className="panel filter-bar" aria-label="Фильтры артистов">
-        <label className="search-filter">
-          <span className="input-with-icon">
-            <Search size={16} aria-hidden="true" />
-            <input
-              aria-label="Поиск профиля"
-              placeholder="Имя, username или биография"
-              value={query.search}
-              onChange={event => update('search', event.target.value)}
-            />
-          </span>
-        </label>
-        <select aria-label="Жанр" value={query.genre} onChange={event => update('genre', event.target.value)}>
-          <option value="">Все жанры</option>
-          {genres.map(genre => (
-            <option key={genre}>{genre}</option>
-          ))}
-        </select>
-        <select
-          aria-label="Статус"
-          value={query.status}
-          onChange={event => update('status', event.target.value)}
-        >
-          <option value="">Все статусы</option>
-          {['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(status => (
-            <option key={status} value={status}>
-              {statusLabels[status]}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Источник"
-          value={query.source}
-          onChange={event => update('source', event.target.value)}
-        >
-          <option value="">Все источники</option>
-          <option value="mock">Демо</option>
-          <option value="imported">Импорт</option>
-          <option value="instagram_scout">Скаут-источники</option>
-          <option value="instagram_browser">Instagram из браузера</option>
-        </select>
-        <details className="advanced-filters">
-          <summary>
-            <SlidersHorizontal size={15} /> Ещё фильтры
-          </summary>
-          <div className="filter-grid">
-            <label>
-              Подписчики от
-              <input
-                type="number"
-                min={0}
-                value={query.min_followers}
-                onChange={event => update('min_followers', Number(event.target.value))}
-              />
-            </label>
-            <label>
-              Подписчики до
-              <input
-                type="number"
-                min={0}
-                value={query.max_followers}
-                onChange={event => update('max_followers', Number(event.target.value))}
-              />
-            </label>
-            <label>
-              Оценка от
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={query.minimum_score}
-                onChange={event => update('minimum_score', Number(event.target.value))}
-              />
-            </label>
-            <label>
-              Активность
-              <select
-                value={query.activity_days || ''}
-                onChange={event =>
-                  update('activity_days', event.target.value ? Number(event.target.value) : null)
-                }
-              >
-                <option value="">Любая</option>
-                {[7, 14, 30, 60, 90].map(days => (
-                  <option key={days} value={days}>
-                    {days} дней
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Сортировка
-              <select value={query.sort} onChange={event => update('sort', event.target.value)}>
-                <option value="score">Оценка</option>
-                <option value="followers">Подписчики</option>
-                <option value="activity">Активность</option>
-                <option value="created">Дата открытия</option>
-              </select>
-            </label>
-            <label>
-              Порядок
-              <select
-                value={String(query.descending)}
-                onChange={event => update('descending', event.target.value === 'true')}
-              >
-                <option value="true">По убыванию</option>
-                <option value="false">По возрастанию</option>
-              </select>
-            </label>
-          </div>
-        </details>
-        <span className="selection-count">Выбрано: {selected.length}</span>
-      </section>
+          <ErrorToast message={outreachError} />
+        </div>
+      )}
       {resource.error && resource.data ? (
         <div className="lead-inline-error" role="alert">
           <span>{resource.error} Показаны последние загруженные данные.</span>
@@ -267,20 +326,22 @@ export function Leads({
                       }
                     />
                   </th>
-                  <th>Instagram</th>
-                  <th>Тип</th>
+                  <th>Артист</th>
+                  <th>Жанр / тип</th>
                   <th>Подписчики</th>
-                  <th>Контакты</th>
-                  <th>Источник</th>
                   <th>Оценка</th>
                   <th>Статус</th>
-                  <th>Дата</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map(lead => (
                   <tr
                     key={lead.id}
+                    onClick={event => {
+                      if ((event.target as HTMLElement).closest('input,button,td:first-child')) return;
+                      event.currentTarget.querySelector<HTMLButtonElement>('.profile-cell')?.focus();
+                      setDetail(lead.id);
+                    }}
                     data-selected={selected.includes(lead.id)}
                     data-inspected={detail === lead.id}
                   >
@@ -294,7 +355,6 @@ export function Leads({
                     </td>
                     <td>
                       <button className="profile-cell" onClick={() => setDetail(lead.id)}>
-                        <span className="avatar">{lead.username.slice(0, 1).toUpperCase()}</span>
                         <span title={`${lead.display_name} · @${lead.username}`}>
                           <strong>{lead.display_name || lead.username}</strong>
                           <small>@{lead.username}</small>
@@ -302,54 +362,16 @@ export function Leads({
                       </button>
                     </td>
                     <td>
-                      {lead.scout_profile ? (
-                        <span title={lead.primary_genre || undefined}>
-                          {categoryLabels[lead.scout_profile.profile_type]}{' '}
-                          <small>{lead.scout_profile.confidence}%</small>
-                        </span>
-                      ) : (
-                        lead.primary_genre || '—'
-                      )}
+                      {lead.primary_genre ||
+                        (lead.scout_profile && categoryLabels[lead.scout_profile.profile_type]) ||
+                        '—'}
                     </td>
                     <td>
-                      {lead.unknown_fields?.includes('followers') ? 'Нет данных' : number(lead.followers)}
-                    </td>
-                    <td className="contact-cell">
-                      {lead.scout_profile?.emails[0] || lead.scout_profile?.phones[0] ? (
-                        <>
-                          {lead.scout_profile.emails[0] && (
-                            <span title={lead.scout_profile.emails.join('\n')}>
-                              {lead.scout_profile.emails[0]}
-                            </span>
-                          )}
-                          {lead.scout_profile.phones[0] && <small>{lead.scout_profile.phones[0]}</small>}
-                        </>
+                      {lead.unknown_fields?.includes('followers') ? (
+                        <span title="Подписчики не прочитаны">—</span>
                       ) : (
-                        '—'
+                        number(lead.followers)
                       )}
-                    </td>
-                    <td>
-                      <span
-                        className="source-chip"
-                        title={[
-                          lead.scout_profile
-                            ? `Найден через: ${methodLabel(lead.scout_profile.discovery_method)}`
-                            : '',
-                          ...lead.sources.map(source => `${source.source_type}: ${source.source_value}`),
-                        ]
-                          .filter(Boolean)
-                          .join('\n')}
-                      >
-                        {lead.scout_profile
-                          ? `@${lead.scout_profile.source_username}`
-                          : [
-                              ...new Set(
-                                lead.sources.map(
-                                  source => sourceLabels[source.source_provider] || source.source_provider,
-                                ),
-                              ),
-                            ].join(', ')}
-                      </span>
                     </td>
                     <td>
                       <span className="score-pill">{lead.lead_score}</span>
@@ -358,7 +380,6 @@ export function Leads({
                       <StatusBadge value={lead.status} label={statusLabels[lead.status]} />
                       {lead.do_not_contact && <small className="cell-sub dnc-mark">Не связываться</small>}
                     </td>
-                    <td>{date(lead.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -373,6 +394,7 @@ export function Leads({
             <span>
               Страница {query.page} из {Math.max(1, Math.ceil(resource.data.total / query.page_size))}
             </span>
+            {!jobId && <LeadStats />}
             <div className="actions">
               <Button
                 variant="outline"
@@ -418,7 +440,13 @@ export function Leads({
         </LeadDialog>
       )}
       {detail && (
-        <LeadDetail inspector id={detail} close={() => setDetail(undefined)} refresh={resource.refresh} />
+        <LeadDetail
+          key={detail}
+          inspector
+          id={detail}
+          close={() => setDetail(undefined)}
+          refresh={resource.refresh}
+        />
       )}
     </div>
   );
@@ -428,17 +456,13 @@ function LeadStats() {
   const stats = useResource<DashboardData>('dashboard.get', {}, 15000);
   if (!stats.data) return null;
   return (
-    <div className="stat-cards">
-      {[
-        { label: 'Всего', value: stats.data.total },
-        { label: 'Подходят', value: stats.data.qualified },
-        { label: 'Сегодня', value: stats.data.today },
-      ].map(item => (
-        <div className="stat-card" key={item.label}>
-          <strong>{number(item.value)}</strong>
-          <span>{item.label}</span>
-        </div>
-      ))}
+    <div className="lead-totals" aria-label="Показатели всей базы">
+      <span>
+        Подходят <b>{number(stats.data.qualified)}</b>
+      </span>
+      <span>
+        Сегодня <b>{number(stats.data.today)}</b>
+      </span>
     </div>
   );
 }
