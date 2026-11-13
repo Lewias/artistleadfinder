@@ -7,6 +7,7 @@ import {
   DatabaseZap,
   FileDown,
   FileUp,
+  MessagesSquare,
   Plus,
   RotateCcw,
   Search,
@@ -35,6 +36,7 @@ import { number } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { Button } from '../components/ui/button';
+import { EmailThreadModal } from '../components/email/EmailThreadModal';
 import { errorText } from '../components/accountRuns';
 import {
   ColumnFilter,
@@ -74,6 +76,8 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
   const [selected, setSelected] = useState<number[]>([]);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [draft, setDraft] = useState<ContactDraft>();
+  // The email CRM opens the conversation with a contact.
+  const [threadOf, setThreadOf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -197,19 +201,22 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
     });
   const allChecked = items.length > 0 && items.every(item => selected.includes(item.id));
   const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
-  const writeKinds: CrmChannelKind[] = crm === 'instagram' ? ['instagram'] : ['phone', 'email'];
+  const writeKinds: CrmChannelKind[] =
+    crm === 'instagram' ? ['instagram'] : crm === 'email' ? ['email'] : ['phone', 'email'];
 
   return (
     <div className="crm-page">
       <PageHeader
         page={
-          crm === 'instagram'
-            ? others
-              ? 'crm-users'
-              : 'crm'
-            : others
-              ? 'imessage-crm-users'
-              : 'imessage-crm'
+          crm === 'email'
+            ? 'email-crm'
+            : crm === 'instagram'
+              ? others
+                ? 'crm-users'
+                : 'crm'
+              : others
+                ? 'imessage-crm-users'
+                : 'imessage-crm'
         }
         count={number(counts.all)}
       >
@@ -612,6 +619,15 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
                       >
                         <RotateCcw size={13} /> Вернуть
                       </Button>
+                    ) : crm === 'email' ? (
+                      <Button
+                        variant="outline"
+                        disabled={!mainEmail(contact)}
+                        title={mainEmail(contact) ? 'Вся переписка и ответ в ту же ветку' : 'Нет email'}
+                        onClick={() => setThreadOf(mainEmail(contact))}
+                      >
+                        <MessagesSquare size={13} /> Переписка
+                      </Button>
                     ) : (
                       <Button
                         variant="outline"
@@ -716,8 +732,13 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
           onClose={() => setDialog(null)}
         />
       )}
+      {threadOf && <EmailThreadModal address={threadOf} onClose={() => setThreadOf(null)} />}
     </div>
   );
+}
+
+function mainEmail(contact: CrmContact): string | null {
+  return contact.channels.find(item => item.kind === 'email')?.value ?? null;
 }
 
 function importText(result: CrmImportResult) {

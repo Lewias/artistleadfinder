@@ -1,16 +1,15 @@
-"""A real Postgres with the server migrations and stand-ins for the parser's core.
+"""A real Postgres with the server migrations.
 
 Postgres comes from `pgserver` (a local build, no Docker); each test gets a fresh
 database. Supabase's `auth` schema is reduced to what the migrations use: `auth.users`
 and `auth.uid()` from the request claims, as PostgREST sets them. Extensions the stand-in
-lacks (pgcrypto for access keys) are not needed by the cloud parser.
+lacks (pgcrypto for access keys) are not needed by the bot.
 """
 
 import itertools
 import json
 import os
 import re
-import sys
 import uuid
 from pathlib import Path
 
@@ -19,14 +18,8 @@ import pytest
 from psycopg.rows import dict_row
 
 ROOT = Path(__file__).resolve().parents[3]
-# The parser runs the app's own core.
-sys.path.insert(0, str(ROOT / "backend"))
-
-from cloud_worker.runner import Runner  # noqa: E402
-
 MIGRATIONS = ROOT / "supabase" / "migrations"
 PGDATA = os.environ.get("CLOUD_TEST_PGDATA", "C:/Users/Public/alf-cloud-test/pgdata")
-PROFILE = "a" * 32
 _counter = itertools.count(1)
 
 AUTH = """
@@ -62,7 +55,7 @@ def _migration(text: str) -> str:
 
 @pytest.fixture
 def dsn(server):
-    name = f"cloud_{os.getpid()}_{next(_counter)}"
+    name = f"bot_{os.getpid()}_{next(_counter)}"
     base = server.get_uri()
     with psycopg.connect(base, autocommit=True) as conn:
         conn.execute(f"drop database if exists {name}")
@@ -101,7 +94,7 @@ def add_user(db, email: str) -> str:
 
 
 class AsUser:
-    """Calls the database the way PostgREST does for a signed-in user."""
+    """Calls the database the way PostgREST does for a signed-in user (the app)."""
 
     def __init__(self, dsn: str, user_id: str):
         self.dsn = dsn
@@ -118,155 +111,10 @@ class AsUser:
                 cur = conn.execute(sql, params)
                 return cur.fetchall() if cur.description else None
 
-    def put_session(self, profile=PROFILE, cookies=None, proxy=None):
-        record = {"cookies": cookies or [{"name": "sessionid", "value": "s1"}], "proxy": proxy}
-        self.run(
-            "select public.cloud_session_put(%s, %s, %s::jsonb)",
-            (profile, "Рабочий", json.dumps(record)),
-        )
+    def take(self) -> list[dict]:
+        """What the app does every few seconds: the questions waiting for this account."""
+        rows = self.run("select request_id, question from public.tg_requests_take()")
+        return sorted(rows, key=lambda row: row["request_id"])
 
-    def start(self, params: dict, request_id: str | None = None) -> str:
-        rows = self.run(
-            "select public.cloud_start(%s, %s::jsonb) as id",
-            (request_id or uuid.uuid4().hex, json.dumps(params)),
-        )
-        return str(rows[0]["id"])
-
-    def cancel(self, job_id: str) -> None:
-        self.run("select public.cloud_cancel(%s)", (job_id,))
-
-
-def params(**overrides) -> dict:
-    base = {
-        "profile_id": PROFILE,
-        "sources": ["rapgoat.tv"],
-        "categories": ["ARTIST", "PRODUCER"],
-        "target": 3,
-        "settings": {"scout_methods": ["posts"]},
-    }
-    base.update(overrides)
-    return base
-
-
-def lead(name, category="ARTIST", emails=()):
-    return {
-        "username": name,
-        "instagram_id": f"id-{name}",
-        "via": ["posts"],
-        "origins": [
-            {"via": "posts", "source": "rapgoat.tv", "post": "https://www.instagram.com/p/C1/"}
-        ],
-        "category": category,
-        "confidence": 80,
-        "reason": "ссылки на релизы",
-        "ai_ok": True,
-        "profile": {
-            "instagram_id": f"id-{name}",
-            "username": name,
-            "full_name": name.title(),
-            "biography": "Rapper",
-            "links": [],
-            "emails": list(emails),
-            "phones": [],
-            "followers": 1500,
-        },
-    }
-
-
-class FakeEngine:
-    """The core of one user: what a scout run would find, without a browser."""
-
-    def __init__(self, owner):
-        self.owner = owner
-        self.runs: list[dict] = []
-        self.sessions: dict = {}
-        self.settings: dict = {}
-        self.calls: list[tuple] = []
-        self.pending: list[dict] = []
-        self.closed = False
-        self.cancelled_open = 0
-
-    def put_session(self, profile, name, record):
-        self.sessions[profile] = record
-
-    def session(self, profile):
-        return {**self.sessions[profile], "cookies": [{"name": "sessionid", "value": "renewed"}]}
-
-    def apply_settings(self, settings):
-        self.settings = settings
-
-    def cancel_open_runs(self):
-        self.cancelled_open += 1
-
-    def start(self, profile, sources, target):
-        self.runs.append({"profile": profile, "sources": sources, "target": target})
-        return len(self.runs)
-
-    def new_leads(self, run_id):
-        found, self.pending = self.pending, []
-        return found
-
-    def call(self, method, params):
-        self.calls.append((method, params))
-        if method == "browser.runtime.is_open":
-            return {"open": True}
-        return {"ok": True}
-
-    def open_window(self, profile):
-        return self.call("browser.runtime.open", {"id": profile})
-
-    def close(self):
-        self.closed = True
-
-
-class ScriptedDriver:
-    """Plays queue states to the runner's tick, adding leads as the 'parser' finds them."""
-
-    def __init__(self, engine, script):
-        self.engine = engine
-        self.script = script
-        self.decisions = []
-
-    def run(self, job_id, tick):
-        state = {"status": "running"}
-        final = "completed"
-        for step in self.script:
-            self.engine.pending += step.get("leads", [])
-            state = {"status": "running", "profile_id": PROFILE, **step.get("state", {})}
-            decision = tick(state)
-            self.decisions.append(decision)
-            if callable(step.get("then")):
-                step["then"]()
-            final = step.get("final", final)
-            if decision == "stop":
-                return state
-        return {**state, "status": final}
-
-
-class Clock:
-    def __init__(self):
-        self.value = 0.0
-
-    def __call__(self):
-        # Every tick is far enough apart for the runner's checks.
-        self.value += 10
-        return self.value
-
-
-def make_runner(dsn, scripts, engines=None, worker_id="cloud-test"):
-    engines = engines if engines is not None else {}
-
-    def engine_for(owner):
-        engines[owner] = FakeEngine(owner)
-        return engines[owner]
-
-    def driver_for(engine):
-        return ScriptedDriver(engine, scripts.pop(0) if scripts else [])
-
-    return Runner(
-        lambda: psycopg.connect(dsn, autocommit=True, row_factory=dict_row),
-        engine_for,
-        driver_for,
-        worker_id=worker_id,
-        clock=Clock(),
-    )
+    def answer(self, request_id: int, text: str) -> None:
+        self.run("select public.tg_request_answer(%s, %s)", (request_id, text))

@@ -327,6 +327,8 @@ CORE["leads.detail"]["outreach"] = {
 CORE.update(json.loads((ROOT / "scripts" / "ui-preview-imessage.json").read_text(encoding="utf-8")))
 # CRM: four contacts saved through the real CrmService (scratch database).
 CORE.update(json.loads((ROOT / "scripts" / "ui-preview-crm.json").read_text(encoding="utf-8")))
+# Email: two Gmail mailboxes and a running campaign from the real EmailService (stand-in Gmail).
+CORE.update(json.loads((ROOT / "scripts" / "ui-preview-email.json").read_text(encoding="utf-8")))
 CORE["autopilot.state"] = {
     "status": "scouting", "message": "", "profile_ids": ["a" * 32, "b" * 32],
     "accounts": ["Dmitrii", "Dima2"], "target": 20, "goal": 40, "found": None,
@@ -334,29 +336,6 @@ CORE["autopilot.state"] = {
 }
 CORE["inbox.state"] = {"scan": None, "findings": [], "counts": {"new": 0, "added": 0, "hidden": 0}}
 
-CLOUD_JOB = {
-    "id": "6f1c2e8a-0000-4000-8000-000000000001", "request_id": "x", "profile_id": "a" * 32,
-    "kind": "scout", "stage": "collecting", "cancel_requested": False, "error": None,
-    "created_at": "2026-10-09T18:00:00+00:00", "updated_at": "2026-10-09T18:20:00+00:00",
-    "started_at": "2026-10-09T18:00:05+00:00", "finished_at": None,
-    "params": {"sources": ["rapgoat.tv", "topdailyrap", "raphitsusa"],
-               "categories": ["ARTIST", "PRODUCER"], "target": 50},
-    "progress": {"status": "running", "found": 14, "target": 50, "candidates": 212,
-                 "step": "profile", "waiting": 6, "notices": []},
-    "counters": {"found": 14, "passed": 12, "added": 10, "updated": 2, "filtered": 2, "errors": 0},
-}
-CLOUD_OUTREACH = {
-    **CLOUD_JOB, "id": "6f1c2e8a-0000-4000-8000-000000000003", "kind": "outreach",
-    "created_at": "2026-10-09T19:00:00+00:00",
-    "params": {"usernames": ["jay.carter", "kid.vibes", "beatz.by.max"], "messages": ["Привет!"]},
-    "progress": {"status": "sending", "total": 3, "sent": 1, "skipped": 1, "failed": 0,
-                 "queued": 1, "sender_status": "active", "sent_24h": 1, "daily_limit": 20},
-    "counters": {"total": 3, "sent": 1, "skipped": 1, "failed": 0},
-}
-CORE["cloud.jobs"] = [CLOUD_OUTREACH, CLOUD_JOB,
-                      {**CLOUD_JOB, "id": "6f1c2e8a-0000-4000-8000-000000000002",
-                       "stage": "completed", "created_at": "2026-10-08T12:00:00+00:00"}]
-CORE["cloud.outreach_sources"] = {"list": 12, "found": 27, "messages": 3}
 CORE["assistant.state"] = {
     "configured": True, "running": True, "step": "Пишет сильная модель", "error": "",
     "escalation": True, "models": {"main": "Haiku 5.5", "strong": "Sonnet 5.5"},
@@ -392,11 +371,11 @@ CORE["assistant.state"] = {
          "model": "Haiku 5.5", "strong": False},
     ],
     "actions": [
-        {"id": 1, "kind": "cloud_search", "status": "done", "done_at": "2026-10-10T10:00:00",
-         "summary": "Облачный поиск: 40 лидов с аккаунта «Main», 12 источников парсера",
-         "result": "Облачный поиск запущен (12 источников). Ход — в «Облачном парсере»."},
-        {"id": 2, "kind": "cloud_outreach", "status": "pending", "done_at": None, "result": "",
-         "summary": "Облачная рассылка: 27 новым лидам облачного парсера с аккаунта «Main»"},
+        {"id": 1, "kind": "instagram_list_add", "status": "done", "done_at": "2026-10-10T10:00:00",
+         "summary": "В список «Рассылки»: 3 — @jay.carter, @kid.vibes, @lil_nova",
+         "result": "Добавлено в список «Рассылки»: 3 (остальные уже были)."},
+        {"id": 2, "kind": "crm_contact", "status": "pending", "done_at": None, "result": "",
+         "summary": "Новый контакт в CRM imessage: Lil Test — +79994445566"},
     ],
     "usage": {"today": 0.0123, "month": 0.41, "by_model": {"Haiku 5.5": 0.18, "Sonnet 5.5": 0.23}},
     "mac_send": {"enabled": True, "description": "Черновик уходит через Сообщения на этом Mac."},
@@ -442,22 +421,7 @@ CORE["spotify.results"] = {"total": 4, "rows": [
         ("Leota", 4650, "okayleota", "Leota", "2026-05-01", "Los Angeles",
          "поиск «rage rap»", "2026-10-10T17:12:00+00:00", None),
     ])]}
-CORE["cloud.telegram"] = {"linked": True, "username": "artist_hunter", "notify": True, "bot": "alf_leads_bot"}
-CORE["cloud.sessions"] = [{"profile_id": "a" * 32, "name": "Dmitrii", "has_proxy": True,
-                           "updated_at": "2026-10-09T18:00:00+00:00"}]
-CORE["cloud.job"] = {"job": CLOUD_JOB, "page": 0, "page_size": 100, "items": [
-    {"id": i, "username": name, "instagram_id": None, "via": ["posts"],
-     "origins": [{"via": "posts", "source": "rapgoat.tv", "post": "https://www.instagram.com/p/C1/"}],
-     "profile": {"full_name": name.title(), "followers": 1200 + i * 37, "emails": mails, "phones": []},
-     "category": cat, "confidence": conf, "reason": reason, "outcome": out, "note": None,
-     "contact_id": None, "updated_at": "2026-10-09T18:10:00+00:00"}
-    for i, (name, mails, cat, conf, reason, out) in enumerate([
-        ("jay.carter", ["jay@music.com"], "ARTIST", 92, "streaming links; release wording", "added"),
-        ("beatz.by.max", [], "PRODUCER", 81, "beat store link", "added"),
-        ("lil.wave", [], "MEDIA", 74, "repost page", "filtered"),
-        ("kid.vibes", [], "ARTIST", 66, "music video", "updated"),
-    ])]}
-
+CORE["telegram.state"] = {"linked": True, "username": "artist_hunter", "notify": True, "bot": "alf_leads_bot"}
 MOCK = """
 (() => {
   const core = %s;

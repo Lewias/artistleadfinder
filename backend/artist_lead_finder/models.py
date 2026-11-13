@@ -771,12 +771,13 @@ class IMessageEvent(Base):
 
 
 class CrmContact(Base):
-    """Schema 13: a person in the Instagram or the iMessage CRM. The two CRMs are separate
-    tables of the same shape; contacts move between them only by an explicit import."""
+    """Schema 13: a person in the Instagram, the iMessage or (schema 27) the email CRM. The
+    CRMs are separate lists of the same shape; contacts move between them only by an
+    explicit import."""
 
     __tablename__ = "crm_contacts"
     __table_args__ = (
-        CheckConstraint("crm IN ('instagram','imessage')"),
+        CheckConstraint("crm IN ('instagram','imessage','email')"),
         Index("ix_crm_contacts_crm", "crm", "deleted_at", "id"),
         Index("ix_crm_contacts_lead", "lead_id"),
         Index("ix_crm_contacts_remote", "remote_id", unique=True),
@@ -825,7 +826,7 @@ class CrmStatus(Base):
 
     __tablename__ = "crm_statuses"
     __table_args__ = (
-        CheckConstraint("crm IN ('instagram','imessage')"),
+        CheckConstraint("crm IN ('instagram','imessage','email')"),
         UniqueConstraint("crm", "label", name="uq_crm_status_label"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1064,3 +1065,221 @@ class SpotifyRun(Base):
     message: Mapped[str] = mapped_column(String(500), default="")
     started_at: Mapped[datetime] = mapped_column(default=utcnow)
     finished_at: Mapped[datetime | None]
+
+
+class EmailAccount(Base):
+    """Schema 26: a Gmail mailbox that sends cold email through SMTP and is read by IMAP.
+
+    The app password is encrypted for the OS user (secret_box) and never leaves the core.
+    """
+
+    __tablename__ = "email_accounts"
+    __table_args__ = (
+        CheckConstraint("status IN ('active','paused','auth_failed','limited','bounces')"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    address: Mapped[str] = mapped_column(String(254), unique=True)
+    display_name: Mapped[str] = mapped_column(String(120), default="")
+    password_box: Mapped[bytes] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(12), default="active")
+    reason: Mapped[str] = mapped_column(String(300), default="")
+    # A «limited» mailbox comes back by itself after this time.
+    until: Mapped[datetime | None]
+    # The target per 24 hours; warm-up grows to it from the warm-up start.
+    daily_limit: Mapped[int] = mapped_column(default=20)
+    warmup: Mapped[bool] = mapped_column(Boolean, default=True)
+    warmup_started_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_sent_at: Mapped[datetime | None]
+    # The next send is not before this: a random pause after the last one.
+    next_send_at: Mapped[datetime | None]
+    # IMAP position: replies and bounces after this UID of this UIDVALIDITY.
+    imap_uidvalidity: Mapped[int | None]
+    imap_last_uid: Mapped[int] = mapped_column(default=0)
+    checked_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Schema 27, the warm-up pool: the mailbox writes to the other mailboxes and partners,
+    # which open, rescue from spam and answer. warm_target is the goal per day.
+    pool_warmup: Mapped[bool] = mapped_column(Boolean, default=False)
+    warm_target: Mapped[int] = mapped_column(default=20)
+    warm_started_at: Mapped[datetime | None]
+    warm_next_at: Mapped[datetime | None]
+
+
+class EmailWorkspace(Base):
+    """The single email list: recipients, subject and text variants, follow-ups, pacing."""
+
+    __tablename__ = "email_workspace"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # [{email, name, lead_id}]
+    recipients: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    subjects: Mapped[list[str]] = mapped_column(JSON, default=list)
+    bodies: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # [{days, body}]: sent in the same thread while there is no reply.
+    followups: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    signature: Mapped[str] = mapped_column(String(1000), default="")
+    interval_min_seconds: Mapped[int] = mapped_column(default=240)
+    interval_max_seconds: Mapped[int] = mapped_column(default=600)
+    # Sending hours in this time zone (the recipients' market).
+    window_zone: Mapped[str] = mapped_column(String(40), default="America/New_York")
+    window_start_hour: Mapped[int] = mapped_column(default=9)
+    window_end_hour: Mapped[int] = mapped_column(default=18)
+    skip_previously_emailed: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class EmailCampaign(Base):
+    __tablename__ = "email_campaigns"
+    __table_args__ = (
+        CheckConstraint("status IN ('running','paused','stopped','finished')"),
+        Index("ix_email_campaigns_status", "status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(12), default="running")
+    # The workspace settings as they were at the start.
+    followups: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    signature: Mapped[str] = mapped_column(String(1000), default="")
+    interval_min_seconds: Mapped[int] = mapped_column(default=240)
+    interval_max_seconds: Mapped[int] = mapped_column(default=600)
+    window_zone: Mapped[str] = mapped_column(String(40), default="America/New_York")
+    window_start_hour: Mapped[int] = mapped_column(default=9)
+    window_end_hour: Mapped[int] = mapped_column(default=18)
+    total: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None]
+
+
+class EmailJob(Base):
+    """One email of a campaign: the first one (step 0) or a follow-up in its thread.
+
+    pending -> sending -> sent; a send cut off midway becomes «uncertain» and is never
+    retried. Follow-ups wait (due_at empty) until the previous step is sent.
+    """
+
+    __tablename__ = "email_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','sending','sent','failed','skipped','uncertain','cancelled')"
+        ),
+        UniqueConstraint("campaign_id", "address", "step", name="uq_email_job_step"),
+        Index("ix_email_jobs_queue", "campaign_id", "status", "position"),
+        Index("ix_email_jobs_address", "address"),
+        Index("ix_email_jobs_message_id", "message_id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("email_campaigns.id", ondelete="CASCADE"))
+    position: Mapped[int]
+    step: Mapped[int] = mapped_column(default=0)
+    address: Mapped[str] = mapped_column(String(254))
+    name: Mapped[str] = mapped_column(String(160), default="")
+    lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
+    # The mailbox that sent the first email; follow-ups go from the same one.
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_accounts.id", ondelete="SET NULL")
+    )
+    subject: Mapped[str] = mapped_column(String(300), default="")
+    body: Mapped[str] = mapped_column(String(5000), default="")
+    status: Mapped[str] = mapped_column(String(12), default="pending")
+    # Not before this time; empty for a follow-up whose previous step is not sent yet.
+    due_at: Mapped[datetime | None]
+    attempts: Mapped[int] = mapped_column(default=0)
+    message_id: Mapped[str | None] = mapped_column(String(300))
+    sent_at: Mapped[datetime | None]
+    replied_at: Mapped[datetime | None]
+    bounced_at: Mapped[datetime | None]
+    note: Mapped[str] = mapped_column(String(300), default="")
+
+
+class EmailSuppression(Base):
+    """Addresses that never get email again: bounced, unsubscribed or blocked by hand."""
+
+    __tablename__ = "email_suppressions"
+    address: Mapped[str] = mapped_column(String(254), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class EmailMessage(Base):
+    """Schema 27: the conversation with a contact beyond the campaign emails: what they
+    wrote (in) and the answers sent from the CRM (out). Campaign emails stay in email_jobs."""
+
+    __tablename__ = "email_messages"
+    __table_args__ = (
+        CheckConstraint("direction IN ('in','out')"),
+        Index("ix_email_messages_address", "address", "sent_at"),
+        Index("ix_email_messages_message_id", "message_id"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The contact's address, whichever way the email went.
+    address: Mapped[str] = mapped_column(String(254))
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_accounts.id", ondelete="SET NULL")
+    )
+    direction: Mapped[str] = mapped_column(String(3))
+    subject: Mapped[str] = mapped_column(String(300), default="")
+    body: Mapped[str] = mapped_column(String(5000), default="")
+    message_id: Mapped[str | None] = mapped_column(String(300))
+    sent_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class EmailWarmupPartner(Base):
+    """Schema 27: a Gmail opened through an Nstbrowser profile that takes part in the
+    warm-up: it finds our emails, takes them out of spam and answers. It never sends
+    campaigns."""
+
+    __tablename__ = "email_warmup_partners"
+    __table_args__ = (CheckConstraint("status IN ('new','ok','error')"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[str] = mapped_column(String(80), unique=True)
+    profile_name: Mapped[str] = mapped_column(String(160), default="")
+    # Read from Gmail («Определить адреса») or typed in; empty until then.
+    address: Mapped[str] = mapped_column(String(254), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(8), default="new")
+    note: Mapped[str] = mapped_column(String(300), default="")
+    last_used_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class EmailWarmupMessage(Base):
+    """Schema 27: one warm-up email and its handling on the receiving side.
+
+    A conversation is up to three emails: ours to a partner (depth 0), the partner's
+    answer (1), our answer back (2). The receiving side finds the email (by Message-ID,
+    or for a partner's answer from the browser by In-Reply-To), records where it landed,
+    takes it out of spam, reads it and may answer.
+    """
+
+    __tablename__ = "email_warmup_messages"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','done','failed')"),
+        CheckConstraint("placement IS NULL OR placement IN ('inbox','spam','missing')"),
+        Index("ix_email_warmup_due", "status", "handle_at"),
+        Index("ix_email_warmup_sender", "sender_account_id", "sent_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Exactly one side is a partner when a partner takes part; both may be mailboxes.
+    sender_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_accounts.id", ondelete="CASCADE")
+    )
+    sender_partner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_warmup_partners.id", ondelete="CASCADE")
+    )
+    to_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_accounts.id", ondelete="CASCADE")
+    )
+    to_partner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("email_warmup_partners.id", ondelete="CASCADE")
+    )
+    depth: Mapped[int] = mapped_column(default=0)
+    subject: Mapped[str] = mapped_column(String(300), default="")
+    # Unknown for an answer written in the partner's browser: found by parent_message_id.
+    message_id: Mapped[str | None] = mapped_column(String(300))
+    parent_message_id: Mapped[str | None] = mapped_column(String(300))
+    references: Mapped[list[str]] = mapped_column(JSON, default=list)
+    sent_at: Mapped[datetime] = mapped_column(default=utcnow)
+    status: Mapped[str] = mapped_column(String(8), default="pending")
+    handle_at: Mapped[datetime | None]
+    attempts: Mapped[int] = mapped_column(default=0)
+    placement: Mapped[str | None] = mapped_column(String(8))
+    answered: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str] = mapped_column(String(300), default="")

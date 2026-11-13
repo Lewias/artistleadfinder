@@ -22,6 +22,7 @@ from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
 from .crm.service import CrmService
 from .discovery import DiscoveryEngine
+from .email_outreach.service import EmailService
 from .errors import UserError
 from .imessage import shortcut as imessage_shortcut
 from .imessage.service import IMessageService
@@ -253,6 +254,10 @@ class ApplicationService:
         self.idle_closer = IdleCloser(
             sessions, self.chromium, lambda: self.scout.scout_settings().scout_close_browser
         )
+        # «Почта»: cold email from the user's Gmail mailboxes; replies go to the email CRM.
+        self.email = EmailService(sessions, self.crm.merge)
+        self.crm.add_emails = self.email.add_values
+        self.email.restore()
         self.imessage.prune()
         self.imessage.remove_orphan_files()
         self.imessage.restore()
@@ -274,6 +279,8 @@ class ApplicationService:
             return self.assistant.call(method, params)
         if method.startswith("spotify."):
             return self.spotify.call(method, params)
+        if method.startswith("email."):
+            return self.email.call(method, params)
         handler = self.handlers.get(method)
         if handler is None:
             if method.startswith("browser.runtime."):
@@ -289,6 +296,7 @@ class ApplicationService:
             "browser.runtime.self_test": lambda p: chromium.self_test(),
             "browser.runtime.is_open": lambda p: {"open": chromium.is_open(p["id"])},
             "browser.runtime.close_idle": self.idle_closer.tick,
+            "browser.runtime.close": lambda p: chromium.close(p["id"]),
             "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
@@ -962,6 +970,7 @@ class ApplicationService:
         # A running assistant stops after its current step.
         self.assistant.stopping.set()
         self.spotify.shutdown()
+        self.email.shutdown()
         self.imessage.shutdown()
         self.chromium.shutdown()
         self.manager.shutdown()

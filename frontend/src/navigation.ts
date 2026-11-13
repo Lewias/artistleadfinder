@@ -11,16 +11,6 @@ export const pages = [
     channel: 'instagram',
   },
   {
-    id: 'cloud',
-    label: 'Облачный парсер',
-    eyebrow: 'СЕРВЕР',
-    title: 'Облачный парсер',
-    description:
-      'Наш парсер на сервере: тот же поиск по источникам, но без вашего компьютера. Найденные лиды сразу попадают в CRM.',
-    placement: 'main',
-    channel: 'instagram',
-  },
-  {
     id: 'spotify',
     label: 'Spotify',
     eyebrow: 'ИСТОЧНИК',
@@ -113,6 +103,16 @@ export const pages = [
     channel: 'imessage',
   },
   {
+    id: 'imessage-dialogs',
+    label: 'Диалоги',
+    eyebrow: 'IMESSAGE',
+    title: 'Диалоги iMessage',
+    description:
+      'Все переписки из «Сообщений» этого Mac: кто ждёт ответа, вся история и ответ прямо отсюда — контактам из CRM.',
+    placement: 'main',
+    channel: 'imessage',
+  },
+  {
     id: 'imessage-crm',
     label: 'CRM',
     eyebrow: 'IMESSAGE',
@@ -131,12 +131,52 @@ export const pages = [
     channel: 'imessage',
   },
   {
+    id: 'email',
+    label: 'Кампании',
+    eyebrow: 'EMAIL',
+    title: 'Email-рассылка',
+    description:
+      'Холодные письма с ваших Gmail: короткий текст без ссылок и картинок, пауза между письмами, разгон и часы отправки по времени получателя. Ответ останавливает фоллоу-апы и попадает в CRM Email.',
+    placement: 'main',
+    channel: 'email',
+  },
+  {
+    id: 'email-accounts',
+    label: 'Ящики',
+    eyebrow: 'EMAIL',
+    title: 'Ящики Gmail',
+    description:
+      'Gmail-ящики, с которых уходят письма: вход по паролю приложения, лимит в день и разгон для каждого.',
+    placement: 'main',
+    channel: 'email',
+  },
+  {
+    id: 'email-warmup',
+    label: 'Прогрев',
+    eyebrow: 'EMAIL',
+    title: 'Прогрев ящиков',
+    description:
+      'Ящики пишут друг другу и партнёрам из Nstbrowser короткие письма; получатель достаёт письмо из спама, читает и отвечает. Видно, сколько писем дошло во «Входящие».',
+    placement: 'main',
+    channel: 'email',
+  },
+  {
+    id: 'email-crm',
+    label: 'CRM',
+    eyebrow: 'EMAIL',
+    title: 'CRM Email',
+    description:
+      'Кто ответил на письма: статусы, следующие шаги, деньги и вся переписка с ответом в ту же ветку.',
+    placement: 'main',
+    channel: 'email',
+  },
+  {
     id: 'assistant',
     label: 'Ассистент',
     eyebrow: 'ИИ',
     title: 'Ассистент',
     description:
-      'Claude видит CRM, переписку iMessage и данные приложения, ведёт статусы, готовит ответы и предлагает запуски. Отправляете и запускаете вы — своей кнопкой.',
+      'Claude видит CRM, переписку iMessage и данные приложения, ведёт статусы, готовит ответы и предлагает действия. Отправляете и выполняете вы — своей кнопкой.',
     placement: 'footer',
     channel: 'instagram',
   },
@@ -164,4 +204,5 @@ export type Channel = (typeof pages)[number]['channel'];
 export const channels: { id: Channel; label: string; section: string }[] = [
   { id: 'instagram', label: 'Instagram', section: 'INSTAGRAM' },
   { id: 'imessage', label: 'iMessage', section: 'IMESSAGE' },
+  { id: 'email', label: 'Email', section: 'EMAIL' },
 ];

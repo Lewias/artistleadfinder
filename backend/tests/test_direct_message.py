@@ -172,3 +172,10 @@ def test_wrong_page_or_input_sends_nothing(browser):
     assert send_direct(page, "someoneelse", "")["error"] == "bad_request"
     assert page.evaluate("window.sent") is None
     page.close()
+
+
+def test_logged_out_profile_overlay_requires_login_without_retrying_message(browser):
+    page = profile_page(browser, "jaycarter", "<button>Log in</button><button>Sign up</button>")
+    assert send_direct(page, "jaycarter", "yo lets work") == {"outcome": "error", "error": "login"}
+    assert page.evaluate("window.sent") is None
+    page.close()

@@ -4,12 +4,15 @@ import {
   AudioLines,
   BarChart3,
   BookUser,
-  CloudCog,
   Contact,
   Database,
   Disc3,
+  Flame,
   History,
   LayoutTemplate,
+  Mail,
+  MailPlus,
+  MessageCircle,
   MessageSquareText,
   ScanSearch,
   ScrollText,
@@ -33,7 +36,6 @@ import { api } from './services/api';
 import { number } from './lib/format';
 import { Dashboard } from './pages/Dashboard';
 import { Discovery } from './pages/Discovery';
-import { Cloud } from './pages/Cloud';
 import { Spotify } from './pages/Spotify';
 import type { WorkTab } from './components/ScoutDiscovery';
 import { Leads } from './pages/Leads';
@@ -43,8 +45,11 @@ import { IMessageCampaigns } from './pages/IMessageCampaigns';
 import { IMessageLog } from './pages/IMessageLog';
 import { IMessageTemplates } from './pages/IMessageTemplates';
 import { Crm } from './pages/Crm';
+import { Dialogs } from './pages/Dialogs';
 import { Admin } from './pages/Admin';
 import { Assistant } from './pages/Assistant';
+import { EmailAccounts, EmailCampaigns } from './pages/Email';
+import { EmailWarmup } from './pages/EmailWarmup';
 import { BrowserProfiles } from './components/BrowserProfiles';
 import { SectionTransition } from './components/SectionTransition';
 import { ErrorBoundary, ErrorToast, Toaster } from './components/Toaster';
@@ -54,7 +59,6 @@ import { useUpdater } from './hooks/useUpdater';
 
 const icons: Record<PageId, LucideIcon> = {
   discovery: ScanSearch,
-  cloud: CloudCog,
   spotify: Disc3,
   profiles: UserRound,
   leads: Database,
@@ -63,17 +67,22 @@ const icons: Record<PageId, LucideIcon> = {
   imessage: MessageSquareText,
   'imessage-templates': LayoutTemplate,
   'imessage-log': ScrollText,
+  'imessage-dialogs': MessageCircle,
   crm: BookUser,
   'crm-users': Contact,
   'imessage-crm': BookUser,
   'imessage-crm-users': Contact,
+  email: Mail,
+  'email-accounts': MailPlus,
+  'email-warmup': Flame,
+  'email-crm': BookUser,
   assistant: Sparkles,
   admin: UsersRound,
   settings: SettingsIcon,
 };
 
 // Shown to admins and moderators only; a plain user does not see them at all.
-const staffPages: PageId[] = ['cloud', 'crm-users', 'imessage-crm-users', 'assistant'];
+const staffPages: PageId[] = ['crm-users', 'imessage-crm-users', 'assistant'];
 
 function useNavCounts(): Partial<Record<PageId, number>> {
   const sources = useResource<string[]>('scout.sources', {}, 15000);
@@ -84,9 +93,11 @@ function useNavCounts(): Partial<Record<PageId, number>> {
   const templates = useResource<IMessageTemplate[]>('imessage.templates', {}, 15000);
   const crm = useResource<CrmList>('crm.list', { crm: 'instagram', page_size: 1 }, 15000);
   const imessageCrm = useResource<CrmList>('crm.list', { crm: 'imessage', page_size: 1 }, 15000);
+  const emailCrm = useResource<CrmList>('crm.list', { crm: 'email', page_size: 1 }, 15000);
   return {
     crm: crm.data?.counts.all,
     'imessage-crm': imessageCrm.data?.counts.all,
+    'email-crm': emailCrm.data?.counts.all,
     imessage: imessage.data?.workspace.recipients.length,
     'imessage-templates': templates.data?.length,
     discovery: sources.data?.length,
@@ -128,7 +139,7 @@ function Workspace({
 }) {
   const core = useResource<{ version: string }>('system.info');
   const admin = account?.role === 'admin' && account.configured;
-  // Admin and moderator see every user's CRM, signed with the owner, the cloud parser and the assistant.
+  // Admin and moderator see every user's CRM, signed with the owner, and the assistant.
   const staff = (account?.role === 'admin' || account?.role === 'moderator') && account.configured;
   const visible = (id: PageId) => staff || !staffPages.includes(id);
   const [active, setActive] = useState<PageId>('discovery');
@@ -137,6 +148,7 @@ function Workspace({
   const [lastPage, setLastPage] = useState<Record<Channel, PageId>>({
     instagram: 'discovery',
     imessage: 'imessage',
+    email: 'email',
   });
   const [workTab, setWorkTab] = useState<WorkTab>('auto');
   const navigate = (page: PageId) => {
@@ -195,12 +207,7 @@ function Workspace({
         <div className="nav-section">{section.section}</div>
         <nav aria-label="Основная навигация">
           {pages
-            .filter(
-              item =>
-                item.placement === 'main' &&
-                item.channel === channel &&
-                visible(item.id),
-            )
+            .filter(item => item.placement === 'main' && item.channel === channel && visible(item.id))
             .map(navButton)}
         </nav>
         <nav className="sidebar-footer" aria-label="Параметры">
@@ -257,10 +264,10 @@ function Workspace({
                 <Dashboard navigate={navigate} />
               ) : active === 'discovery' ? (
                 <Discovery tab={workTab} onTab={setWorkTab} />
-              ) : active === 'cloud' && staff ? (
-                <Cloud />
               ) : active === 'spotify' ? (
                 <Spotify onWrite={writeTo} />
+              ) : active === 'imessage-dialogs' ? (
+                <Dialogs />
               ) : active === 'leads' ? (
                 <Leads
                   onCampaign={async ids => {
@@ -278,6 +285,14 @@ function Workspace({
                 <IMessageTemplates onUsed={() => navigate('imessage')} />
               ) : active === 'imessage-log' ? (
                 <IMessageLog />
+              ) : active === 'email' ? (
+                <EmailCampaigns onAccounts={() => navigate('email-accounts')} />
+              ) : active === 'email-accounts' ? (
+                <EmailAccounts />
+              ) : active === 'email-warmup' ? (
+                <EmailWarmup onAccounts={() => navigate('email-accounts')} />
+              ) : active === 'email-crm' ? (
+                <Crm crm="email" onWrite={() => navigate('email')} />
               ) : active === 'crm' ? (
                 <Crm crm="instagram" onWrite={writeTo} />
               ) : active === 'imessage-crm' ? (

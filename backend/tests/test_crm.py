@@ -70,7 +70,7 @@ def test_import_from_the_parsing_base_merges_on_repeat(crm):
     service, sessions, _ = crm
     add_leads(sessions)
     sources = {item["id"]: item["count"] for item in service.sources({"crm": "instagram"})}
-    assert sources == {"leads": 4, "imessage": 0}
+    assert sources == {"leads": 4, "imessage": 0, "email": 0}
     assert service.import_verse({"crm": "instagram", "source": "leads"})["added"] == 4
     listed = service.contacts({"crm": "instagram", "sort": "name", "descending": False})
     assert listed["total"] == 4
@@ -95,6 +95,7 @@ def test_crms_are_separate_and_import_into_each_other(crm):
     assert {i["id"]: i["count"] for i in service.sources({"crm": "imessage"})} == {
         "instagram": 4,
         "leads": 4,
+        "email": 0,
     }
     result = service.import_verse({"crm": "imessage", "source": "instagram"})
     assert result == {"added": 4, "merged": 0, "skipped": 0}

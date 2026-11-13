@@ -1,6 +1,6 @@
 """CRM contacts of one channel: list, edit, trash, statuses, imports, files and «Написать».
 
-The Instagram and the iMessage CRM are separate (`crm` column). Contacts move between
+The Instagram, the iMessage and the email CRM are separate (`crm` column). Contacts move between
 them, and from the parsing base, only through an import; a repeated import merges into
 the contacts that share a channel (Instagram username, email or phone) or the lead.
 Dates of next actions are calendar days in the user's local time.
@@ -24,6 +24,8 @@ from ..models import (
     CrmContact,
     CrmStatus,
     CrmTombstone,
+    EmailJob,
+    EmailMessage,
     IMessageCampaign,
     IMessageJob,
     Lead,
@@ -34,7 +36,7 @@ from . import sheets
 from . import sync as _sync  # noqa: F401 - registers the change marker
 from .emoji import clean_emoji
 
-CRMS = ("instagram", "imessage")
+CRMS = ("instagram", "imessage", "email")
 KINDS = ("instagram", "email", "phone")
 COLORS = ("violet", "blue", "green", "amber", "red", "pink", "slate")
 DEFAULT_STATUSES = [
@@ -91,9 +93,12 @@ COLUMNS = {
     "potential": ("потенциал", "potential"),
 }
 SOURCES = {
-    "instagram": ("leads", "imessage"),
-    "imessage": ("instagram", "leads"),
+    "instagram": ("leads", "imessage", "email"),
+    "imessage": ("instagram", "leads", "email"),
+    "email": ("leads", "instagram", "imessage"),
 }
+# The channel «Написать» writes to, and the one a contact of the CRM leads with.
+WRITE_KINDS = {"instagram": ("instagram",), "imessage": ("phone", "email"), "email": ("email",)}
 
 
 def _crm(params: dict) -> str:
@@ -208,8 +213,9 @@ def _keys(contact: CrmContact) -> set[tuple[str, str]]:
 
 
 def _primary(channels: list[dict], crm: str) -> list[dict]:
-    """The iMessage CRM leads with a phone or email, the Instagram one with the username."""
-    first = ("phone", "email") if crm == "imessage" else ("instagram",)
+    """The iMessage CRM leads with a phone or email, the email one with the email, the
+    Instagram one with the username."""
+    first = WRITE_KINDS[crm]
     return sorted(channels, key=lambda item: item["kind"] not in first)
 
 
@@ -228,10 +234,13 @@ class CrmService:
         add_usernames: Callable[[list[str]], int],
         add_recipients: Callable[[list[str]], int],
         today: Callable[[], date] = date.today,
+        add_emails: Callable[[list[str]], int] | None = None,
     ):
         self.sessions = sessions
         self.add_usernames = add_usernames
         self.add_recipients = add_recipients
+        # The email channel is created after the CRM; it sets this when it starts.
+        self.add_emails = add_emails or (lambda values: 0)
         self.today = today
         # (user id, is admin) of the signed-in account; (None, False) without accounts.
         self.viewer: Callable[[], tuple[str | None, bool]] = lambda: (None, False)
@@ -304,9 +313,35 @@ class CrmService:
 
     def _last_contacts(self, session, crm: str, contacts: list[CrmContact]) -> dict[int, datetime]:
         """When the app last wrote to each contact: outreach for Instagram, the phone
-        (execution acknowledged, not tests) for iMessage."""
+        (execution acknowledged, not tests) for iMessage, the mailboxes for email."""
         found: dict[int, datetime] = {}
-        if crm == "instagram":
+        if crm == "email":
+            values: dict[str, list[int]] = {}
+            for contact in contacts:
+                for item in contact.channels or []:
+                    if item["kind"] == "email":
+                        values.setdefault(item["value"], []).append(contact.id)
+            keys = list(values)
+            for start in range(0, len(keys), 500):
+                part = keys[start : start + 500]
+                rows = list(
+                    session.execute(
+                        select(EmailJob.address, func.max(EmailJob.sent_at))
+                        .where(EmailJob.address.in_(part), EmailJob.status == "sent")
+                        .group_by(EmailJob.address)
+                    )
+                ) + list(
+                    session.execute(
+                        select(EmailMessage.address, func.max(EmailMessage.sent_at))
+                        .where(EmailMessage.address.in_(part), EmailMessage.direction == "out")
+                        .group_by(EmailMessage.address)
+                    )
+                )
+                for address, when in rows:
+                    when = when.replace(tzinfo=None) if when else when
+                    for contact_id in values[address]:
+                        found[contact_id] = max(found.get(contact_id, when), when)
+        elif crm == "instagram":
             names: dict[str, list[int]] = {}
             for contact in contacts:
                 for item in contact.channels or []:
@@ -653,7 +688,7 @@ class CrmService:
                     )
                 )
             ]
-        kinds = ("instagram",) if crm == "instagram" else ("phone", "email")
+        kinds = WRITE_KINDS[crm]
         values = []
         for contact in contacts:
             if "Не связываться" in (contact.statuses or []):
@@ -665,11 +700,18 @@ class CrmService:
                 values.append(value)
         if not values:
             raise UserError(
-                "У выбранных нет Instagram."
-                if crm == "instagram"
-                else "У выбранных нет телефона или email."
+                {
+                    "instagram": "У выбранных нет Instagram.",
+                    "imessage": "У выбранных нет телефона или email.",
+                    "email": "У выбранных нет email.",
+                }[crm]
             )
-        added = self.add_usernames(values) if crm == "instagram" else self.add_recipients(values)
+        if crm == "instagram":
+            added = self.add_usernames(values)
+        elif crm == "email":
+            added = self.add_emails(values)
+        else:
+            added = self.add_recipients(values)
         return {"added": added, "found": len(values)}
 
     # ---------- imports ----------
@@ -760,12 +802,23 @@ class CrmService:
                 incoming = self._lead_contacts(session)
             else:
                 incoming = [self._copy(row) for row in self._crm_rows(session, source)]
-            return self._merge_all(session, crm, incoming)
+            without = 0
+            if crm == "email":
+                # Without an email there is nothing to write to from this CRM.
+                kept = [
+                    item
+                    for item in incoming
+                    if any(channel["kind"] == "email" for channel in item["channels"])
+                ]
+                without, incoming = len(incoming) - len(kept), kept
+            result = self._merge_all(session, crm, incoming)
+            result["skipped"] += without
+            return result
 
     def merge(self, crm: str, incoming: list[dict]) -> dict:
         """Contacts from another part of the app (the replies read from Direct), merged
         like an import."""
-        if crm not in ("instagram", "imessage"):
+        if crm not in CRMS:
             raise UserError("Неизвестная CRM.")
         with self.sessions.begin() as session:
             return self._merge_all(session, crm, incoming)

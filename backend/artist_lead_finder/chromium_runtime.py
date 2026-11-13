@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import urlparse, urlsplit
 
@@ -244,8 +245,32 @@ def install_chromium() -> bool:
     return True
 
 
+# The shell's requests, the assistant and the Telegram bridge reach the same browser
+# windows from their own threads.
+# Playwright sync objects belong to one thread: serialize every public browser
+# operation there, including calls made by service callbacks (is_open).
+def _on_browser_thread(method):
+    import functools
+    import threading
+
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        if getattr(self, "_browser_thread_id", None) == threading.get_ident():
+            return method(self, *args, **kwargs)
+
+        # Runtime initialization is single-threaded; the executor is created there.
+        def execute():
+            self._browser_thread_id = threading.get_ident()
+            return method(self, *args, **kwargs)
+
+        return self._browser_executor.submit(execute).result()
+
+    return wrapped
+
+
 class ChromiumRuntime:
     def __init__(self, sessions: BrowserSessions, installer=install_chromium):
+        self._browser_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="alf-browser")
         self.sessions = sessions
         self.playwright: Playwright | None = None
         self.windows: dict[str, Window] = {}
@@ -286,6 +311,7 @@ class ChromiumRuntime:
             self.playwright = sync_playwright().start()
         return self.playwright.chromium
 
+    @_on_browser_thread
     def self_test(self) -> dict:
         self._ready(wait=1800)
         browser = self._engine().launch(headless=True, channel="chromium")
@@ -341,13 +367,16 @@ class ChromiumRuntime:
             log.warning("session_autosave_failed", extra={"error_type": type(error).__name__})
             return {"ok": False}
 
-    def close(self, identifier: str) -> None:
-        """Close the window, keeping its session cookies."""
-        self._close(identifier)
-
+    @_on_browser_thread
     def is_open(self, identifier: str) -> bool:
         return self._window(identifier) is not None
 
+    @_on_browser_thread
+    def close(self, identifier: str) -> dict:
+        self._close(identifier)
+        return {"ok": True}
+
+    @_on_browser_thread
     def open(self, identifier: str, proxy_override: str | None = None) -> dict:
         window = self._window(identifier)
         if window:
@@ -418,6 +447,7 @@ class ChromiumRuntime:
         normalized = str(value or "Lax").lower()
         return {"strict": "Strict", "none": "None", "no_restriction": "None"}.get(normalized, "Lax")
 
+    @_on_browser_thread
     def screenshot(self, identifier: str, path) -> bool:
         """Debug screenshot of a profile window's page; False when the window is gone."""
         window = self._window(identifier)
@@ -426,6 +456,7 @@ class ChromiumRuntime:
         window.page.screenshot(path=str(path), full_page=False)
         return True
 
+    @_on_browser_thread
     def save(self, identifier: str) -> dict:
         if identifier == GUEST_ID:
             raise ValueError("Guest session cannot be saved")
@@ -437,6 +468,7 @@ class ChromiumRuntime:
             {"id": identifier, "cookies": window.context.cookies("https://www.instagram.com/")},
         )
 
+    @_on_browser_thread
     def navigate(self, identifier: str, url: str) -> dict:
         window = self._window(identifier)
         if not window:
@@ -455,6 +487,7 @@ class ChromiumRuntime:
                 raise ValueError("Browser window is closed") from None
         return {"ok": True, "rate_limited": window.rate_limited}
 
+    @_on_browser_thread
     def send_message(self, identifier: str, username: str, text: str) -> dict:
         """One outreach message through Instagram's interface in the open profile page."""
         window = self._window(identifier)
@@ -463,6 +496,7 @@ class ChromiumRuntime:
         window.rate_limited = False
         return send_direct(window.page, username, text, rate_limited=lambda: window.rate_limited)
 
+    @_on_browser_thread
     def read_thread(self, identifier: str, username: str, outbound: list[str]) -> dict:
         """One outreach thread read through Instagram's interface; nothing is typed."""
         window = self._window(identifier)
@@ -472,6 +506,7 @@ class ChromiumRuntime:
             window.page, username, outbound, rate_limited=lambda: window.rate_limited
         )
 
+    @_on_browser_thread
     def evaluate(self, identifier: str, script: str, args=None, feed: bool = False) -> dict:
         """Run a page script. `feed` (grid pages) adds what the page's own data says about
         the collected posts."""
@@ -499,6 +534,7 @@ class ChromiumRuntime:
 
     # ---------- Page data and fast profile requests (called by the core in-process) ----------
 
+    @_on_browser_thread
     def page_profile(self, identifier: str, username: str) -> dict | None:
         """The opened profile's owner from the JSON the page received (no request), and
         the page's own profile request learned for fast requests."""
@@ -515,6 +551,7 @@ class ChromiumRuntime:
             log.warning("page_profile_failed")
             return None
 
+    @_on_browser_thread
     def page_people(self, identifier: str) -> dict[str, dict]:
         """Light facts of the users the current page's data shows (private, followers)."""
         window = self._window(identifier)
@@ -537,6 +574,7 @@ class ChromiumRuntime:
             and (not template.user_id or (user_id and user_id.isdigit()))
         )
 
+    @_on_browser_thread
     def fetch_profile(self, identifier: str, username: str, user_id: str | None = None) -> dict:
         """One profile through the learned request, from the open tab without loading a
         page. {"user": {...}} or {"fallback": reason}; a refusal turns the fast path off
@@ -596,6 +634,7 @@ class ChromiumRuntime:
         window.fast_failures = 0
         return {"user": user, "kind": template.kind}
 
+    @_on_browser_thread
     def shutdown(self) -> None:
         for identifier in list(self.windows):
             self._close(identifier)

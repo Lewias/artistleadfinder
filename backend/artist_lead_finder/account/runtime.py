@@ -12,7 +12,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from ..cloud import CloudService
+from ..assistant.telegram import TelegramBridge, TelegramService
 from ..crm.sync import CrmSync
 from .admin import AdminService
 from .client import OfflineError
@@ -70,7 +70,8 @@ class Runtime:
         self.opened_for: str | None = None
         self.crm_sync: CrmSync | None = None
         self.admin = AdminService(account)
-        self.cloud = CloudService(account, lambda: self.service)
+        self.telegram = TelegramService(account)
+        self.bridge: TelegramBridge | None = None
         self.locked = False
         self.lock = threading.RLock()
         self.stopping = threading.Event()
@@ -137,9 +138,10 @@ class Runtime:
         crm = getattr(self.service, "crm", None)
         assistant = getattr(self.service, "assistant", None)
         if user_id and assistant is not None:
-            # The assistant reaches the cloud jobs the way the interface does, with the same
-            # account checks.
-            assistant.cloud = lambda method, params: self.call(method, params)
+            # Questions from the linked Telegram chat reach the assistant while the app runs.
+            self.bridge = TelegramBridge(self.account, assistant, self.telegram)
+            if self.background:
+                self.bridge.start()
         if user_id and crm is not None:
             crm.viewer = lambda: (self.account.user_id, self.account.sees_all_crm)
             self.crm_sync = CrmSync(self.service.sessions, self.account)
@@ -147,6 +149,9 @@ class Runtime:
             self.crm_sync.trigger()
 
     def _close(self) -> None:
+        if self.bridge is not None:
+            self.bridge.stop()
+            self.bridge = None
         if self.crm_sync is not None:
             self.crm_sync.stop()
             self.crm_sync = None
@@ -217,14 +222,14 @@ class Runtime:
             self.account.checked_at = None
             self.account.wake.set()
             return result
-        if method.startswith("cloud."):
-            # Jobs live on the server: the account must be signed in and ready.
+        if method.startswith("telegram."):
+            # The Telegram link lives on the server: the account must be signed in and ready.
             with self.lock:
                 if self.account.configured:
                     self.sync()
                     self.account.require_ready()
-                    return self._to_server(self.cloud.call, method, params)
-                return self.cloud.call(method, params)
+                    return self._to_server(self.telegram.call, method, params)
+                return self.telegram.call(method, params)
         if method == "system.info":
             return {**self.info(), "account": self.account.state()}
         if method == "browser.runtime.self_test" and self.service is None:

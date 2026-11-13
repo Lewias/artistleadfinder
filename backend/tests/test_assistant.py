@@ -429,31 +429,6 @@ def test_costs_follow_the_price_list():
 # ---------- the rest of the app: reading and proposed actions ----------
 
 
-class FakeCloud:
-    """The signed-in account's cloud jobs, as the account runtime answers them."""
-
-    def __init__(self):
-        self.calls: list[tuple[str, dict]] = []
-
-    def __call__(self, method, params):
-        self.calls.append((method, params))
-        if method == "cloud.jobs":
-            return [
-                {
-                    "kind": "scout",
-                    "stage": "completed",
-                    "created_at": "2026-10-10T10:00:00+00:00",
-                    "params": {"target": 30, "sources": ["a", "b"]},
-                    "counters": {"found": 12, "added": 9},
-                    "progress": {"found": 12},
-                    "error": None,
-                }
-            ]
-        if method == "cloud.outreach_sources":
-            return {"list": 0, "found": 7, "messages": 2}
-        return {"job": {"params": {"usernames": ["a", "b", "c"]}}}
-
-
 def accounts(service):
     proxy = {"scheme": "http", "host": "1.2.3.4", "port": 8000}
     main = service.call("browser.create", {"name": "Main", "proxy": proxy})["id"]
@@ -483,11 +458,7 @@ def test_haiku_reads_the_app_and_proposes_actions_the_user_runs(app):
         tool("app_stats"),
         tool("leads_search", query="", status="", min_followers=0, sort="score", limit=5),
         tool("search_history", limit=5),
-        tool("cloud_jobs"),
         tool("imessage_campaigns"),
-        tool("propose_cloud_search", account="main", target=40, categories=["ARTIST"]),
-        tool("propose_cloud_outreach", account="Bare", source="found", limit=5),
-        tool("propose_cloud_outreach", account="Main", source="found", limit=5),
         tool("propose_instagram_list_add", usernames=["@Jay.Carter", "bad name"], reason="тест"),
         tool("propose_imessage_list_add", handles=["+79991112233", "8 999"], reason=""),
         tool(
@@ -499,44 +470,21 @@ def test_haiku_reads_the_app_and_proposes_actions_the_user_runs(app):
         ),
     ]
     helper, claude = assistant(app, [reply(*calls), reply(text("Предложил."), stop="end_turn")])
-    cloud = FakeCloud()
-    helper.cloud = cloud
-    real_core = helper.core
-    helper.core = lambda method, params: (
-        [{"username": "rapgoat.tv", "enabled": True}, {"username": "off", "enabled": False}]
-        if method == "scout.source_list"
-        else real_core(method, params)
-    )
-    state = run(helper, "найди 40 артистов в облаке и напиши новым")
+    state = run(helper, "добавь их в списки и заведи контакт")
     assert state["error"] == ""
     results = results_of(claude)
     texts = [item["content"] for item in results]
     assert '"proxy": true' in texts[0] and '"name": "Bare"' in texts[0] and main not in texts[0]
-    assert '"total": 0' in texts[1] and '"stage": "completed"' in texts[4]
-    assert "нет прокси" in texts[7] and results[7]["is_error"]
+    assert '"total": 0' in texts[1]
     # Nothing ran yet: every action waits for «Выполнить».
-    assert [call[0] for call in cloud.calls] == ["cloud.jobs", "cloud.outreach_sources"]
+    assert not service.workspace.state()["usernames"]
     actions = {action["kind"]: action for action in state["actions"]}
     assert set(actions) == {
-        "cloud_search",
-        "cloud_outreach",
         "instagram_list_add",
         "imessage_list_add",
         "crm_contact",
     }
     assert all(action["status"] == "pending" for action in actions.values())
-    assert "40 лидов с аккаунта «Main», 1 источников" in actions["cloud_search"]["summary"]
-    assert "5 новым лидам облачного парсера" in actions["cloud_outreach"]["summary"]
-
-    state = helper.action_run({"id": actions["cloud_search"]["id"]})
-    method, params = cloud.calls[-1]
-    assert method == "cloud.start" and params["sources"] == "rapgoat.tv"
-    assert params["profile_id"] == main and params["target"] == 40
-    assert params["categories"] == ["ARTIST"] and params["request_id"].startswith("assistant-")
-    helper.action_run({"id": actions["cloud_outreach"]["id"]})
-    method, params = cloud.calls[-1]
-    assert method == "cloud.outreach_start" and params["source"] == "found"
-    assert params["limit"] == 5
     helper.action_run({"id": actions["instagram_list_add"]["id"]})
     assert [item["username"] for item in service.workspace.state()["usernames"]] == ["jay.carter"]
     helper.action_run({"id": actions["imessage_list_add"]["id"]})
@@ -547,11 +495,12 @@ def test_haiku_reads_the_app_and_proposes_actions_the_user_runs(app):
         helper.action_run({"id": actions["crm_contact"]["id"]})
     assert not service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
     done = {action["kind"]: action for action in helper.state({})["actions"]}
-    assert done["cloud_search"]["status"] == "done" and "запущен" in done["cloud_search"]["result"]
+    assert done["instagram_list_add"]["status"] == "done"
+    assert "Добавлено" in done["instagram_list_add"]["result"]
     assert "crm_contact" not in done  # rejected ones leave the list
 
 
-def test_a_contact_proposal_creates_it_and_cloud_needs_a_sign_in(app):
+def test_a_contact_proposal_creates_it(app):
     service, _, _ = app
     accounts(service)
     helper, claude = assistant(
@@ -565,15 +514,11 @@ def test_a_contact_proposal_creates_it_and_cloud_needs_a_sign_in(app):
                     channels=[{"kind": "phone", "value": "+79994445566"}],
                     notes="",
                 ),
-                tool("propose_cloud_search", account="Main", target=10, categories=[]),
-                tool("cloud_jobs"),
             ),
             reply(text("Ок."), stop="end_turn"),
         ],
     )
     state = run(helper, "добавь контакт")
-    texts = [item["content"] for item in results_of(claude)]
-    assert "вход в аккаунт" in texts[1] and "вход в аккаунт" in texts[2]
     [action] = state["actions"]
     helper.action_run({"id": action["id"]})
     [contact] = service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
@@ -602,3 +547,20 @@ def test_a_failed_action_says_why(app):
     state = helper.action_run({"id": action["id"]})
     [action] = state["actions"]
     assert action["status"] == "failed" and action["result"] == "Список получателей заполнен."
+
+
+def test_an_empty_anthropic_balance_is_named_instead_of_a_bare_400():
+    import anthropic
+    import httpx2 as httpx
+
+    from artist_lead_finder.assistant.service import api_error_text
+
+    def bad_request(message: str) -> anthropic.BadRequestError:
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        body = {"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+        response = httpx.Response(400, request=request, json=body)
+        return anthropic.BadRequestError(message, response=response, body=body)
+
+    low = "Your credit balance is too low to access the Anthropic API."
+    assert "закончились деньги" in api_error_text(bad_request(low))
+    assert "tools.0: bad schema" in api_error_text(bad_request("tools.0: bad schema"))

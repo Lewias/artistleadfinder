@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { ErrorToast } from '../Toaster';
 import { errorText } from '../../lib/errors';
 import { dollars } from '../../lib/format';
+import { TelegramPanel } from './TelegramPanel';
 
 export function KeyForm({ onSaved, compact }: { onSaved: () => void; compact?: boolean }) {
   const [key, setKey] = useState('');
@@ -109,6 +110,7 @@ export function AssistantSettings() {
         {data.messages.available ? 'Переписка iMessage на этом Mac доступна.' : data.messages.reason}
       </p>
       <p className="helper">{data.mac_send.description}</p>
+      <TelegramPanel />
       <ErrorToast message={error || state.error} />
     </section>
   );

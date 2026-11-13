@@ -7,18 +7,18 @@ import { Button } from '../ui/button';
 import { ErrorToast } from '../Toaster';
 import { errorText } from '../../lib/errors';
 
-/** The Telegram bot: start the cloud parser from the phone and hear when it is done. */
+/** The assistant in Telegram: a linked chat asks it questions and gets its answers. */
 export function TelegramPanel() {
   const [link, setLink] = useState<TelegramLink>();
   const [error, setError] = useState('');
   // While a code is shown the state is checked often, so the panel sees the link at once.
-  const status = useResource<TelegramStatus>('cloud.telegram', {}, link ? 4000 : 60000);
+  const status = useResource<TelegramStatus>('telegram.state', {}, link ? 4000 : 60000);
   const linked = status.data?.linked === true;
 
   const connect = async () => {
     setError('');
     try {
-      const fresh = await api.request<TelegramLink>('cloud.telegram_link', {});
+      const fresh = await api.request<TelegramLink>('telegram.link', {});
       setLink(fresh);
       await api.openProfile(fresh.url);
     } catch (err) {
@@ -28,7 +28,7 @@ export function TelegramPanel() {
   const unlink = async () => {
     setError('');
     try {
-      await api.request('cloud.telegram_unlink', {});
+      await api.request('telegram.unlink', {});
       setLink(undefined);
       status.refresh();
     } catch (err) {
@@ -37,17 +37,17 @@ export function TelegramPanel() {
   };
 
   return (
-    <section className="panel board telegram-panel">
+    <div className="telegram-panel">
       <div className="board-heading">
-        <h2>
-          <Send size={16} /> Telegram-бот
-        </h2>
+        <h3>
+          <Send size={15} /> Ассистент в Telegram
+        </h3>
         {linked ? (
           <Button variant="outline" onClick={() => void unlink()}>
             <Unlink size={14} /> Отвязать
           </Button>
         ) : (
-          <Button onClick={() => void connect()}>
+          <Button variant="outline" onClick={() => void connect()}>
             <Send size={14} /> {link ? 'Новый код' : 'Подключить Telegram'}
           </Button>
         )}
@@ -55,11 +55,10 @@ export function TelegramPanel() {
       {linked ? (
         <p className="helper">
           Подключён{status.data?.username ? ` @${status.data.username}` : ''}
-          {status.data?.bot ? ` к боту @${status.data.bot}` : ''}. В боте «🔎 Найти артистов» спросит аккаунт
-          и сколько лидов найти, источники и настройки возьмёт из последнего облачного поиска. «✉️ Написать
-          лидам» разошлёт сообщения новым лидам с аккаунта с прокси — сообщения и паузы из последней облачной
-          рассылки. Ещё бот показывает статус, останавливает задачи и пишет, когда они закончены.
-          {status.data?.notify === false ? ' Уведомления выключены (/notify в боте).' : ''}
+          {status.data?.bot ? ` к боту @${status.data.bot}` : ''}. Напишите боту вопрос — он придёт
+          ассистенту в это приложение, а ответ вернётся в чат. Ассистент отвечает, пока приложение
+          запущено; иначе вопрос ждёт до суток. Сообщения артистам он только готовит: отправляете вы
+          кнопкой в разделе «Ассистент». /new в боте начинает новый чат.
         </p>
       ) : link ? (
         <p className="helper">
@@ -68,10 +67,11 @@ export function TelegramPanel() {
         </p>
       ) : (
         <p className="helper">
-          Запускайте облачный парсер с телефона и получайте сообщение, когда он закончит.
+          Задавайте вопросы ассистенту с телефона и получайте ответы в Telegram, пока приложение
+          запущено на компьютере.
         </p>
       )}
       <ErrorToast message={error || status.error || ''} />
-    </section>
+    </div>
   );
 }

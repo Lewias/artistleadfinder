@@ -23,7 +23,7 @@ export interface ContactDraft {
 
 export const emptyDraft = (crm: CrmId): ContactDraft => ({
   name: '',
-  channels: [{ kind: crm === 'imessage' ? 'phone' : 'instagram', value: '' }],
+  channels: [{ kind: crm === 'imessage' ? 'phone' : crm === 'email' ? 'email' : 'instagram', value: '' }],
   statuses: [],
   notes: '',
   last_contact_at: '',

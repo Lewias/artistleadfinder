@@ -1,6 +1,7 @@
 """Profile JSON from page data, fast profile requests and skips from page data."""
 
 import json
+import threading
 
 import pytest
 from sqlalchemy import select
@@ -448,6 +449,8 @@ def test_chromium_learns_the_page_request_and_replays_it():
         window = Window(browser, context_, page)
         watch_data(window)
         runtime = ChromiumRuntime(sessions=None)
+        # The window was made on this thread: the runtime works on it instead of its own.
+        runtime._browser_thread_id = threading.get_ident()
         runtime.windows["w"] = window
         page.goto("https://www.instagram.com/artist123/")
         page.wait_for_function("document.body.dataset.done === '1'")
@@ -518,6 +521,8 @@ def test_chromium_replays_the_query_by_id_and_drops_a_missing_address():
         window = Window(browser, context_, page)
         watch_data(window)
         runtime = ChromiumRuntime(sessions=None)
+        # The window was made on this thread: the runtime works on it instead of its own.
+        runtime._browser_thread_id = threading.get_ident()
         runtime.windows["w"] = window
         page.goto("https://www.instagram.com/artist123/")
         page.wait_for_function("document.body.dataset.done === '1'")

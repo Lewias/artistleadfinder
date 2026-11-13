@@ -536,22 +536,22 @@ def test_a_hanging_server_never_slows_the_interface(server, tmp_path):
 
 
 def test_calls_to_a_server_in_doubt_fail_at_once(server, tmp_path):
-    """The core answers one request at a time: a cloud call must not hold the rest."""
+    """The core answers one request at a time: a server call must not hold the rest."""
     from artist_lead_finder.account.client import OfflineError
 
     clock = Clock()
     _, account, runtime, _ = signed_in(server, tmp_path, clock)
     server.down = True
     with pytest.raises(OfflineError):
-        runtime.call("cloud.jobs", {})  # reaches for the server once
+        runtime.call("telegram.state", {})  # reaches for the server once
     assert account.doubtful and account.wake.is_set()
     before = len(server.requests)
     with pytest.raises(OfflineError):
-        runtime.call("cloud.telegram", {})
+        runtime.call("telegram.unlink", {})
     assert len(server.requests) == before  # no second wait on the network
     assert runtime.call("dashboard.get", {})["method"] == "dashboard.get"
     server.down = False
     runtime.call("account.retry", {})
     runtime.tick()
     assert not account.doubtful
-    assert runtime.call("cloud.jobs", {}) == []
+    assert runtime.call("telegram.state", {})["linked"] is False

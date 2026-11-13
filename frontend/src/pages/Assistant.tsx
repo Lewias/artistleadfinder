@@ -190,7 +190,11 @@ export function Assistant() {
 
   // Often while it works or Messages is sending, rarely otherwise.
   useEffect(() => setPoll(data?.running ? 1500 : waiting ? 3000 : 10000), [data?.running, waiting]);
-  useEffect(() => bottom.current?.scrollIntoView({ block: 'end' }), [data?.items.length, data?.running]);
+  // The braces matter: newer WebViews return a Promise from scrollIntoView, and React
+  // would call a returned value as the effect's cleanup, which blanks the whole window.
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: 'end' });
+  }, [data?.items.length, data?.running]);
   const call = async (method: string, params: object = {}) => {
     setError('');
     try {

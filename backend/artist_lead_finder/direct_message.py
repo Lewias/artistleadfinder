@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 USERNAME = re.compile(r"^[a-z0-9_.]{1,30}$")
 MAX_TEXT = 1000
 # Exact button names; the «Сообщения» / «Messages» inbox dock never matches.
+LOGIN_BUTTON = re.compile(r"^\s*(log in|login|войти)\s*$", re.I)
+SIGNUP_BUTTON = re.compile(r"^\s*(sign up|зарегистрироваться|регистрация)\s*$", re.I)
+
 MESSAGE_BUTTON = re.compile(
     r"^\s*(отправить сообщение|написать|сообщение|message|send message)\s*$", re.I
 )
@@ -156,6 +159,14 @@ def send_direct(
         follow = main.get_by_role("button", name=FOLLOW_BUTTON)
         deadline, follow_seen = clock() + PROFILE_WAIT, None
         while True:
+            login = any(
+                page.get_by_role(role, name=LOGIN_BUTTON).count() for role in ("button", "link")
+            )
+            signup = any(
+                page.get_by_role(role, name=SIGNUP_BUTTON).count() for role in ("button", "link")
+            )
+            if page.locator('input[name="username"]').count() or (login and signup):
+                return fail("login")
             if message.count():
                 break
             if page.get_by_text(UNAVAILABLE).count():

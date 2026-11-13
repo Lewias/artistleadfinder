@@ -334,6 +334,19 @@ async fn browser_action(
     if is_open {
         return backend_request(core, "browser.runtime.open".into(), json!({"id":id})).await;
     }
+    open_window(&app, core, id).await
+}
+
+/// Opens a saved browser profile, starting its proxy relay first when it has one.
+/// Used by the button and by the assistant's parser starts, so both behave the same.
+async fn open_window(
+    app: &tauri::AppHandle,
+    core: Core,
+    id: &str,
+) -> Result<Value, String> {
+    if id.len() != 32 || !id.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err("Некорректный профиль".into());
+    }
     let record = if id == "00000000000000000000000000000000" {
         json!({"name":"Без сохранённой сессии","cookies":[]})
     } else {
@@ -687,6 +700,52 @@ fn read_inbox_thread(request: &impl Fn(&str, Value) -> Result<Value, String>) {
     );
 }
 
+/// The assistant's round: its parser starts and «Автоведение». Windows are not opened here
+/// unless a parser run needs one; an account window opens for work and closes after it.
+fn assistant_rounds(app: tauri::AppHandle, core: Core, closing: BrowserClosing) {
+    loop {
+        if closing.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        start_requested_parsers(&app, &core, &closing);
+        std::thread::sleep(Duration::from_secs(20));
+    }
+}
+
+/// Parser runs the assistant asked for (a confirmed proposal or «Автоведение»): the window
+/// is opened when it is closed and the run starts the way the «Парсер» button starts it.
+/// The core hears whether it started.
+fn start_requested_parsers(app: &tauri::AppHandle, core: &Core, closing: &BrowserClosing) {
+    let request = |method: &str, params: Value| {
+        tauri::async_runtime::block_on(backend_request(core.clone(), method.into(), params))
+    };
+    while let Ok(wanted) = request("assistant.shell_next_internal", json!({})) {
+        let Some(id) = wanted["profile_id"].as_str() else {
+            break;
+        };
+        let started = (|| {
+            let open = request("browser.runtime.is_open", json!({"id":id}))?;
+            if open["open"].as_bool() != Some(true) {
+                tauri::async_runtime::block_on(open_window(app, core.clone(), id))?;
+            }
+            let created = request(
+                "scout.start_internal",
+                json!({"profile_id":id,"name":"Парсер от ассистента"}),
+            )?;
+            created["id"].as_i64().ok_or_else(|| "Нет задания".to_string())
+        })();
+        let answer = match started {
+            Ok(job_id) => {
+                let (queue_core, queue_closing) = (core.clone(), closing.clone());
+                std::thread::spawn(move || run_browser_queue(queue_core, job_id, queue_closing));
+                json!({"profile_id":id,"job_id":job_id})
+            }
+            Err(error) => json!({"profile_id":id,"error":error}),
+        };
+        let _ = request("assistant.shell_result_internal", answer);
+    }
+}
+
 /// Outreach send queue. The core picks a due job whose sender window is open and idle
 /// and claims it; the send script runs once in that window and the result goes back to
 /// the core. A failed script call is reported as a browser failure (never resent by the
@@ -756,6 +815,10 @@ fn main() {
             let core = app.state::<Core>().inner().clone();
             let closing = app.state::<BrowserClosing>().inner().clone();
             std::thread::spawn(move || run_outreach_driver(core, closing));
+            let rounds_core = app.state::<Core>().inner().clone();
+            let rounds_closing = app.state::<BrowserClosing>().inner().clone();
+            let handle = app.handle().clone();
+            std::thread::spawn(move || assistant_rounds(handle, rounds_core, rounds_closing));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

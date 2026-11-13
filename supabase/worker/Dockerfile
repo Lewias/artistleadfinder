@@ -1,18 +1,12 @@
-# Cloud parser: the app's Lead Scout with a real Chromium on a virtual screen (Xvfb), the
-# same browser the desktop app opens. Build context: this folder's Dockerfile,
-# requirements.txt, start.sh and cloud_worker/, plus artist_lead_finder/ and the page
-# scripts in scripts/ (see the README).
-FROM mcr.microsoft.com/playwright/python:v1.57.0-noble
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 CLOUD_DATA=/data CLOUD_SCRIPTS=/app/scripts
-RUN apt-get update -q && apt-get install -yq --no-install-recommends xvfb \
-    && rm -rf /var/lib/apt/lists/*
+# Telegram bot of the assistant: a small Python process that talks to Telegram and to the
+# database. Build context: this folder's Dockerfile, requirements.txt and telegram_bot/.
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
-COPY artist_lead_finder ./artist_lead_finder
-COPY cloud_worker ./cloud_worker
-COPY scripts ./scripts
-COPY start.sh ./start.sh
-RUN mkdir -p /data && chown pwuser /data && chmod 755 /app/start.sh
-USER pwuser
-CMD ["/app/start.sh"]
+RUN pip install --no-cache-dir -r requirements.txt
+COPY telegram_bot ./telegram_bot
+# The build context may come from a root-only folder: the bot's user must read its code.
+RUN chmod -R a+rX /app && useradd --system --no-create-home bot
+USER bot
+CMD ["python", "-m", "telegram_bot"]

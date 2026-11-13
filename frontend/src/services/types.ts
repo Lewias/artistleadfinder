@@ -682,7 +682,7 @@ export interface IMessagePreview {
   payload: Record<string, unknown>;
 }
 
-export type CrmId = 'instagram' | 'imessage';
+export type CrmId = 'instagram' | 'imessage' | 'email';
 export type CrmChannelKind = 'instagram' | 'email' | 'phone';
 export interface CrmChannel {
   kind: CrmChannelKind;
@@ -718,107 +718,8 @@ export interface CrmContact {
   deleted_at: string | null;
   attention: boolean;
 }
-// ---------- Cloud parser ----------
+// ---------- Cloud parser (what it left on CRM contacts) ----------
 export type CloudCategory = 'ARTIST' | 'PRODUCER' | 'MEDIA' | 'OTHER' | 'UNKNOWN';
-export type CloudStage = 'queued' | 'collecting' | 'completed' | 'failed' | 'cancelled';
-export interface CloudCounters {
-  found?: number;
-  passed?: number;
-  added?: number;
-  updated?: number;
-  filtered?: number;
-  errors?: number;
-  // Outreach jobs.
-  total?: number;
-  sent?: number;
-  failed?: number;
-  skipped?: number;
-}
-/** What the parser on the server reports while it works. */
-export interface CloudProgress {
-  status?: string;
-  found?: number;
-  target?: number;
-  candidates?: number;
-  step?: string | null;
-  url?: string | null;
-  waiting?: number;
-  wait_reason?: string | null;
-  error?: string | null;
-  sources_done?: number;
-  notices?: string[];
-  // Outreach jobs: the campaign on the server and its sender.
-  total?: number;
-  sent?: number;
-  failed?: number;
-  skipped?: number;
-  queued?: number;
-  sender_status?: string;
-  sent_24h?: number;
-  daily_limit?: number;
-}
-export interface CloudJob {
-  id: string;
-  request_id: string;
-  /** scout: the parser; outreach: messages to a list of usernames. */
-  kind: 'scout' | 'outreach';
-  profile_id: string;
-  params: {
-    sources?: string[];
-    categories?: CloudCategory[];
-    target?: number;
-    usernames?: string[];
-    messages?: string[];
-  };
-  stage: CloudStage;
-  cancel_requested: boolean;
-  progress: CloudProgress;
-  counters: CloudCounters;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-}
-export interface CloudCandidate {
-  id: number;
-  username: string;
-  instagram_id: string | null;
-  via: string[];
-  origins: { via: string | null; source: string | null; post: string | null }[];
-  profile: {
-    full_name: string | null;
-    followers: number | null;
-    emails: string[];
-    phones: string[];
-  } | null;
-  category: CloudCategory | null;
-  confidence: number | null;
-  reason: string | null;
-  outcome: 'added' | 'updated' | 'filtered' | 'error' | 'sent' | 'failed' | 'skipped' | null;
-  note: string | null;
-  contact_id: string | null;
-  updated_at: string;
-}
-export type CloudView = 'all' | 'saved' | 'filtered' | 'sent' | 'problems';
-/** Whom a cloud outreach can write to, and how many messages the app has for it. */
-export interface CloudOutreachSources {
-  list: number;
-  found: number;
-  messages: number;
-}
-export interface CloudJobDetail {
-  job: CloudJob;
-  items: CloudCandidate[];
-  page: number;
-  page_size: number;
-}
-export interface CloudSession {
-  profile_id: string;
-  name: string;
-  has_proxy: boolean;
-  updated_at: string;
-}
 // ---------- Assistant ----------
 export interface AssistantItem {
   /** user / assistant: messages; tool: a step; escalation: handed to the stronger model. */
@@ -893,6 +794,37 @@ export interface AssistantState {
   /** Sending through Messages on this Mac: off outside macOS. */
   mac_send: { enabled: boolean; description: string };
   sends: AssistantSend[];
+}
+/** «Диалоги» iMessage: a one-to-one chat of the Mac's Messages and its CRM contact. */
+export interface IMessageDialogContact {
+  id: number;
+  crm: string;
+  name: string;
+  statuses: string[];
+}
+export interface IMessageDialog {
+  handle: string;
+  last_text: string;
+  last_at: string | null;
+  last_from_me: boolean;
+  waiting_since: string | null;
+  service: string;
+  messages: number;
+  contact: IMessageDialogContact | null;
+  /** Why a reply cannot go from here; empty when it can. */
+  reply_block: string;
+}
+export interface IMessageDialogsState {
+  messages: { available: boolean; reason: string };
+  sending: { enabled: boolean; description: string };
+  threads: IMessageDialog[];
+  sends: AssistantSend[];
+}
+export interface IMessageDialogThread {
+  handle: string;
+  contact: IMessageDialogContact | null;
+  reply_block: string;
+  messages: { from_me: boolean; text: string; at: string | null }[];
 }
 export interface TelegramStatus {
   linked: boolean;
@@ -1037,3 +969,161 @@ export interface SpotifyArtist {
   crm_at: string | null;
 }
 export type SpotifyView = 'new' | 'found' | 'skipped';
+export type EmailAccountStatus = 'active' | 'paused' | 'auth_failed' | 'limited' | 'bounces';
+export interface EmailAccount {
+  id: number;
+  address: string;
+  display_name: string;
+  status: EmailAccountStatus;
+  status_label: string;
+  reason: string;
+  until: string | null;
+  daily_limit: number;
+  warmup: boolean;
+  cap_today: number;
+  sent_24h: number;
+  next_send_at: string | null;
+  checked_at: string | null;
+}
+export interface EmailRecipient {
+  email: string;
+  name: string;
+  lead_id: number | null;
+}
+export interface EmailFollowup {
+  days: number;
+  body: string;
+}
+export interface EmailWorkspace {
+  recipients: EmailRecipient[];
+  subjects: string[];
+  bodies: string[];
+  followups: EmailFollowup[];
+  signature: string;
+  interval_min_seconds: number;
+  interval_max_seconds: number;
+  window_zone: string;
+  window_start_hour: number;
+  window_end_hour: number;
+  skip_previously_emailed: boolean;
+  window_open_now: boolean;
+}
+export interface EmailCampaign {
+  id: number;
+  status: 'running' | 'paused' | 'stopped' | 'finished';
+  total: number;
+  sent: number;
+  pending: number;
+  failed: number;
+  skipped: number;
+  followups_sent: number;
+  replies: number;
+  bounces: number;
+  window: string;
+  created_at: string;
+  finished_at: string | null;
+}
+export interface EmailJob {
+  id: number;
+  campaign_id: number;
+  step: number;
+  email: string;
+  name: string;
+  subject: string;
+  status: string;
+  label: string;
+  note: string;
+  due_at: string | null;
+  sent_at: string | null;
+  account_id: number | null;
+}
+export interface EmailState {
+  accounts: EmailAccount[];
+  workspace: EmailWorkspace;
+  campaigns: EmailCampaign[];
+  jobs: EmailJob[];
+  stats: {
+    sent_24h: number;
+    replies_24h: number;
+    sent_total: number;
+    replies_total: number;
+    bounces_total: number;
+    suppressed: number;
+  };
+  inbox: { at: string; replies: number; bounces: number; unsubscribed: number; errors: string[] } | null;
+  inbox_pending: boolean;
+  zones: string[];
+}
+export interface EmailPreview {
+  to: string;
+  subject: string;
+  body: string;
+  followups: EmailFollowup[];
+}
+
+export interface EmailThreadMessage {
+  direction: 'in' | 'out';
+  kind: 'campaign' | 'followup' | 'reply' | 'manual';
+  subject: string;
+  body: string;
+  at: string | null;
+  account_id: number | null;
+  account: string;
+}
+export interface EmailThread {
+  address: string;
+  from: string;
+  can_reply: boolean;
+  blocker: string;
+  unsubscribed: boolean;
+  messages: EmailThreadMessage[];
+}
+
+export interface WarmupAccount {
+  id: number;
+  address: string;
+  status: EmailAccountStatus;
+  pool_warmup: boolean;
+  warm_target: number;
+  cap_today: number;
+  sent_24h: number;
+  next_at: string | null;
+  started_at: string | null;
+  inbox_7d: number;
+  spam_7d: number;
+  missing_7d: number;
+  inbox_rate: number | null;
+}
+export interface WarmupPartner {
+  id: number;
+  profile_id: string;
+  profile_name: string;
+  address: string;
+  enabled: boolean;
+  status: 'new' | 'ok' | 'error';
+  note: string;
+  last_used_at: string | null;
+  handled_7d: number;
+}
+export interface WarmupEvent {
+  id: number;
+  at: string | null;
+  from: string;
+  to: string;
+  depth: number;
+  status: 'pending' | 'done' | 'failed';
+  placement: 'inbox' | 'spam' | 'missing' | null;
+  answered: boolean;
+  note: string;
+}
+export interface WarmupState {
+  accounts: WarmupAccount[];
+  partners: WarmupPartner[];
+  recent: WarmupEvent[];
+  pending: number;
+  pending_partners: number;
+  nst: { configured: boolean; url: string; note: string };
+  detect: { running: boolean; done: number; total: number; found: number };
+  hours: { zone: string; start: number; end: number; open_now: boolean };
+  limits: { start: number; step: number; max: number };
+}

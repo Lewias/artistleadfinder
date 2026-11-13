@@ -4896,7 +4896,7 @@ button:active:not(:disabled) {
   }
 }
 
-/* ---------- «Облачный парсер» ---------- */
+/* ---------- Form, counters and result table of a search page (Spotify) ---------- */
 .cloud-field {
   display: grid;
   gap: 6px;
@@ -4941,10 +4941,6 @@ button:active:not(:disabled) {
   width: auto;
   margin-top: 2px;
 }
-.cloud-check span {
-  display: grid;
-  gap: 2px;
-}
 .crm-table.cloud-table table {
   min-width: 0;
   width: 100%;
@@ -4953,16 +4949,10 @@ button:active:not(:disabled) {
   white-space: normal;
   vertical-align: top;
 }
-.cloud-check small,
 .cloud-detail td small {
   display: block;
   color: var(--muted);
   font-size: 12px;
-}
-.cloud-categories {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
 }
 .cloud-form .board-footer {
   display: flex;
@@ -4970,69 +4960,14 @@ button:active:not(:disabled) {
   justify-content: space-between;
   gap: 12px;
 }
-.cloud-history,
 .cloud-detail {
   display: grid;
   gap: 14px;
-}
-.cloud-jobs {
-  display: grid;
-  gap: 8px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-.cloud-job {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 4px 12px;
-  align-items: center;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  cursor: pointer;
-}
-.cloud-job.active {
-  border-color: var(--accent, #8b7cf6);
-}
-.cloud-job .helper {
-  grid-column: 2;
-}
-.cloud-job-sources {
-  overflow: hidden;
-  font-weight: 600;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .cloud-detail .board-heading h2 {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-}
-.cloud-stages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.cloud-stages li {
-  padding: 5px 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.cloud-stages li.done {
-  color: var(--ink);
-}
-.cloud-stages li.current {
-  border-color: var(--accent, #8b7cf6);
-  color: var(--ink);
-  font-weight: 600;
 }
 .cloud-counters {
   display: grid;
@@ -5050,8 +4985,7 @@ button:active:not(:disabled) {
   color: var(--muted);
   font-size: 12px;
 }
-.cloud-user,
-.cloud-link {
+.cloud-user {
   padding: 0;
   border: 0;
   background: none;
@@ -5065,18 +4999,8 @@ button:active:not(:disabled) {
   color: var(--ink);
   font-weight: 600;
 }
-.cloud-link {
-  color: inherit;
-  text-decoration: underline;
-}
-.cloud-user:hover,
-.cloud-link:hover {
+.cloud-user:hover {
   color: var(--green);
-}
-.cloud-reason {
-  max-width: 360px;
-  color: var(--muted);
-  font-size: 13px;
 }
 .cloud-badge {
   display: inline-flex;
@@ -5096,7 +5020,13 @@ button:active:not(:disabled) {
     align-items: stretch;
   }
 }
-.telegram-panel h2 {
+.telegram-panel {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.telegram-panel h3 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -5512,4 +5442,234 @@ button:active:not(:disabled) {
   border-color: var(--red-line);
   background: var(--red-bg);
   color: var(--red);
+}
+
+/* «Email» */
+.email-preview {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+  white-space: pre-wrap;
+}
+.email-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.email-campaign {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.email-campaign:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.email-recipients {
+  max-height: 360px;
+  overflow: auto;
+}
+.email-thread {
+  display: grid;
+  gap: 10px;
+  max-height: 52vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+.email-thread-message {
+  max-width: 86%;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--input);
+}
+.email-thread-message.out {
+  justify-self: end;
+}
+.email-thread-message header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.email-thread-subject {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.email-thread-body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.email-thread-reply textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+/* ---------- «Диалоги» iMessage ---------- */
+.dialogs-page {
+  display: grid;
+  gap: 14px;
+}
+.dialogs-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+.dialogs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 68vh;
+  overflow-y: auto;
+}
+.dialogs-list > strong {
+  padding: 2px 6px 8px;
+}
+.dialogs-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.dialogs-row:hover {
+  background: var(--raised);
+}
+.dialogs-row.active {
+  border-color: var(--violet-line);
+  background: var(--violet-bg);
+}
+.dialogs-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 650;
+  font-size: 13.5px;
+}
+.dialogs-row-top small {
+  color: var(--faint);
+  font-weight: 400;
+}
+.dialogs-preview {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dialogs-preview.unread {
+  color: var(--ink);
+  font-weight: 600;
+}
+.dialogs-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+}
+.dialogs-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 68vh;
+  max-height: 68vh;
+}
+.dialogs-thread-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.dialogs-messages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.dialogs-message {
+  max-width: 78%;
+  padding: 8px 11px;
+  border-radius: 14px;
+  background: var(--raised);
+}
+.dialogs-message.in {
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+.dialogs-message.out {
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+  background: var(--violet-bg);
+  border: 1px solid var(--violet-line);
+}
+.dialogs-message p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dialogs-message small {
+  display: block;
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 11px;
+}
+.dialogs-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.dialogs-compose textarea {
+  flex: 1;
+  resize: vertical;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input);
+  color: var(--ink);
+  font: inherit;
+}
+.dialogs-compose textarea:focus {
+  outline: none;
+  border-color: var(--violet-line);
+}
+@media (max-width: 900px) {
+  .dialogs-grid {
+    grid-template-columns: 1fr;
+  }
+  .dialogs-thread {
+    min-height: 50vh;
+  }
 }

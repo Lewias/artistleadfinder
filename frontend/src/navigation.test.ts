@@ -4,7 +4,6 @@ describe('desktop navigation contract', () => {
   it('exposes the required sections with distinct identities', () => {
     expect(pages.map(page => page.id)).toEqual([
       'discovery',
-      'cloud',
       'spotify',
       'profiles',
       'leads',
@@ -15,8 +14,13 @@ describe('desktop navigation contract', () => {
       'imessage',
       'imessage-templates',
       'imessage-log',
+      'imessage-dialogs',
       'imessage-crm',
       'imessage-crm-users',
+      'email',
+      'email-accounts',
+      'email-warmup',
+      'email-crm',
       'assistant',
       'admin',
       'settings',
@@ -26,19 +30,21 @@ describe('desktop navigation contract', () => {
       'admin',
       'settings',
     ]);
-    expect(new Set(pages.map(page => page.id)).size).toBe(17);
+    expect(new Set(pages.map(page => page.id)).size).toBe(21);
   });
-  it('splits the main sections between the two channels', () => {
+  it('splits the main sections between the three channels', () => {
     const main = (channel: string) =>
       pages.filter(page => page.placement === 'main' && page.channel === channel).map(page => page.id);
     expect(main('imessage')).toEqual([
       'imessage',
       'imessage-templates',
       'imessage-log',
+      'imessage-dialogs',
       'imessage-crm',
       'imessage-crm-users',
     ]);
-    expect(main('instagram')).toHaveLength(9);
+    expect(main('email')).toEqual(['email', 'email-accounts', 'email-warmup', 'email-crm']);
+    expect(main('instagram')).toHaveLength(8);
     // CRM and the other users' CRM close the list of each channel.
     expect(main('instagram').slice(-2)).toEqual(['crm', 'crm-users']);
   });

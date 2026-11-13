@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 25 for version in versions):
+        if any(version > 27 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -109,6 +109,12 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "cloud": "JSON",
         },
         "crm_statuses": {"emoji": "VARCHAR(16) NOT NULL DEFAULT ''"},
+        "email_accounts": {
+            "pool_warmup": "BOOLEAN NOT NULL DEFAULT 0",
+            "warm_target": "INTEGER NOT NULL DEFAULT 20",
+            "warm_started_at": "DATETIME",
+            "warm_next_at": "DATETIME",
+        },
         "scout_sources": {
             "last_scanned_at": "DATETIME",
             "status": "VARCHAR(40) NOT NULL DEFAULT 'new'",
@@ -157,6 +163,15 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_crm_contacts_dirty ON crm_contacts (dirty)")
         )
+        # Schema 27: the email CRM. SQLite cannot change a CHECK constraint in place, so
+        # the two CRM tables are rebuilt with the wider one; rows and indexes are kept.
+        for table in ("crm_contacts", "crm_statuses"):
+            _widen_check(
+                connection,
+                table,
+                "crm IN ('instagram','imessage')",
+                "crm IN ('instagram','imessage','email')",
+            )
     with factory.begin() as session:
         if session.get(SchemaMigration, 1) is None:
             session.add(SchemaMigration(version=1))
@@ -259,4 +274,41 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # Schema 25: scout_sources.found_as and .found_via, sources the scout added itself.
         if session.get(SchemaMigration, 25) is None:
             session.add(SchemaMigration(version=25))
+        # Schema 26: email outreach through Gmail (email_* tables); new tables only.
+        if session.get(SchemaMigration, 26) is None:
+            session.add(SchemaMigration(version=26))
+        # Schema 27: the email CRM (crm check widened), the email thread (email_messages)
+        # and the warm-up (email_accounts warm columns, email_warmup_* tables).
+        if session.get(SchemaMigration, 27) is None:
+            session.add(SchemaMigration(version=27))
     return engine, factory
+
+
+def _widen_check(connection, table: str, old: str, new: str) -> None:
+    """Rebuilds `table` with `old` replaced by `new` in its CREATE statement (the 12-step
+    ALTER of the SQLite docs). Nothing references the CRM tables, so foreign keys stay on."""
+    sql = connection.execute(
+        text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"),
+        {"name": table},
+    ).scalar()
+    if not sql or old not in sql:
+        return
+    indexes = [
+        row[0]
+        for row in connection.execute(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = :name"
+                " AND sql IS NOT NULL"
+            ),
+            {"name": table},
+        )
+    ]
+    temporary = f"{table}_widened"
+    created = sql.replace(old, new).replace(f"CREATE TABLE {table}", f"CREATE TABLE {temporary}", 1)
+    connection.execute(text(f"DROP TABLE IF EXISTS {temporary}"))
+    connection.execute(text(created))
+    connection.execute(text(f"INSERT INTO {temporary} SELECT * FROM {table}"))
+    connection.execute(text(f"DROP TABLE {table}"))
+    connection.execute(text(f"ALTER TABLE {temporary} RENAME TO {table}"))
+    for index in indexes:
+        connection.execute(text(index))

@@ -88,7 +88,11 @@ export const kindPlaceholders: Record<CrmChannelKind, string> = {
   phone: '+15555550123',
 };
 
-export const crmNames: Record<CrmId, string> = { instagram: 'CRM Instagram', imessage: 'CRM iMessage' };
+export const crmNames: Record<CrmId, string> = {
+  instagram: 'CRM Instagram',
+  imessage: 'CRM iMessage',
+  email: 'CRM Email',
+};
 
 export function sourceText(source: CrmSource['id'], target: CrmId) {
   if (source === 'leads')
@@ -97,7 +101,19 @@ export function sourceText(source: CrmSource['id'], target: CrmId) {
       description:
         target === 'imessage'
           ? 'Все лиды с метками и заметками; телефон или email, если найден, станет основным каналом.'
-          : 'Лиды Instagram вместе с метками, заметками, источником и найденными контактами.',
+          : target === 'email'
+            ? 'Лиды, у которых в био найден email: с метками и заметками. Остальные пропускаются.'
+            : 'Лиды Instagram вместе с метками, заметками, источником и найденными контактами.',
+    };
+  if (source === 'email')
+    return {
+      title: 'CRM Email',
+      description: 'Контакты, ответившие на письма, вместе с метками и заметками.',
+    };
+  if (target === 'email')
+    return {
+      title: crmNames[source],
+      description: 'Только контакты с email, вместе с метками и заметками; email станет основным каналом.',
     };
   if (source === 'imessage')
     return {

@@ -1,0 +1,880 @@
+{
+ "email.state": {
+  "accounts": [
+   {
+    "id": 1,
+    "address": "matt.beats@gmail.com",
+    "display_name": "Matt",
+    "status": "active",
+    "status_label": "Работает",
+    "reason": "",
+    "until": null,
+    "daily_limit": 25,
+    "warmup": true,
+    "cap_today": 17,
+    "sent_24h": 4,
+    "next_send_at": "2026-11-04T15:04:03+00:00",
+    "checked_at": "2026-11-04T15:04:04+00:00"
+   },
+   {
+    "id": 2,
+    "address": "ifeelthisbounce.mgmt@gmail.com",
+    "display_name": "Matt",
+    "status": "paused",
+    "status_label": "На паузе",
+    "reason": "",
+    "until": null,
+    "daily_limit": 20,
+    "warmup": true,
+    "cap_today": 17,
+    "sent_24h": 0,
+    "next_send_at": null,
+    "checked_at": null
+   }
+  ],
+  "workspace": {
+   "recipients": [
+    {
+     "email": "zay.official@gmail.com",
+     "name": "Zay",
+     "lead_id": null
+    },
+    {
+     "email": "treyvon.music@gmail.com",
+     "name": "",
+     "lead_id": null
+    }
+   ],
+   "subjects": [
+    "quick q {{firstName|bro}}",
+    "your last drop"
+   ],
+   "bodies": [
+    "yo {{firstName|bro}}\n\nheard your last track, your flow on that bounce is crazy. i make r&b and soul beats, want me to send a few that fit your sound?"
+   ],
+   "followups": [
+    {
+     "days": 3,
+     "body": "just bumping this {{firstName|bro}}"
+    }
+   ],
+   "signature": "matt / ifeelthisbounce",
+   "interval_min_seconds": 60,
+   "interval_max_seconds": 60,
+   "window_zone": "America/New_York",
+   "window_start_hour": 9,
+   "window_end_hour": 18,
+   "skip_previously_emailed": true,
+   "window_open_now": true
+  },
+  "campaigns": [
+   {
+    "id": 1,
+    "status": "running",
+    "total": 6,
+    "sent": 4,
+    "pending": 2,
+    "failed": 0,
+    "skipped": 0,
+    "followups_sent": 0,
+    "replies": 1,
+    "bounces": 1,
+    "window": "9:00–18:00 America/New_York",
+    "created_at": "2026-11-04T09:11:34.411488+00:00",
+    "finished_at": null
+   }
+  ],
+  "jobs": [
+   {
+    "id": 1,
+    "campaign_id": 1,
+    "step": 0,
+    "email": "jay.carter@gmail.com",
+    "name": "Jay Carter",
+    "subject": "quick q Jay",
+    "status": "replied",
+    "label": "Ответил",
+    "note": "",
+    "due_at": "2026-11-04T15:00:00+00:00",
+    "sent_at": "2026-11-04T15:00:00+00:00",
+    "account_id": 1
+   },
+   {
+    "id": 2,
+    "campaign_id": 1,
+    "step": 1,
+    "email": "jay.carter@gmail.com",
+    "name": "Jay Carter",
+    "subject": "Re: quick q Jay",
+    "status": "cancelled",
+    "label": "Отменено",
+    "note": "Ответил",
+    "due_at": "2026-11-07T15:00:00+00:00",
+    "sent_at": null,
+    "account_id": 1
+   },
+   {
+    "id": 3,
+    "campaign_id": 1,
+    "step": 0,
+    "email": "mia.rose@outlook.com",
+    "name": "Mia Rose",
+    "subject": "your last drop",
+    "status": "sent",
+    "label": "Отправлено",
+    "note": "",
+    "due_at": "2026-11-04T15:00:00+00:00",
+    "sent_at": "2026-11-04T15:01:01+00:00",
+    "account_id": 1
+   },
+   {
+    "id": 4,
+    "campaign_id": 1,
+    "step": 1,
+    "email": "mia.rose@outlook.com",
+    "name": "Mia Rose",
+    "subject": "Re: your last drop",
+    "status": "pending",
+    "label": "В очереди",
+    "note": "",
+    "due_at": "2026-11-07T15:01:01+00:00",
+    "sent_at": null,
+    "account_id": 1
+   },
+   {
+    "id": 5,
+    "campaign_id": 1,
+    "step": 0,
+    "email": "kidvibes@gmail.com",
+    "name": "",
+    "subject": "quick q bro",
+    "status": "bounced",
+    "label": "Возврат",
+    "note": "Возврат: адрес не принимает почту",
+    "due_at": "2026-11-04T15:00:00+00:00",
+    "sent_at": "2026-11-04T15:02:02+00:00",
+    "account_id": 1
+   },
+   {
+    "id": 6,
+    "campaign_id": 1,
+    "step": 1,
+    "email": "kidvibes@gmail.com",
+    "name": "",
+    "subject": "Re: quick q bro",
+    "status": "cancelled",
+    "label": "Отменено",
+    "note": "Возврат",
+    "due_at": "2026-11-07T15:02:02+00:00",
+    "sent_at": null,
+    "account_id": 1
+   },
+   {
+    "id": 7,
+    "campaign_id": 1,
+    "step": 0,
+    "email": "lilnova.music@gmail.com",
+    "name": "Lil Nova",
+    "subject": "your last drop",
+    "status": "sent",
+    "label": "Отправлено",
+    "note": "",
+    "due_at": "2026-11-04T15:00:00+00:00",
+    "sent_at": "2026-11-04T15:03:03+00:00",
+    "account_id": 1
+   },
+   {
+    "id": 8,
+    "campaign_id": 1,
+    "step": 1,
+    "email": "lilnova.music@gmail.com",
+    "name": "Lil Nova",
+    "subject": "Re: your last drop",
+    "status": "pending",
+    "label": "В очереди",
+    "note": "",
+    "due_at": "2026-11-07T15:03:03+00:00",
+    "sent_at": null,
+    "account_id": 1
+   },
+   {
+    "id": 9,
+    "campaign_id": 1,
+    "step": 0,
+    "email": "dre.wav@icloud.com",
+    "name": "Dre",
+    "subject": "quick q Dre",
+    "status": "pending",
+    "label": "В очереди",
+    "note": "",
+    "due_at": "2026-11-04T15:00:00+00:00",
+    "sent_at": null,
+    "account_id": null
+   },
+   {
+    "id": 10,
+    "campaign_id": 1,
+    "step": 1,
+    "email": "dre.wav@icloud.com",
+    "name": "Dre",
+    "subject": "Re: quick q Dre",
+    "status": "pending",
+    "label": "Ждёт прошлое письмо",
+    "note": "",
+    "due_at": null,
+    "sent_at": null,
+    "account_id": null
+   },
+   {
+    "id": 11,
+    "campaign_id": 1,
+    "step": 0,
+    "email": "santana.mgmt@gmail.com",
+    "name": "",
+    "subject": "your last drop",
+    "status": "pending",
+    "label": "В очереди",
+    "note": "",
+    "due_at": "2026-11-04T15:00:00+00:00",
+    "sent_at": null,
+    "account_id": null
+   },
+   {
+    "id": 12,
+    "campaign_id": 1,
+    "step": 1,
+    "email": "santana.mgmt@gmail.com",
+    "name": "",
+    "subject": "Re: your last drop",
+    "status": "pending",
+    "label": "Ждёт прошлое письмо",
+    "note": "",
+    "due_at": null,
+    "sent_at": null,
+    "account_id": null
+   }
+  ],
+  "stats": {
+   "sent_24h": 4,
+   "replies_24h": 1,
+   "sent_total": 4,
+   "replies_total": 1,
+   "bounces_total": 1,
+   "suppressed": 1
+  },
+  "inbox": {
+   "replies": 1,
+   "bounces": 1,
+   "unsubscribed": 0,
+   "errors": [],
+   "at": "2026-11-04T15:04:04+00:00"
+  },
+  "inbox_pending": false,
+  "zones": [
+   "America/New_York",
+   "America/Chicago",
+   "America/Denver",
+   "America/Los_Angeles",
+   "Europe/London",
+   "Europe/Berlin",
+   "Europe/Moscow"
+  ]
+ },
+ "email.preview": {
+  "to": "zay.official@gmail.com",
+  "subject": "quick q Zay",
+  "body": "yo Zay\n\nheard your last track, your flow on that bounce is crazy. i make r&b and soul beats, want me to send a few that fit your sound?\n\nmatt / ifeelthisbounce",
+  "followups": [
+   {
+    "days": 3,
+    "body": "just bumping this Zay\n\nmatt / ifeelthisbounce"
+   }
+  ]
+ },
+ "email.warmup_state": {
+  "accounts": [
+   {
+    "id": 1,
+    "address": "matt.beats@gmail.com",
+    "status": "active",
+    "pool_warmup": true,
+    "warm_target": 20,
+    "cap_today": 13,
+    "sent_24h": 11,
+    "next_at": "2026-11-05T00:01:08.366010+00:00",
+    "started_at": "2026-10-30T15:00:00+00:00",
+    "inbox_7d": 33,
+    "spam_7d": 7,
+    "missing_7d": 0,
+    "inbox_rate": 82
+   },
+   {
+    "id": 2,
+    "address": "ifeelthisbounce.mgmt@gmail.com",
+    "status": "active",
+    "pool_warmup": true,
+    "warm_target": 20,
+    "cap_today": 13,
+    "sent_24h": 10,
+    "next_at": "2026-11-04T23:31:37.031912+00:00",
+    "started_at": "2026-10-30T15:00:00+00:00",
+    "inbox_7d": 28,
+    "spam_7d": 9,
+    "missing_7d": 0,
+    "inbox_rate": 76
+   },
+   {
+    "id": 3,
+    "address": "feelthis.agency@gmail.com",
+    "status": "active",
+    "pool_warmup": false,
+    "warm_target": 20,
+    "cap_today": 0,
+    "sent_24h": 0,
+    "next_at": null,
+    "started_at": null,
+    "inbox_7d": 0,
+    "spam_7d": 0,
+    "missing_7d": 0,
+    "inbox_rate": null
+   }
+  ],
+  "partners": [
+   {
+    "id": 1,
+    "profile_id": "7f3a91",
+    "profile_name": "Profile 7f3a91",
+    "address": "jordan.reed.music@gmail.com",
+    "enabled": true,
+    "status": "ok",
+    "note": "",
+    "last_used_at": "2026-11-04T23:27:00+00:00",
+    "handled_7d": 21
+   },
+   {
+    "id": 2,
+    "profile_id": "b2c4e0",
+    "profile_name": "Profile b2c4e0",
+    "address": "tasha.lane@gmail.com",
+    "enabled": true,
+    "status": "ok",
+    "note": "",
+    "last_used_at": "2026-11-04T19:07:00+00:00",
+    "handled_7d": 20
+   },
+   {
+    "id": 3,
+    "profile_id": "c9d812",
+    "profile_name": "Profile c9d812",
+    "address": "",
+    "enabled": true,
+    "status": "error",
+    "note": "Не нашёл адрес Gmail в профиле",
+    "last_used_at": null,
+    "handled_7d": 0
+   }
+  ],
+  "recent": [
+   {
+    "id": 99,
+    "at": "2026-11-04T23:40:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 1,
+    "status": "pending",
+    "placement": null,
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 98,
+    "at": "2026-11-04T23:14:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "spam",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 97,
+    "at": "2026-11-04T23:01:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 96,
+    "at": "2026-11-04T22:48:00+00:00",
+    "from": "jordan.reed.music@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 1,
+    "status": "pending",
+    "placement": null,
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 95,
+    "at": "2026-11-04T22:09:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 94,
+    "at": "2026-11-04T21:43:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 93,
+    "at": "2026-11-04T21:43:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 92,
+    "at": "2026-11-04T21:17:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 91,
+    "at": "2026-11-04T20:51:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 90,
+    "at": "2026-11-04T20:38:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 89,
+    "at": "2026-11-04T20:12:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 88,
+    "at": "2026-11-04T19:59:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 87,
+    "at": "2026-11-04T19:07:00+00:00",
+    "from": "tasha.lane@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 86,
+    "at": "2026-11-04T18:41:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 85,
+    "at": "2026-11-04T18:02:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 84,
+    "at": "2026-11-04T18:02:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 2,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 83,
+    "at": "2026-11-04T17:23:00+00:00",
+    "from": "jordan.reed.music@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 82,
+    "at": "2026-11-04T16:57:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 81,
+    "at": "2026-11-04T16:44:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 80,
+    "at": "2026-11-04T16:31:00+00:00",
+    "from": "tasha.lane@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 79,
+    "at": "2026-11-04T15:13:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 78,
+    "at": "2026-11-04T15:13:00+00:00",
+    "from": "tasha.lane@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 77,
+    "at": "2026-11-04T15:13:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 76,
+    "at": "2026-11-04T15:00:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 75,
+    "at": "2026-11-03T23:14:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 74,
+    "at": "2026-11-03T23:01:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 73,
+    "at": "2026-11-03T22:35:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 72,
+    "at": "2026-11-03T22:22:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 71,
+    "at": "2026-11-03T22:22:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 2,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 70,
+    "at": "2026-11-03T22:09:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 69,
+    "at": "2026-11-03T21:17:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 68,
+    "at": "2026-11-03T20:38:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 67,
+    "at": "2026-11-03T20:25:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "spam",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 66,
+    "at": "2026-11-03T20:25:00+00:00",
+    "from": "jordan.reed.music@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 65,
+    "at": "2026-11-03T20:25:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 2,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 64,
+    "at": "2026-11-03T19:59:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "matt.beats@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 63,
+    "at": "2026-11-03T19:33:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "jordan.reed.music@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 62,
+    "at": "2026-11-03T19:33:00+00:00",
+    "from": "tasha.lane@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 1,
+    "status": "done",
+    "placement": "inbox",
+    "answered": false,
+    "note": ""
+   },
+   {
+    "id": 61,
+    "at": "2026-11-03T18:28:00+00:00",
+    "from": "matt.beats@gmail.com",
+    "to": "ifeelthisbounce.mgmt@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   },
+   {
+    "id": 60,
+    "at": "2026-11-03T18:15:00+00:00",
+    "from": "ifeelthisbounce.mgmt@gmail.com",
+    "to": "tasha.lane@gmail.com",
+    "depth": 0,
+    "status": "done",
+    "placement": "inbox",
+    "answered": true,
+    "note": ""
+   }
+  ],
+  "pending": 2,
+  "pending_partners": 0,
+  "nst": {
+   "configured": true,
+   "url": "http://localhost:8848/api/v2",
+   "note": ""
+  },
+  "detect": {
+   "running": false,
+   "done": 3,
+   "total": 3,
+   "found": 2
+  },
+  "hours": {
+   "zone": "America/New_York",
+   "start": 8,
+   "end": 22,
+   "open_now": true
+  },
+  "limits": {
+   "start": 3,
+   "step": 2,
+   "max": 40
+  }
+ },
+ "email.thread": {
+  "address": "jay.carter@gmail.com",
+  "from": "matt.beats@gmail.com",
+  "can_reply": true,
+  "blocker": "",
+  "unsubscribed": false,
+  "messages": [
+   {
+    "direction": "out",
+    "kind": "campaign",
+    "subject": "quick q Jay",
+    "body": "yo Jay\n\nheard your last track, the bounce on it is crazy. i make r&b and soul beats, want me to send a few that fit your sound?\n\nmatt / ifeelthisbounce",
+    "at": "2026-11-04T15:00:00+00:00",
+    "account_id": 1,
+    "account": "matt.beats@gmail.com"
+   },
+   {
+    "direction": "in",
+    "kind": "reply",
+    "subject": "Re: quick q Jay",
+    "body": "yo appreciate it, send me 3-4 joints. what's the price for exclusive?",
+    "at": "2026-11-04T18:00:00+00:00",
+    "account_id": 1,
+    "account": "matt.beats@gmail.com"
+   },
+   {
+    "direction": "out",
+    "kind": "manual",
+    "subject": "Re: quick q Jay",
+    "body": "bet. sending 4 now, exclusive is $250 per beat. lmk which one hits",
+    "at": "2026-11-04T18:40:00+00:00",
+    "account_id": 1,
+    "account": "matt.beats@gmail.com"
+   }
+  ]
+ }
+}

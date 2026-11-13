@@ -1,10 +1,10 @@
 """The assistant's tools over the rest of the app.
 
-Reading (the artist base, statistics, search history, cloud jobs, iMessage campaigns,
-accounts) runs at once. Actions (a cloud search or outreach, adding to a mailing list,
-a new CRM contact) are only proposed: each waits in the interface until the user presses
-«Выполнить», and runs with the app's own checks then. Nothing here deletes anything or
-touches settings, keys or proxies.
+Reading (the artist base, statistics, search history, iMessage campaigns, accounts)
+runs at once. Actions (adding to a mailing list, a new CRM contact) are only proposed:
+each waits in the interface until the user presses «Выполнить», and runs with the app's
+own checks then. Nothing here touches keys or proxies. Running Instagram (Direct,
+«Рассылка», the parser, settings) is in `operator_tools`, proposed the same way.
 """
 
 from datetime import datetime
@@ -16,9 +16,7 @@ from ..errors import UserError
 from ..models import AssistantAction, utcnow
 
 MAX_RESULT = 30_000
-CATEGORIES = ["ARTIST", "PRODUCER", "MEDIA", "OTHER", "UNKNOWN"]
 LEAD_STATUSES = ["", "new", "reviewed", "qualified", "rejected", "contacted"]
-NO_CLOUD = "Облачные функции работают, когда в приложении выполнен вход в аккаунт."
 
 
 class ToolError(Exception):
@@ -84,12 +82,6 @@ APP_TOOLS = [
         "input_schema": _schema({"limit": {"type": "integer"}}),
     },
     {
-        "name": "cloud_jobs",
-        "description": "Облачные задачи на сервере (поиск и рассылка): статус, прогресс, итоги.",
-        "strict": True,
-        "input_schema": _schema({}),
-    },
-    {
         "name": "imessage_campaigns",
         "description": "Рассылки iMessage через iPhone: статус и сколько отправлено.",
         "strict": True,
@@ -97,40 +89,9 @@ APP_TOOLS = [
     },
     {
         "name": "accounts",
-        "description": "Аккаунты Instagram в приложении: имя, есть ли вход и прокси. Нужны для "
-        "облачного поиска и рассылки (рассылка — только с прокси).",
+        "description": "Аккаунты Instagram в приложении: имя, есть ли вход и прокси.",
         "strict": True,
         "input_schema": _schema({}),
-    },
-    {
-        "name": "propose_cloud_search",
-        "description": "Предложить облачный поиск артистов на сервере: аккаунт (имя), сколько "
-        "лидов найти (1–500), какие категории сохранять в CRM. Источники — включённые "
-        "источники парсера приложения. Запустится, только когда пользователь нажмёт "
-        "«Выполнить».",
-        "strict": True,
-        "input_schema": _schema(
-            {
-                "account": {"type": "string"},
-                "target": {"type": "integer"},
-                "categories": {"type": "array", "items": {"type": "string", "enum": CATEGORIES}},
-            }
-        ),
-    },
-    {
-        "name": "propose_cloud_outreach",
-        "description": "Предложить облачную рассылку в Instagram с аккаунта с прокси: source "
-        "found — новым лидам облачного парсера, которым ещё не писали; list — по списку "
-        "«Рассылки» приложения; limit — скольким (1–500). Сообщения — из приложения. "
-        "Запустится после «Выполнить».",
-        "strict": True,
-        "input_schema": _schema(
-            {
-                "account": {"type": "string"},
-                "source": {"type": "string", "enum": ["found", "list"]},
-                "limit": {"type": "integer"},
-            }
-        ),
     },
     {
         "name": "propose_instagram_list_add",
@@ -184,11 +145,8 @@ APP_LABELS = {
     "leads_search": "Смотрю базу артистов",
     "app_stats": "Смотрю статистику",
     "search_history": "Смотрю историю поисков",
-    "cloud_jobs": "Смотрю облачные задачи",
     "imessage_campaigns": "Смотрю рассылки iMessage",
     "accounts": "Смотрю аккаунты",
-    "propose_cloud_search": "Предлагаю облачный поиск",
-    "propose_cloud_outreach": "Предлагаю облачную рассылку",
     "propose_instagram_list_add": "Предлагаю пополнить список рассылки",
     "propose_imessage_list_add": "Предлагаю пополнить список iMessage",
     "propose_crm_contact": "Предлагаю новый контакт",
@@ -196,11 +154,9 @@ APP_LABELS = {
 
 
 class AppTools:
-    """Mixed into AssistantService: `core` reaches the app's own methods, `cloud` the
-    signed-in account's cloud jobs (None without accounts)."""
+    """Mixed into AssistantService: `core` reaches the app's own methods."""
 
     core: Any
-    cloud: Any
     add_usernames: Any
 
     # ---------- reading ----------
@@ -225,30 +181,6 @@ class AppTools:
             self.core("scout.runs", {"limit": max(1, min(int(params.get("limit") or 10), 30))})
         )
 
-    def _cloud(self, method: str, params: dict) -> Any:
-        if self.cloud is None:
-            raise ToolError(NO_CLOUD)
-        return self.cloud(method, params)
-
-    def tool_cloud_jobs(self, params: dict) -> Any:
-        jobs = self._cloud("cloud.jobs", {})
-        result = []
-        for job in jobs[:15]:
-            item = {
-                key: job.get(key) for key in ("kind", "stage", "created_at", "error", "counters")
-            }
-            params_ = job.get("params") or {}
-            item["target"] = params_.get("target")
-            item["recipients"] = len(params_.get("usernames") or []) or None
-            item["sources"] = len(params_.get("sources") or []) or None
-            progress = job.get("progress") or {}
-            item["progress"] = {
-                key: progress.get(key)
-                for key in ("found", "sent", "failed", "skipped", "queued", "step", "error")
-            }
-            result.append(item)
-        return compact(result)
-
     def tool_imessage_campaigns(self, params: dict) -> Any:
         return compact(self.core("imessage.campaigns", {})[:10])
 
@@ -270,24 +202,6 @@ class AppTools:
 
     # ---------- proposals ----------
 
-    def _account(self, name: str, need_proxy: bool = False) -> dict:
-        profiles = self._profiles()
-        wanted = " ".join(str(name or "").split()).casefold()
-        found = [item for item in profiles if item["name"].casefold() == wanted]
-        if not found and not wanted and len(profiles) == 1:
-            found = profiles
-        if not found:
-            names = ", ".join(item["name"] for item in profiles) or "нет"
-            raise ToolError(f"Нет аккаунта «{name}». Аккаунты: {names}.")
-        account = found[0]
-        if not account["logged_in"]:
-            raise ToolError(f"В аккаунте «{account['name']}» нет входа в Instagram.")
-        if need_proxy and not account["proxy"]:
-            raise ToolError(
-                f"У аккаунта «{account['name']}» нет прокси, а рассылка идёт только через прокси."
-            )
-        return account
-
     def _propose(self, kind: str, params: dict, summary: str) -> dict:
         with self.sessions.begin() as session:
             action = AssistantAction(kind=kind, params=params, summary=summary[:500])
@@ -299,54 +213,6 @@ class AppTools:
             "status": "ждёт, пока пользователь нажмёт «Выполнить»",
             "summary": summary,
         }
-
-    def tool_propose_cloud_search(self, params: dict) -> dict:
-        if self.cloud is None:
-            raise ToolError(NO_CLOUD)
-        account = self._account(params.get("account"))
-        target = int(params.get("target") or 0)
-        if not 1 <= target <= 500:
-            raise ToolError("target: от 1 до 500.")
-        categories = [item for item in params.get("categories") or [] if item in CATEGORIES]
-        categories = list(dict.fromkeys(categories)) or ["ARTIST", "PRODUCER"]
-        sources = [
-            row["username"] for row in self.core("scout.source_list", {}) if row.get("enabled")
-        ]
-        if not sources:
-            raise ToolError("В парсере нет включённых источников: добавьте их в приложении.")
-        return self._propose(
-            "cloud_search",
-            {"profile_id": account["id"], "target": target, "categories": categories},
-            f"Облачный поиск: {target} лидов с аккаунта «{account['name']}», "
-            f"{len(sources)} источников парсера, в CRM: {', '.join(categories)}",
-        )
-
-    def tool_propose_cloud_outreach(self, params: dict) -> dict:
-        if self.cloud is None:
-            raise ToolError(NO_CLOUD)
-        account = self._account(params.get("account"), need_proxy=True)
-        source = params.get("source") if params.get("source") in ("found", "list") else "found"
-        limit = int(params.get("limit") or 0)
-        if not 1 <= limit <= 500:
-            raise ToolError("limit: от 1 до 500.")
-        available = self._cloud("cloud.outreach_sources", {})
-        if not available.get(source):
-            raise ToolError(
-                "Новых лидов облачного парсера, которым ещё не писали, нет."
-                if source == "found"
-                else "В списке «Рассылки» нет аккаунтов, которым ещё не писали."
-            )
-        if not available.get("messages"):
-            raise ToolError(
-                "В приложении нет сообщений для рассылки: добавьте их в «Парсер и рассылка»."
-            )
-        whom = "новым лидам облачного парсера" if source == "found" else "по списку «Рассылки»"
-        count = min(limit, int(available[source]))
-        return self._propose(
-            "cloud_outreach",
-            {"profile_id": account["id"], "source": source, "limit": limit},
-            f"Облачная рассылка: {count} {whom} с аккаунта «{account['name']}»",
-        )
 
     def tool_propose_instagram_list_add(self, params: dict) -> dict:
         from ..outreach.workspace import normalize_username
@@ -411,32 +277,9 @@ class AppTools:
 
     def _execute(self, action: AssistantAction) -> str:
         params = action.params
-        if action.kind == "cloud_search":
-            sources = [
-                row["username"] for row in self.core("scout.source_list", {}) if row.get("enabled")
-            ]
-            started = self._cloud(
-                "cloud.start",
-                {
-                    "profile_id": params["profile_id"],
-                    "sources": "\n".join(sources),
-                    "target": params["target"],
-                    "categories": params["categories"],
-                    "request_id": f"assistant-action-{action.id}",
-                },
-            )
-            return (
-                f"Облачный поиск запущен ({len(sources)} источников). Ход — в «Облачном парсере»."
-                if started
-                else "Запущено."
-            )
-        if action.kind == "cloud_outreach":
-            started = self._cloud(
-                "cloud.outreach_start",
-                {**params, "request_id": f"assistant-action-{action.id}"},
-            )
-            total = len(((started or {}).get("job") or {}).get("params", {}).get("usernames") or [])
-            return f"Облачная рассылка запущена: {total} получателей."
+        done = self._execute_operator(action.kind, params)
+        if done is not None:
+            return done
         if action.kind == "instagram_list_add":
             added = self.add_usernames(params["usernames"])
             return f"Добавлено в список «Рассылки»: {added} (остальные уже были)."

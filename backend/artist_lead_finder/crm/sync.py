@@ -7,6 +7,10 @@ tombstone, and a changed status list marks its CRM. A sync round sends those, th
 what changed on the server since the last round: a user gets their own CRM, an admin
 every user's, with the owner's name. The last write wins; a local change waiting to be
 sent is not overwritten by an older server copy.
+
+The email CRM needs the server migration 0009 (the crm check allows 'email'). Until the
+server accepts it, its contacts and statuses stay on this computer and the other CRMs
+sync as before; the server is asked again every few hours.
 """
 
 import logging
@@ -18,6 +22,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from ..account.client import AuthError, OfflineError
+from ..errors import UserError
 from ..models import CrmContact, CrmStatus, CrmTombstone, Setting
 from .emoji import clean_emoji
 
@@ -29,7 +34,11 @@ BATCH = 200
 PAGE = 500
 # Rows committed on the server just before the previous cursor may show up late.
 OVERLAP = timedelta(minutes=2)
-CRMS = ("instagram", "imessage")
+CRMS = ("instagram", "imessage", "email")
+# The CRMs every version of the server accepts; "email" waits for migration 0009.
+BASE_CRMS = ("instagram", "imessage")
+EMAIL_BLOCKED = "crm_sync_email_blocked_until"
+EMAIL_RETRY = timedelta(hours=6)
 FIELDS = ("name", "notes", "next_action", "earned", "potential")
 LISTS = ("statuses", "channels")
 DATES = ("last_contact_at", "next_action_at", "deleted_at")
@@ -149,13 +158,43 @@ class CrmSync:
 
     # ---------- contacts ----------
 
+    def _email_allowed(self) -> bool:
+        with self.sessions() as session:
+            row = session.get(Setting, EMAIL_BLOCKED)
+            until = parse(row.value) if row is not None else None
+        return until is None or until <= datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def _email_refused(self) -> None:
+        log.warning("crm_sync_email_unsupported")
+        until = datetime.now(timezone.utc).replace(tzinfo=None) + EMAIL_RETRY
+        with self.sessions.begin() as session:
+            session.info[SYNC_FLAG] = True
+            _set(session, EMAIL_BLOCKED, iso(until))
+
+    def _email_round(self, push) -> None:
+        """Runs a push of the email CRM; a server without migration 0009 refuses it."""
+        if not self._email_allowed():
+            return
+        try:
+            push()
+        except (OfflineError, AuthError):
+            raise
+        except UserError:
+            self._email_refused()
+
     def _push_contacts(self, client, token) -> None:
+        self._push_rows(client, token, BASE_CRMS)
+        self._email_round(lambda: self._push_rows(client, token, ("email",)))
+
+    def _push_rows(self, client, token, crms: tuple[str, ...]) -> None:
         while True:
             with self.sessions.begin() as session:
                 session.info[SYNC_FLAG] = True
                 rows = list(
                     session.scalars(
-                        select(CrmContact).where(CrmContact.dirty.is_(True)).limit(BATCH)
+                        select(CrmContact)
+                        .where(CrmContact.dirty.is_(True), CrmContact.crm.in_(crms))
+                        .limit(BATCH)
                     )
                 )
                 for row in rows:
@@ -284,37 +323,42 @@ class CrmSync:
             )
             or []
         }
-        for crm in CRMS:
-            with self.sessions() as session:
-                dirty = bool((session.get(Setting, _dirty_key(crm)) or Setting(value=False)).value)
-                synced = session.get(Setting, _synced_key(crm))
-                synced_at = parse(synced.value) if synced else None
-                items = [
-                    {"label": row.label, "color": row.color, "emoji": row.emoji or ""}
-                    for row in session.scalars(
-                        select(CrmStatus).where(CrmStatus.crm == crm).order_by(CrmStatus.position)
-                    )
-                ]
-            server = remote.get(crm)
-            server_at = parse(server.get("updated_at")) if server else None
-            newer_there = server_at is not None and (synced_at is None or server_at > synced_at)
-            # Never synced here and the server has a list: the server's list wins over the
-            # defaults this copy seeded; otherwise the latest edit wins.
-            if newer_there and (not dirty or synced_at is None):
-                self._take_statuses(crm, server)
-            elif dirty:
-                saved = client.upsert(
-                    "crm_status_sets",
-                    [{"owner_id": me, "crm": crm, "items": items}],
-                    token,
-                    on_conflict="owner_id,crm",
+        for crm in BASE_CRMS:
+            self._sync_status_list(client, token, me, crm, remote.get(crm))
+        self._email_round(
+            lambda: self._sync_status_list(client, token, me, "email", remote.get("email"))
+        )
+
+    def _sync_status_list(self, client, token, me, crm: str, server: dict | None) -> None:
+        with self.sessions() as session:
+            dirty = bool((session.get(Setting, _dirty_key(crm)) or Setting(value=False)).value)
+            synced = session.get(Setting, _synced_key(crm))
+            synced_at = parse(synced.value) if synced else None
+            items = [
+                {"label": row.label, "color": row.color, "emoji": row.emoji or ""}
+                for row in session.scalars(
+                    select(CrmStatus).where(CrmStatus.crm == crm).order_by(CrmStatus.position)
                 )
-                with self.sessions.begin() as session:
-                    session.info[SYNC_FLAG] = True
-                    _set(session, _dirty_key(crm), False)
-                    stamp = (saved or [{}])[0].get("updated_at")
-                    if stamp:
-                        _set(session, _synced_key(crm), stamp)
+            ]
+        server_at = parse(server.get("updated_at")) if server else None
+        newer_there = server_at is not None and (synced_at is None or server_at > synced_at)
+        # Never synced here and the server has a list: the server's list wins over the
+        # defaults this copy seeded; otherwise the latest edit wins.
+        if newer_there and (not dirty or synced_at is None):
+            self._take_statuses(crm, server)
+        elif dirty:
+            saved = client.upsert(
+                "crm_status_sets",
+                [{"owner_id": me, "crm": crm, "items": items}],
+                token,
+                on_conflict="owner_id,crm",
+            )
+            with self.sessions.begin() as session:
+                session.info[SYNC_FLAG] = True
+                _set(session, _dirty_key(crm), False)
+                stamp = (saved or [{}])[0].get("updated_at")
+                if stamp:
+                    _set(session, _synced_key(crm), stamp)
 
     def _take_statuses(self, crm: str, server: dict) -> None:
         items = [
