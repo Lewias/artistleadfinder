@@ -1,13 +1,12 @@
 import { ErrorToast } from './Toaster';
 import { errorText } from '../lib/errors';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, ExternalLink } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import type { LeadDetail as Detail } from '../services/types';
 import { number, activity, relativeTime, statusLabels } from '../lib/format';
-import { date } from '../lib/format';
 import { DataState } from './DataState';
 import { Button } from './ui/button';
 import { categoryLabels, methodLabel } from './scoutStatus';
@@ -15,26 +14,7 @@ import { conversationLabels, dateTime, reasonLabel, recipientStatusLabels } from
 
 const decidedByLabels = { local: 'локально', ai: 'AI', 'local+ai': 'локально + AI' };
 
-export function LeadDetail({
-  id,
-  close,
-  refresh,
-  inspector = false,
-}: {
-  id: number;
-  close: () => void;
-  refresh: () => void;
-  inspector?: boolean;
-}) {
-  const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1280px)').matches);
-  const previousFocus = useRef(document.activeElement as HTMLElement | null);
-  useEffect(() => {
-    const media = window.matchMedia('(min-width: 1280px)');
-    const update = () => setWide(media.matches);
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, []);
-  const inline = inspector && wide;
+export function LeadDetail({ id, close, refresh }: { id: number; close: () => void; refresh: () => void }) {
   const resource = useResource<Detail>('leads.detail', { id });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,23 +68,13 @@ export function LeadDetail({
   return (
     <Dialog.Root
       open
-      modal={!inline}
       onOpenChange={value => {
         if (!value) close();
       }}
     >
       <Dialog.Portal>
-        {!inline && <Dialog.Overlay className="drawer-overlay" />}
-        <Dialog.Content
-          className={inspector ? 'drawer lead-inspector' : 'drawer'}
-          onCloseAutoFocus={event => {
-            if (inspector) {
-              event.preventDefault();
-              previousFocus.current?.focus();
-            }
-          }}
-          onInteractOutside={inline ? event => event.preventDefault() : undefined}
-        >
+        <Dialog.Overlay className="drawer-overlay" />
+        <Dialog.Content className="drawer">
           <Dialog.Close className="drawer-close" aria-label="Закрыть профиль">
             <X size={20} />
           </Dialog.Close>
@@ -114,42 +84,16 @@ export function LeadDetail({
             <DataState {...resource} retry={resource.refresh} />
           ) : (
             <>
-              {!inspector && (
-                <div className="avatar large">
-                  {lead.display_name.slice(0, 1) || lead.username.slice(0, 1)}
-                </div>
-              )}
-              <h2>{lead.display_name || lead.username}</h2>
+              <div className="avatar large">{lead.display_name.slice(0, 1) || lead.username.slice(0, 1)}</div>
+              <h2>{lead.display_name}</h2>
               <p>{lead.genres.join(' / ') || 'Жанр не определён'}</p>
               <p className="helper">
-                {capture?.unknown_fields.includes('followers') || lead.unknown_fields?.includes('followers')
+                {capture?.unknown_fields.includes('followers')
                   ? 'Подписчики не прочитаны'
                   : `${number(lead.followers)} подписчиков`}{' '}
                 · {lead.platform === 'mock' ? 'Демонстрационный профиль' : lead.platform}
                 {lead.is_private && ' · Закрытый аккаунт'}
               </p>
-              {inspector && (
-                <>
-                  <p className="helper">В базе с {date(lead.created_at)}</p>
-                  {lead.scout_profile && (
-                    <>
-                      <p className="helper">
-                        {categoryLabels[lead.scout_profile.profile_type]} · {lead.scout_profile.confidence}% ·
-                        @{lead.scout_profile.source_username} ·{' '}
-                        {methodLabel(lead.scout_profile.discovery_method)}
-                      </p>
-                      {!!(lead.scout_profile.emails.length || lead.scout_profile.phones.length) && (
-                        <>
-                          <h3>Контакты</h3>
-                          <p className="quiet-contact">
-                            {[...lead.scout_profile.emails, ...lead.scout_profile.phones].join(' · ')}
-                          </p>
-                        </>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
               {capture && (
                 <>
                   <h3>Данные со страницы</h3>
