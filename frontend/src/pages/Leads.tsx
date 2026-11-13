@@ -11,7 +11,8 @@ import { LeadDetail } from '../components/LeadDetail';
 import { Button } from '../components/ui/button';
 import { ExportBar } from '../components/ExportBar';
 import { categoryLabels, methodLabel } from '../components/scoutStatus';
-import { Modal } from '../components/Modal';
+import { LeadDialog } from '../design/LeadDialog';
+import { ActionMenu } from '../design/ActionMenu';
 import { api } from '../services/api';
 import { errorText } from '../lib/errors';
 
@@ -59,38 +60,24 @@ export function Leads({
       <Button variant="outline" onClick={resource.refresh}>
         <RefreshCw size={15} /> Обновить
       </Button>
-      <Button variant="outline" onClick={reset}>
-        <FilterX size={15} /> Сбросить
-      </Button>
-      <ExportBar query={query} selected={selected} />
-      {onCampaign && (
-        <Button
-          disabled={!selected.length}
-          onClick={() => {
-            setOutreachError('');
-            void onCampaign(selected).catch(err => setOutreachError(String(err)));
-          }}
-          title="Добавить выбранных в «Первичную рассылку»"
-        >
-          <Send size={15} /> В рассылку
-        </Button>
-      )}
-      <Button
-        variant="outline"
-        disabled={!selected.length}
-        onClick={() => {
-          setDeleteError('');
-          setConfirmDelete(true);
-        }}
-        title="Удалить выбранных артистов из базы"
-      >
-        <Trash2 size={15} /> Удалить
-      </Button>
-      <ErrorToast message={outreachError} />
+      <ExportBar query={query} selected={selected} compact />
+      <ActionMenu label="Действия">
+        {close => (
+          <button
+            role="menuitem"
+            onClick={() => {
+              close();
+              reset();
+            }}
+          >
+            <FilterX size={15} /> Сбросить фильтры
+          </button>
+        )}
+      </ActionMenu>
     </>
   );
   return (
-    <>
+    <div className={`leads-v2${jobId ? ' embedded' : ''}${detail ? ' has-inspector' : ''}`}>
       {jobId ? (
         <div className="actions embedded-toolbar">{toolbar}</div>
       ) : (
@@ -99,7 +86,39 @@ export function Leads({
           <LeadStats />
         </>
       )}
-      <section className="panel filter-bar">
+      <div className="lead-selection-bar" role="region" aria-label="Действия с выбранными">
+        <span aria-live="polite">
+          {selected.length ? `Выбрано: ${number(selected.length)}` : 'Выберите артистов для работы с базой'}
+        </span>
+        {selected.length > 0 && (
+          <>
+            <button className="text-action" onClick={() => setSelected([])}>
+              Снять выделение
+            </button>
+            {onCampaign && (
+              <Button
+                onClick={() => {
+                  setOutreachError('');
+                  void onCampaign(selected).catch(err => setOutreachError(errorText(err)));
+                }}
+              >
+                <Send size={14} /> В рассылку
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteError('');
+                setConfirmDelete(true);
+              }}
+            >
+              <Trash2 size={14} /> Удалить
+            </Button>
+          </>
+        )}
+        <ErrorToast message={outreachError} />
+      </div>
+      <section className="panel filter-bar" aria-label="Фильтры артистов">
         <label className="search-filter">
           <span className="input-with-icon">
             <Search size={16} aria-hidden="true" />
@@ -212,16 +231,31 @@ export function Leads({
         </details>
         <span className="selection-count">Выбрано: {selected.length}</span>
       </section>
-      <DataState {...resource} retry={resource.refresh} />
+      {resource.error && resource.data ? (
+        <div className="lead-inline-error" role="alert">
+          <span>{resource.error} Показаны последние загруженные данные.</span>
+          <Button variant="outline" onClick={resource.refresh}>
+            Повторить
+          </Button>
+        </div>
+      ) : (
+        <DataState {...resource} retry={resource.refresh} />
+      )}
       {resource.data && (
         <>
           <div className="table-container">
-            <table>
+            <table aria-label="База артистов">
               <thead>
                 <tr>
                   <th>
                     <input
                       aria-label="Выбрать страницу"
+                      ref={node => {
+                        if (node)
+                          node.indeterminate =
+                            items.some(lead => selected.includes(lead.id)) &&
+                            !items.every(lead => selected.includes(lead.id));
+                      }}
                       type="checkbox"
                       checked={items.length > 0 && items.every(lead => selected.includes(lead.id))}
                       onChange={event =>
@@ -245,7 +279,11 @@ export function Leads({
               </thead>
               <tbody>
                 {items.map(lead => (
-                  <tr key={lead.id}>
+                  <tr
+                    key={lead.id}
+                    data-selected={selected.includes(lead.id)}
+                    data-inspected={detail === lead.id}
+                  >
                     <td>
                       <input
                         type="checkbox"
@@ -257,9 +295,9 @@ export function Leads({
                     <td>
                       <button className="profile-cell" onClick={() => setDetail(lead.id)}>
                         <span className="avatar">{lead.username.slice(0, 1).toUpperCase()}</span>
-                        <span>
-                          <strong>@{lead.username}</strong>
-                          <small>{lead.display_name}</small>
+                        <span title={`${lead.display_name} · @${lead.username}`}>
+                          <strong>{lead.display_name || lead.username}</strong>
+                          <small>@{lead.username}</small>
                         </span>
                       </button>
                     </td>
@@ -355,7 +393,8 @@ export function Leads({
         </>
       )}
       {confirmDelete && (
-        <Modal
+        <LeadDialog
+          busy={deleting}
           title={`Удалить из базы: ${selected.length}?`}
           onClose={() => !deleting && setConfirmDelete(false)}
         >
@@ -372,14 +411,16 @@ export function Leads({
             <Button variant="danger" disabled={deleting} onClick={() => void remove()}>
               <Trash2 size={15} /> Удалить
             </Button>
-            <Button variant="outline" disabled={deleting} onClick={() => setConfirmDelete(false)}>
+            <Button data-cancel variant="outline" disabled={deleting} onClick={() => setConfirmDelete(false)}>
               Отмена
             </Button>
           </div>
-        </Modal>
+        </LeadDialog>
       )}
-      {detail && <LeadDetail id={detail} close={() => setDetail(undefined)} refresh={resource.refresh} />}
-    </>
+      {detail && (
+        <LeadDetail inspector id={detail} close={() => setDetail(undefined)} refresh={resource.refresh} />
+      )}
+    </div>
   );
 }
 

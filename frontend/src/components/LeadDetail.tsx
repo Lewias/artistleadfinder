@@ -1,6 +1,6 @@
 import { ErrorToast } from './Toaster';
 import { errorText } from '../lib/errors';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, ExternalLink } from 'lucide-react';
 import { api } from '../services/api';
@@ -14,7 +14,26 @@ import { conversationLabels, dateTime, reasonLabel, recipientStatusLabels } from
 
 const decidedByLabels = { local: 'локально', ai: 'AI', 'local+ai': 'локально + AI' };
 
-export function LeadDetail({ id, close, refresh }: { id: number; close: () => void; refresh: () => void }) {
+export function LeadDetail({
+  id,
+  close,
+  refresh,
+  inspector = false,
+}: {
+  id: number;
+  close: () => void;
+  refresh: () => void;
+  inspector?: boolean;
+}) {
+  const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1280px)').matches);
+  const previousFocus = useRef(document.activeElement as HTMLElement | null);
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1280px)');
+    const update = () => setWide(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  const inline = inspector && wide;
   const resource = useResource<Detail>('leads.detail', { id });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -68,13 +87,23 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
   return (
     <Dialog.Root
       open
+      modal={!inline}
       onOpenChange={value => {
         if (!value) close();
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="drawer-overlay" />
-        <Dialog.Content className="drawer">
+        {!inline && <Dialog.Overlay className="drawer-overlay" />}
+        <Dialog.Content
+          className={inspector ? 'drawer lead-inspector' : 'drawer'}
+          onCloseAutoFocus={event => {
+            if (inspector) {
+              event.preventDefault();
+              previousFocus.current?.focus();
+            }
+          }}
+          onInteractOutside={inline ? event => event.preventDefault() : undefined}
+        >
           <Dialog.Close className="drawer-close" aria-label="Закрыть профиль">
             <X size={20} />
           </Dialog.Close>
@@ -88,7 +117,7 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
               <h2>{lead.display_name}</h2>
               <p>{lead.genres.join(' / ') || 'Жанр не определён'}</p>
               <p className="helper">
-                {capture?.unknown_fields.includes('followers')
+                {capture?.unknown_fields.includes('followers') || lead.unknown_fields?.includes('followers')
                   ? 'Подписчики не прочитаны'
                   : `${number(lead.followers)} подписчиков`}{' '}
                 · {lead.platform === 'mock' ? 'Демонстрационный профиль' : lead.platform}

@@ -1,0 +1,122 @@
+{
+  "date": "2026-11-13",
+  "branch": "redesign/artist-lead-finder-v2",
+  "baseline_commit": "01d765446809bbae101286e2d5eb6a42cb81abeb",
+  "data": "1606 synthetic artists; development fixture only",
+  "macos": "not available / unverified",
+  "windows_scaling": "not independently measured",
+  "captures": [
+    {
+      "file": "browser/01-table.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "abed76ebe2029bcf72b2c3188273caf2ca92fb6bacf8b44cb41290c8a1511c66"
+    },
+    {
+      "file": "browser/02-selection.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "25089eb05e4f8e501a8c02b83a3e0b420104faa7190b2c2e5fdada10bda4205e"
+    },
+    {
+      "file": "browser/03-export-menu.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "0c1c8bffd3eed39428d6dab494e20d6bf0880585348db09600b6f64c26af1fdd"
+    },
+    {
+      "file": "browser/04-delete-dialog.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "723281a7ae9e202bee90f5894e2284bc31c178e8c1e08738c825e8654dc8fe35"
+    },
+    {
+      "file": "browser/05-inspector.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "65f70cd43754e5b79df7af896448385169199ce773b09df5ed5047ba2f851b12"
+    },
+    {
+      "file": "browser/06-error.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "9ab422f1c5cf37a9435b2cb43127fa7ea3379ab58ed4fe66ea9e0e7bdd90fb3e"
+    },
+    {
+      "file": "browser/07-empty.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "3f6f465e514377f91234fa350156811ba167503726447ffc8d580c6945b7e26e"
+    },
+    {
+      "file": "browser/08-filters.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1360,
+      "height": 900,
+      "sha256": "01c73d80bb486c538cd875c1d7202aabe7b456ab88eb36f1d7d7ae8584ba2f12"
+    },
+    {
+      "file": "browser/09-table-1024.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1024,
+      "height": 700,
+      "sha256": "e0c67267cdfb6fc69fdafbbbb0b43693ecdf2f3b7b60f2a767129f039f419534"
+    },
+    {
+      "file": "browser/09-table-1920.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "6d7696a43913e1cf34fa3dcc32090c958e67fb2fb2a987325d0fbeefa19f4af0"
+    },
+    {
+      "file": "browser/10-inspector-1024.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1024,
+      "height": 700,
+      "sha256": "ef96c535fede6c630f0bcc8723fe7c6e46de9fc560e1828fd2b33c013dd6071c"
+    },
+    {
+      "file": "browser/10-inspector-1920.png",
+      "capture": "browser-chromium-fixture",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "30c99ebaf531b82cb7fd8d86d956a8c45c7e91072bdc81900029523a2ddb4e2d"
+    },
+    {
+      "file": "windows/after-inspector-native.png",
+      "capture": "native-windows-webview2",
+      "width": 6291456,
+      "height": 4292542531,
+      "sha256": "2e702e07847d35ca8ee4e701271a35a02deef5856b015189491dcb83399fd6b9"
+    },
+    {
+      "file": "windows/after-native.png",
+      "capture": "native-windows-webview2",
+      "width": 6291456,
+      "height": 4292542531,
+      "sha256": "703f7defb67f4fd7aff64ef02bf0d3bca333cefb31b51e316bb614738fed4b58"
+    },
+    {
+      "file": "windows/before-inspector-native.png",
+      "capture": "native-windows-webview2",
+      "width": 6291456,
+      "height": 4292542531,
+      "sha256": "6185165d2bcfea650a12cfc6596546efd155dbb8fe5252e7cede4e0c6850aef1"
+    },
+    {
+      "file": "windows/before-native.png",
+      "capture": "native-windows-webview2",
+      "width": 6291456,
+      "height": 4292542531,
+      "sha256": "457f30fff0cc6eb7ba52c6b7f75c1f0b1d16e25884cf9ef7e9a8a12fdbcfc65a"
+    }
+  ]
+}

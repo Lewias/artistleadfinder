@@ -195,7 +195,7 @@ function Workspace({
     );
   };
   return (
-    <div className="app-shell">
+    <div className="app-shell shell-v2">
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-logo">
