@@ -35,6 +35,7 @@ import type {
   IMessageState,
   IMessageTemplate,
   SearchJob,
+  InstagramWarmupHistoryRun,
   ScoutAccountRow,
 } from './services/types';
 import { api } from './services/api';
@@ -56,6 +57,7 @@ import { Admin } from './pages/Admin';
 import { Assistant } from './pages/Assistant';
 import { EmailAccounts, EmailCampaigns } from './pages/Email';
 import { EmailWarmup } from './pages/EmailWarmup';
+import { InstagramWarmup } from './pages/InstagramWarmup';
 import { BrowserProfiles } from './components/BrowserProfiles';
 import { SectionTransition } from './components/SectionTransition';
 import { ErrorBoundary, ErrorToast, Toaster } from './components/Toaster';
@@ -82,6 +84,7 @@ const icons: Record<PageId, LucideIcon> = {
   email: Mail,
   'email-accounts': MailPlus,
   'email-warmup': Flame,
+  'instagram-warmup': Flame,
   'email-crm': BookUser,
   assistant: Sparkles,
   admin: UsersRound,
@@ -94,6 +97,7 @@ const staffPages: PageId[] = ['crm-users', 'imessage-crm-users', 'assistant'];
 const hiddenPages: PageId[] = ['dashboard'];
 const toolPages: PageId[] = [
   'profiles',
+  'instagram-warmup',
   'history',
   'crm-users',
   'imessage-log',
@@ -107,6 +111,7 @@ function useNavCounts(): Partial<Record<PageId, number>> {
   const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 15000);
   const leads = useResource<{ total: number }>('leads.list', { page_size: 1 }, 15000);
   const jobs = useResource<SearchJob[]>('jobs.list', {}, 15000);
+  const warmups = useResource<InstagramWarmupHistoryRun[]>('instagram_warmup.history', {}, 15000);
   const imessage = useResource<IMessageState>('imessage.state', {}, 15000);
   const templates = useResource<IMessageTemplate[]>('imessage.templates', {}, 15000);
   const crm = useResource<CrmList>('crm.list', { crm: 'instagram', page_size: 1 }, 15000);
@@ -121,7 +126,7 @@ function useNavCounts(): Partial<Record<PageId, number>> {
     discovery: sources.data?.length,
     profiles: accounts.data?.length,
     leads: leads.data?.total,
-    history: jobs.data?.length,
+    history: (jobs.data?.length ?? 0) + (warmups.data?.length ?? 0),
   };
 }
 
@@ -392,6 +397,8 @@ function Workspace({
                 <SearchHistory />
               ) : active === 'profiles' ? (
                 <BrowserProfiles />
+              ) : active === 'instagram-warmup' ? (
+                <InstagramWarmup />
               ) : active === 'imessage' ? (
                 <IMessageCampaigns />
               ) : active === 'imessage-templates' ? (

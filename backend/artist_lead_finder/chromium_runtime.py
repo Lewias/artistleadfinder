@@ -17,6 +17,7 @@ from .browser_sessions import BrowserSessions
 from .database import application_data_dir
 from .direct_message import send_direct
 from .inbox.reader import read_thread
+from .instagram_warmup_browser import warmup_action
 from .lead_scout import feed as grid_feed
 from .lead_scout.candidates import normalize_instagram_username, parse_instagram_post_url
 from .lead_scout.profiles import page_data
@@ -486,6 +487,13 @@ class ChromiumRuntime:
             if not self._window(identifier):
                 raise ValueError("Browser window is closed") from None
         return {"ok": True, "rate_limited": window.rate_limited}
+
+    @_on_browser_thread
+    def warmup_action(self, identifier: str, action: str, value: str) -> dict:
+        window = self._window(identifier)
+        if not window:
+            raise BrowserLaunchError("Окно аккаунта закрыто. Прогрев остановлен.")
+        return warmup_action(self, window, identifier, action, value)
 
     @_on_browser_thread
     def send_message(self, identifier: str, username: str, text: str) -> dict:

@@ -143,6 +143,10 @@ class InboxService:
     def _wait_reason(self, session, scan: InboxScan, now) -> str:
         """Why the next thread cannot be read now; empty when it can."""
         sender = scan.sender_account_id
+        from ..instagram_warmup import active_profile as warmup_profile
+
+        if warmup_profile(session) == sender:
+            return "В окне аккаунта идёт прогрев: чтение продолжится после него."
         if not self.window_open(sender):
             return "Откройте окно аккаунта, чтобы читать Директ."
         busy = session.scalar(

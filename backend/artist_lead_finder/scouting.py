@@ -601,7 +601,12 @@ class ScoutService:
     # ---------- Run lifecycle ----------
 
     def start(self, params, settings):
+        from .instagram_warmup import active_profile as warmup_profile
+
         profile = params["profile_id"]
+        with self.sessions() as session:
+            if warmup_profile(session) == profile:
+                raise UserError("В аккаунте идёт прогрев. Сначала остановите его.")
         scout = self.scout_settings()
         explicit = params.get("sources")
         cooling: list[str] = []

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
-import type { SearchJob } from '../services/types';
+import type { InstagramWarmupHistoryRun, SearchJob } from '../services/types';
 import { number, date, statusLabels } from '../lib/format';
 import { DataState, StatusBadge } from '../components/DataState';
 import { JobProgress } from '../components/JobProgress';
@@ -11,6 +11,7 @@ import { Button } from '../components/ui/button';
 import { Leads } from './Leads';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
+import { InstagramWarmupHistory } from '../components/InstagramWarmupHistory';
 
 const active = ['queued', 'running', 'paused'];
 
@@ -26,12 +27,15 @@ function duration(job: SearchJob) {
 }
 export function SearchHistory() {
   const resource = useResource<SearchJob[]>('jobs.list', {}, 2000);
+  const warmups = useResource<InstagramWarmupHistoryRun[]>('instagram_warmup.history', {}, 2000);
   const [selected, setSelected] = useState<number>();
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const job = resource.data?.find(item => item.id === selected);
-  const finished = resource.data?.filter(item => !active.includes(item.status)).length ?? 0;
+  const finished =
+    (resource.data?.filter(item => !active.includes(item.status)).length ?? 0) +
+    (warmups.data?.filter(item => item.status !== 'running').length ?? 0);
   const clear = async () => {
     setBusy(true);
     setError('');
@@ -44,19 +48,25 @@ export function SearchHistory() {
     } finally {
       setBusy(false);
       resource.refresh();
+      warmups.refresh();
     }
   };
   return (
     <>
       <PageHeader
         page="history"
-        count={resource.data?.length}
+        count={(resource.data?.length ?? 0) + (warmups.data?.length ?? 0)}
         actions={
           <Button variant="outline" disabled={!finished} onClick={() => setConfirm(true)}>
             <Trash2 size={15} /> Очистить всё
           </Button>
         }
       />
+      <DataState {...warmups} retry={warmups.refresh} />
+      {warmups.data && <InstagramWarmupHistory runs={warmups.data} />}
+      <div className="section-heading">
+        <h2>Поиск артистов</h2>
+      </div>
       <DataState {...resource} retry={resource.refresh} />
       {resource.data && (
         <>
@@ -142,8 +152,8 @@ export function SearchHistory() {
       {confirm && (
         <Modal title="Очистить историю?" onClose={() => setConfirm(false)}>
           <p className="helper">
-            Завершённые поиски пропадут из истории. Найденные артисты останутся в базе, активные поиски не
-            затрагиваются.
+            Завершённые поиски и прогревы пропадут из истории. Найденные артисты останутся в базе, активные
+            запуски не затрагиваются.
           </p>
           <ErrorToast message={error} />
           <div className="actions">

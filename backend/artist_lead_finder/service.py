@@ -28,6 +28,8 @@ from .imessage import shortcut as imessage_shortcut
 from .imessage.service import IMessageService
 from .inbox.service import InboxService
 from .inbox.settings import InboxSettings
+from .instagram_warmup import InstagramWarmup
+from .instagram_warmup import clear_history as clear_warmup_history
 from .jobs import DiscoveryManager
 from .lead_scout import leads as scout_leads
 from .lead_scout.ai import AIKeyStore, CloudflareKeys, OpenRouterClassifier
@@ -221,6 +223,9 @@ class ApplicationService:
         self.workspace = WorkspaceService(sessions, self.campaigns)
         # Sends cut off by a crash are checked against the message records, never resent.
         self.outreach.recover()
+        self.instagram_warmup = InstagramWarmup(
+            sessions, self.chromium, lambda: self.browser_sessions.call("browser.list", {})
+        )
         with self.sessions.begin() as session:
             outreach_events.prune(session)
         # iMessage through the iPhone: the LAN bridge comes back if it was on.
@@ -294,6 +299,13 @@ class ApplicationService:
         chromium = self.chromium
         return {
             "browser.runtime.self_test": lambda p: chromium.self_test(),
+            "instagram_warmup.state": self.instagram_warmup.state,
+            "instagram_warmup.history": self.instagram_warmup.history,
+            "instagram_warmup.detail": self.instagram_warmup.detail,
+            "instagram_warmup.settings": self.instagram_warmup.settings,
+            "instagram_warmup.start": self.instagram_warmup.start,
+            "instagram_warmup.stop": self.instagram_warmup.stop,
+            "instagram_warmup.tick_internal": self.instagram_warmup.tick,
             "browser.runtime.is_open": lambda p: {"open": chromium.is_open(p["id"])},
             "browser.runtime.close_idle": self.idle_closer.tick,
             "browser.runtime.close": lambda p: chromium.close(p["id"]),
@@ -689,13 +701,14 @@ class ApplicationService:
         return result
 
     def _clear_job_history(self, params: dict) -> Any:
-        """Hide finished searches from the history; active ones and all leads stay."""
+        """Hide finished searches and warm-ups; active runs and contacts stay."""
         with self.sessions.begin() as session:
             session.execute(
                 update(SearchJob)
                 .where(SearchJob.status.not_in(("queued", "running", "paused")))
                 .values(hidden=True)
             )
+            clear_warmup_history(session)
         return {"ok": True}
 
     def _job_detail(self, params: dict) -> Any:
@@ -967,6 +980,7 @@ class ApplicationService:
         return {"count": count, "path": str(path)}
 
     def shutdown(self) -> None:
+        self.instagram_warmup.stop()
         # A running assistant stops after its current step.
         self.assistant.stopping.set()
         self.spotify.shutdown()

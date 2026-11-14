@@ -108,6 +108,31 @@ export interface SearchJob extends SearchConfig {
   completed_at: string | null;
   errors: { message: string; provider?: string }[];
 }
+export interface InstagramWarmupHistoryRun {
+  id: string;
+  profile_id: string;
+  profile_name: string;
+  status: 'running' | 'done' | 'stopped' | 'interrupted' | 'failed';
+  stage: string;
+  started_at: number;
+  completed_at: number | null;
+  targets: { messages: number; likes: number; follows: number };
+  sent: number;
+  liked: number;
+  followed: number;
+  checked: number;
+}
+export interface InstagramWarmupHistoryDetail extends InstagramWarmupHistoryRun {
+  events: { at: number; text: string; username: string; outcome: string }[];
+  settings: {
+    queries: string[];
+    message: string;
+    messages: number;
+    likes: number;
+    follows: number;
+    delay_seconds: number;
+  } | null;
+}
 export interface DashboardData {
   total: number;
   qualified: number;

@@ -422,6 +422,12 @@ CORE["spotify.results"] = {"total": 4, "rows": [
          "поиск «rage rap»", "2026-10-10T17:12:00+00:00", None),
     ])]}
 CORE["telegram.state"] = {"linked": True, "username": "artist_hunter", "notify": True, "bot": "alf_leads_bot"}
+CORE["instagram_warmup.state"] = {
+    "profiles": PROFILES,
+    "settings": {"queries": ["магазин одежды", "магазин косметики", "магазин подарков"],
+                 "message": "", "messages": 6, "likes": 3, "follows": 5, "delay_seconds": 20},
+}
+CORE["instagram_warmup.history"] = []
 MOCK = """
 (() => {
   const core = %s;

@@ -161,6 +161,11 @@ class BrowserCaptureService:
         self.sessions = sessions
 
     def start(self, params: dict, settings: dict) -> dict:
+        from .instagram_warmup import active_profile as warmup_profile
+
+        with self.sessions() as session:
+            if warmup_profile(session) == params.get("profile_id"):
+                raise UserError("В аккаунте идёт прогрев. Сначала остановите его.")
         values = params["urls"]
         if not isinstance(values, list) or not 1 <= len(values) <= 100:
             raise ValueError("Use between 1 and 100 links")

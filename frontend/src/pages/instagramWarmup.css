@@ -1,0 +1,57 @@
+.ig-warmup-panel {
+  padding: 24px;
+  flex: none;
+}
+.ig-warmup-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+.ig-warmup-fields label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.ig-warmup-fields label > span {
+  font-size: 13px;
+  font-weight: 500;
+}
+.ig-warmup-fields input,
+.ig-warmup-fields select,
+.ig-warmup-fields textarea {
+  width: 100%;
+}
+.ig-warmup-fields textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+.ig-warmup-fields:disabled {
+  opacity: 0.7;
+}
+.ig-warmup-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.ig-warmup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.ig-warmup-log {
+  max-height: 420px;
+  overflow: auto;
+  margin-top: 20px;
+}
+.ig-warmup-log td:first-child {
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .ig-warmup-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

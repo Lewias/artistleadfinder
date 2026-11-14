@@ -206,6 +206,11 @@ class OutreachWorker:
                     .where(SearchJob.status == "running")
                 )
             )
+            from ..instagram_warmup import active_profile as warmup_profile
+
+            warming = warmup_profile(session)
+            if warming:
+                busy.add(warming)
             candidates = session.scalars(
                 select(OutboundMessageJob)
                 .where(

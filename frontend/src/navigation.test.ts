@@ -6,6 +6,7 @@ describe('desktop navigation contract', () => {
       'discovery',
       'spotify',
       'profiles',
+      'instagram-warmup',
       'leads',
       'history',
       'dashboard',
@@ -30,7 +31,7 @@ describe('desktop navigation contract', () => {
       'admin',
       'settings',
     ]);
-    expect(new Set(pages.map(page => page.id)).size).toBe(21);
+    expect(new Set(pages.map(page => page.id)).size).toBe(22);
   });
   it('splits the main sections between the three channels', () => {
     const main = (channel: string) =>
@@ -44,7 +45,7 @@ describe('desktop navigation contract', () => {
       'imessage-crm-users',
     ]);
     expect(main('email')).toEqual(['email', 'email-accounts', 'email-warmup', 'email-crm']);
-    expect(main('instagram')).toHaveLength(8);
+    expect(main('instagram')).toHaveLength(9);
     // CRM and the other users' CRM close the list of each channel.
     expect(main('instagram').slice(-2)).toEqual(['crm', 'crm-users']);
   });

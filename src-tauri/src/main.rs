@@ -760,6 +760,7 @@ fn run_outreach_driver(core: Core, closing: BrowserClosing) {
             break;
         }
         // A window the app has no more work for closes by itself (the core decides).
+        let _ = request("instagram_warmup.tick_internal", json!({}));
         let _ = request("browser.runtime.close_idle", json!({}));
         let job = request("outreach.next_internal", json!({})).unwrap_or(Value::Null);
         let (Some(profile_id), Some(job_id)) = (job["profile_id"].as_str(), job["job_id"].as_i64())
