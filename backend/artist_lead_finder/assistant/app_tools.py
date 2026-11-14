@@ -277,9 +277,10 @@ class AppTools:
 
     def _execute(self, action: AssistantAction) -> str:
         params = action.params
-        done = self._execute_operator(action.kind, params)
-        if done is not None:
-            return done
+        for runner in (self._execute_operator, self._execute_catalog):
+            done = runner(action.kind, params)
+            if done is not None:
+                return done
         if action.kind == "instagram_list_add":
             added = self.add_usernames(params["usernames"])
             return f"Добавлено в список «Рассылки»: {added} (остальные уже были)."

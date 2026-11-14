@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import '@fontsource-variable/inter';
 import './theme.css';
+import './design/tokens.css';
+import './design/desktop.css';
+import './design/reference.css';
+import './design/unify.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

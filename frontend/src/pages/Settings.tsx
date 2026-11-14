@@ -1,11 +1,9 @@
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
 import { useState, type FormEvent } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
-import type { ProviderHealth, SettingsData } from '../services/types';
-import { date } from '../lib/format';
+import type { SettingsData } from '../services/types';
 import { DataState } from '../components/DataState';
 import { Button } from '../components/ui/button';
 import { PageHeader } from '../components/PageHeader';
@@ -28,7 +26,6 @@ const weightNames: Record<string, string> = {
 /** staff: admins and moderators, who have the assistant. */
 export function Settings({ updater, staff = false }: { updater: Updater; staff?: boolean }) {
   const resource = useResource<SettingsData>('settings.get');
-  const health = useResource<ProviderHealth[]>('providers.health', {}, 5000);
   if (!resource.data)
     return (
       <>
@@ -42,11 +39,7 @@ export function Settings({ updater, staff = false }: { updater: Updater; staff?:
       updater={updater}
       staff={staff}
       initial={resource.data}
-      health={health.data || []}
-      refresh={() => {
-        resource.refresh();
-        health.refresh();
-      }}
+      refresh={resource.refresh}
     />
   );
 }
@@ -54,13 +47,11 @@ function SettingsForm({
   updater,
   staff,
   initial,
-  health,
   refresh,
 }: {
   updater: Updater;
   staff: boolean;
   initial: SettingsData;
-  health: ProviderHealth[];
   refresh: () => void;
 }) {
   const [settings, setSettings] = useState(initial);
@@ -78,28 +69,6 @@ function SettingsForm({
     try {
       await api.request('settings.save', settings);
       setMessage('Настройки сохранены. Применяются к новым поискам.');
-      refresh();
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const importData = async () => {
-    setBusy(true);
-    setMessage('');
-    setError('');
-    try {
-      const path = await open({
-        title: 'Импорт набора профилей',
-        multiple: false,
-        filters: [{ name: 'Profiles', extensions: ['json', 'csv'] }],
-      });
-      if (!path || Array.isArray(path)) return;
-      const result = await api.request<{ count: number }>('providers.import', { path });
-      setMessage(
-        `Импортировано профилей: ${result.count}. Включите источник «Импорт» и сохраните настройки.`,
-      );
       refresh();
     } catch (err) {
       setError(errorText(err));
@@ -264,39 +233,6 @@ function SettingsForm({
           </p>
         </section>
         <section className="panel">
-          <h2>Источники поиска</h2>
-          <div className="genre-options">
-            {[
-              { id: 'mock', label: 'Демонстрационный' },
-              { id: 'imported', label: 'Импорт' },
-            ].map(provider => (
-              <label key={provider.id}>
-                <input
-                  type="checkbox"
-                  disabled={busy}
-                  checked={settings.enabled_providers.includes(provider.id)}
-                  onChange={event =>
-                    update(
-                      'enabled_providers',
-                      event.target.checked
-                        ? [...settings.enabled_providers, provider.id]
-                        : settings.enabled_providers.filter(value => value !== provider.id),
-                    )
-                  }
-                />
-                {provider.label}
-              </label>
-            ))}
-          </div>
-          <p className="helper">
-            JSON или CSV, до 25 MB. Обязательные поля: platform, username. Поддерживаются поля Candidate из
-            документации. Файл проверяется и сохраняется локально.
-          </p>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => void importData()}>
-            Импортировать набор
-          </Button>
-        </section>
-        <section className="panel">
           <h2>AI-классификация</h2>
           <p className="helper">
             Используются объяснимые правила. Приложение работает без API-ключа. Облачные и локальные
@@ -330,34 +266,6 @@ function SettingsForm({
       )}
       <ErrorToast message={error} />
       <MemoryReset />
-      <section className="panel provider-panel">
-        <h2>Состояние источников</h2>
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Источник</th>
-                <th>Состояние</th>
-                <th>Последний запрос</th>
-                <th>Успешный запрос</th>
-                <th>Последняя ошибка</th>
-              </tr>
-            </thead>
-            <tbody>
-              {health.map(provider => (
-                <tr key={provider.provider}>
-                  <td>{provider.provider}</td>
-                  <td>{provider.status}</td>
-                  <td>{date(provider.last_request_at || null)}</td>
-                  <td>{date(provider.last_success_at || null)}</td>
-                  <td className="error-cell">{provider.last_error || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="helper">Meta Instagram не подключён. Квоты и ограничения не обходятся.</p>
-      </section>
     </>
   );
 }

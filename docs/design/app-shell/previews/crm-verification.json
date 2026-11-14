@@ -1,0 +1,29 @@
+{
+  "renders": [
+    "crm-a-dark-windows-1360x900",
+    "crm-b-dark-windows-1360x900",
+    "crm-a-light-windows-1360x900",
+    "crm-b-light-windows-1360x900",
+    "crm-a-dark-windows-1024x700",
+    "crm-b-dark-windows-1024x700",
+    "crm-a-dark-windows-1920x1080",
+    "crm-b-dark-windows-1920x1080",
+    "crm-a-light-mac-1360x900",
+    "crm-b-dark-mac-1360x900"
+  ],
+  "checks": [
+    "CRM tab reachable in both shells",
+    "row-detail sync",
+    "arrow navigation and Space selection",
+    "search, empty state and selection reset",
+    "status filter",
+    "attention tab",
+    "trash and local restore",
+    "local new contact form",
+    "local trash action",
+    "B detail selection and Enter edit",
+    "Email CRM conversation action",
+    "separate channel demo books"
+  ],
+  "errors": []
+}

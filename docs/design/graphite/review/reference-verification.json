@@ -1,0 +1,36 @@
+{
+  "runtime": "Tauri 2 / real WebView2 / actual core RPC",
+  "viewports": [
+    {
+      "width": 1360,
+      "height": 900,
+      "document_overflow": false
+    },
+    {
+      "width": 1600,
+      "height": 1000,
+      "document_overflow": false
+    },
+    {
+      "width": 1024,
+      "height": 700,
+      "document_overflow": false
+    }
+  ],
+  "checks": [
+    "real Tauri/core data",
+    "reference composition at three sizes",
+    "no document/sidebar overflow",
+    "artist chooser with keyboard",
+    "analysis and history access",
+    "full artist list/search",
+    "bulk selection",
+    "filters and focus return",
+    "all export scopes available",
+    "empty search and reset",
+    "Ctrl+F opens collection",
+    "sidebar account menu remains accessible",
+    "per-channel last-page memory"
+  ],
+  "page_errors": []
+}

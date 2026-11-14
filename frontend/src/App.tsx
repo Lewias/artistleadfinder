@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import {
   AudioLines,
   BarChart3,
   BookUser,
+  FolderOpen,
+  Wrench,
+  LayoutGrid,
+  PanelLeftClose,
+  PanelLeftOpen,
   Contact,
   Database,
   Disc3,
@@ -38,7 +43,8 @@ import { Dashboard } from './pages/Dashboard';
 import { Discovery } from './pages/Discovery';
 import { Spotify } from './pages/Spotify';
 import type { WorkTab } from './components/ScoutDiscovery';
-import { Leads } from './pages/Leads';
+import { ArtistDatabase } from './pages/ArtistDatabase';
+import { Dropdown, NavGroup, NavigationItem, useTabIndicators } from './components/ui/desktop';
 import { SearchHistory } from './pages/SearchHistory';
 import { Settings } from './pages/Settings';
 import { IMessageCampaigns } from './pages/IMessageCampaigns';
@@ -56,6 +62,7 @@ import { ErrorBoundary, ErrorToast, Toaster } from './components/Toaster';
 import { UpdateNotice } from './components/UpdateNotice';
 import { AccountGate, AccountMenu } from './components/account/AccountGate';
 import { useUpdater } from './hooks/useUpdater';
+import { reportError } from './lib/toast';
 
 const icons: Record<PageId, LucideIcon> = {
   discovery: ScanSearch,
@@ -83,6 +90,17 @@ const icons: Record<PageId, LucideIcon> = {
 
 // Shown to admins and moderators only; a plain user does not see them at all.
 const staffPages: PageId[] = ['crm-users', 'imessage-crm-users', 'assistant'];
+// Kept in the code but not offered in the sidebar.
+const hiddenPages: PageId[] = ['dashboard'];
+const toolPages: PageId[] = [
+  'profiles',
+  'history',
+  'crm-users',
+  'imessage-log',
+  'imessage-crm-users',
+  'email-accounts',
+  'email-warmup',
+];
 
 function useNavCounts(): Partial<Record<PageId, number>> {
   const sources = useResource<string[]>('scout.sources', {}, 15000);
@@ -141,7 +159,7 @@ function Workspace({
   const admin = account?.role === 'admin' && account.configured;
   // Admin and moderator see every user's CRM, signed with the owner, and the assistant.
   const staff = (account?.role === 'admin' || account?.role === 'moderator') && account.configured;
-  const visible = (id: PageId) => staff || !staffPages.includes(id);
+  const visible = (id: PageId) => !hiddenPages.includes(id) && (staff || !staffPages.includes(id));
   const [active, setActive] = useState<PageId>('discovery');
   const [channel, setChannel] = useState<Channel>('instagram');
   // Each channel reopens on the section it was left on.
@@ -178,59 +196,152 @@ function Workspace({
       .then(setVersion)
       .catch(() => undefined);
   }, []);
-  const navButton = (item: (typeof pages)[number]) => {
+  useTabIndicators();
+  // Ctrl/Cmd+B folds the sidebar to an icon rail; the choice survives a restart.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('alf.sidebar') === 'collapsed';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('alf.sidebar', collapsed ? 'collapsed' : 'open');
+    } catch {
+      /* storage may be unavailable; the toggle still works for this session */
+    }
+  }, [collapsed]);
+  // The grid column snaps to its new width and the page reflows once; the page is then slid
+  // from where it was with a transform while the sidebar animates its own width above it.
+  // Only the sidebar is laid out per frame, so the fold stays smooth on heavy pages.
+  const mainRef = useRef<HTMLElement>(null);
+  const mainLeft = useRef<number | null>(null);
+  const toggleSidebar = () => {
+    mainLeft.current = mainRef.current?.getBoundingClientRect().left ?? null;
+    setCollapsed(value => !value);
+  };
+  const toggleRef = useRef(toggleSidebar);
+  useLayoutEffect(() => {
+    toggleRef.current = toggleSidebar;
+  });
+  useLayoutEffect(() => {
+    const main = mainRef.current;
+    const before = mainLeft.current;
+    mainLeft.current = null;
+    if (!main || before === null || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const shift = before - main.getBoundingClientRect().left;
+    if (!shift) return;
+    const motion = main.animate([{ transform: `translateX(${shift}px)` }, { transform: 'translateX(0)' }], {
+      duration: 320,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    });
+    return () => motion.cancel();
+  }, [collapsed]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === 'KeyB') {
+        event.preventDefault();
+        toggleRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const navButton = (item: (typeof pages)[number], index: number) => {
     const Icon = icons[item.id];
     const count = counts[item.id];
     return (
-      <button
+      <NavigationItem
         key={item.id}
-        className={`nav-item${active === item.id ? ' active' : ''}`}
-        aria-current={active === item.id ? 'page' : undefined}
+        title={item.label}
+        active={active === item.id}
         onClick={() => navigate(item.id)}
+        style={{ '--i': index } as CSSProperties}
       >
         <Icon size={18} strokeWidth={1.8} />
         <span>{item.label}</span>
         {count !== undefined && <span className="nav-count">{number(count)}</span>}
-      </button>
+      </NavigationItem>
     );
   };
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell alf-ui${active === 'leads' ? ' alf-database-shell' : ''}${collapsed ? ' sidebar-collapsed' : ''}`}
+    >
       <aside className="sidebar">
-        <div className="brand">
+        <div className="brand" title={`Artist Lead Finder · v${version || core.data?.version || '0.1.0'}`}>
           <span className="brand-logo">
             <AudioLines size={17} strokeWidth={2.4} />
           </span>
           <span className="brand-name">Artist Lead Finder</span>
           <span className="version-pill">v{version || core.data?.version || '0.1.0'}</span>
         </div>
-        <div className="nav-section">{section.section}</div>
-        <nav aria-label="Основная навигация">
+        <Dropdown
+          label="Канал"
+          className="alf-channel-dropdown"
+          value={channel}
+          options={channels.map(item => ({ value: item.id, label: item.label }))}
+          onChange={value => switchChannel(value as Channel)}
+        />
+        <div className="nav-section">Навигация</div>
+        <NavGroup
+          title="Рабочая область"
+          icon={<LayoutGrid />}
+          label="Основная навигация"
+          contentKey={channel}
+        >
           {pages
-            .filter(item => item.placement === 'main' && item.channel === channel && visible(item.id))
+            .filter(
+              item =>
+                item.placement === 'main' &&
+                item.channel === channel &&
+                visible(item.id) &&
+                !toolPages.includes(item.id),
+            )
             .map(navButton)}
-        </nav>
+        </NavGroup>
+        <NavGroup title="Инструменты" icon={<Wrench />} label="Инструменты канала" contentKey={channel}>
+          {pages
+            .filter(
+              item =>
+                item.placement === 'main' &&
+                item.channel === channel &&
+                visible(item.id) &&
+                toolPages.includes(item.id),
+            )
+            .map(navButton)}
+        </NavGroup>
         <nav className="sidebar-footer" aria-label="Параметры">
           {pages
             .filter(item => item.placement === 'footer' && visible(item.id) && (item.id !== 'admin' || admin))
             .map(navButton)}
+          <button
+            type="button"
+            className="nav-item"
+            title="Журнал логов: папка с журналами приложения"
+            onClick={() => void api.openLogs().catch(reportError)}
+          >
+            <FolderOpen size={18} />
+            <span>Журнал логов</span>
+          </button>
+          <button
+            type="button"
+            className="nav-item alf-sidebar-toggle"
+            title={collapsed ? 'Развернуть панель (Ctrl+B)' : 'Свернуть панель (Ctrl+B)'}
+            aria-pressed={collapsed}
+            onClick={toggleSidebar}
+          >
+            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            <span>{collapsed ? 'Развернуть панель' : 'Свернуть панель'}</span>
+            <kbd>Ctrl B</kbd>
+          </button>
         </nav>
-      </aside>
-      <main className="main">
-        <header className="topbar">
-          <div className="channel-switch" role="tablist" aria-label="Канал">
-            {channels.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={channel === item.id}
-                className={`channel-pill${channel === item.id ? ' active' : ''}`}
-                onClick={() => switchChannel(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
+        <header className="topbar alf-sidebar-state">
+          <div className="alf-location">
+            <span>{section.label}</span>
+            <span>/</span>
+            <strong>{pages.find(item => item.id === active)?.label}</strong>
           </div>
           <UpdateNotice state={updater.state} install={updater.install} />
           <span
@@ -255,6 +366,8 @@ function Workspace({
           )}
           {account?.configured && <AccountMenu state={account} onChange={onAccount} />}
         </header>
+      </aside>
+      <main className="main" ref={mainRef}>
         {/* Board pages use the full window width, like the reference layout at 1920×1080. */}
         <div className="page">
           {/* The previous page unmounts on a switch anyway, so the key costs no form state. */}
@@ -269,7 +382,7 @@ function Workspace({
               ) : active === 'imessage-dialogs' ? (
                 <Dialogs />
               ) : active === 'leads' ? (
-                <Leads
+                <ArtistDatabase
                   onCampaign={async ids => {
                     await api.request('outreach.workspace_add_leads', { lead_ids: ids });
                     writeTo();

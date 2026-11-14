@@ -1,0 +1,35 @@
+{
+  "runtime": "Tauri 2 / real WebView2 / actual core RPC",
+  "viewports": [
+    {
+      "width": 1360,
+      "height": 900,
+      "document_overflow": false
+    },
+    {
+      "width": 1600,
+      "height": 1000,
+      "document_overflow": false
+    },
+    {
+      "width": 1024,
+      "height": 700,
+      "document_overflow": false
+    }
+  ],
+  "checks": [
+    "real core list/detail loaded",
+    "master-detail at three requested viewports",
+    "no document horizontal overflow",
+    "dropdown keyboard focus and Escape",
+    "Space bulk selection; hover state",
+    "arrow-key active artist",
+    "analysis/history tabs",
+    "advanced filters and source dropdown",
+    "modal focus returns to trigger",
+    "export scopes exposed without file writes",
+    "real empty search and reset",
+    "per-channel last-page memory"
+  ],
+  "page_errors": []
+}

@@ -778,6 +778,14 @@ export interface AssistantSendPreview {
   text: string;
   token: string;
 }
+export interface AssistantProvider {
+  provider: 'anthropic' | 'compatible';
+  base_url: string;
+  main: string;
+  strong: string;
+  anthropic_key: boolean;
+  compatible_key: boolean;
+}
 export interface AssistantState {
   configured: boolean;
   running: boolean;
@@ -785,6 +793,7 @@ export interface AssistantState {
   error: string;
   escalation: boolean;
   models: { main: string; strong: string };
+  provider: AssistantProvider;
   messages: { available: boolean; reason: string };
   items: AssistantItem[];
   chat_drafts: AssistantChatDraft[];

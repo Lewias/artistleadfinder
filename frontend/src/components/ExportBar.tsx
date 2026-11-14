@@ -6,8 +6,17 @@ import { api } from '../services/api';
 import type { LeadQuery } from '../services/types';
 import { Download } from 'lucide-react';
 import { Button } from './ui/button';
+import { Dropdown } from './ui/desktop';
 
-export function ExportBar({ query, selected }: { query: LeadQuery; selected: number[] }) {
+export function ExportBar({
+  query,
+  selected,
+  compact = false,
+}: {
+  query: LeadQuery;
+  selected: number[];
+  compact?: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -36,24 +45,41 @@ export function ExportBar({ query, selected }: { query: LeadQuery; selected: num
   };
   return (
     <div className="export-bar">
-      <div className="actions">
-        <Button
-          variant="green"
+      {compact ? (
+        <Dropdown
+          label="Экспорт CSV"
+          value=""
           disabled={busy}
-          title="Экспорт в CSV по текущим фильтрам"
-          onClick={() => void exportLeads('filtered')}
-        >
-          <Download size={15} /> Экспорт
-        </Button>
-        {selected.length > 0 && (
-          <Button variant="outline" disabled={busy} onClick={() => void exportLeads('selected')}>
-            Выбранные ({selected.length})
+          options={[
+            { value: '', label: busy ? 'Подготовка…' : 'Экспорт CSV' },
+            { value: 'filtered', label: 'Текущие результаты' },
+            ...(selected.length ? [{ value: 'selected', label: `Выбранные (${selected.length})` }] : []),
+            { value: 'all', label: 'Вся база' },
+          ]}
+          onChange={value => {
+            if (value) void exportLeads(value as 'filtered' | 'selected' | 'all');
+          }}
+        />
+      ) : (
+        <div className="actions">
+          <Button
+            variant="green"
+            disabled={busy}
+            title="Экспорт в CSV по текущим фильтрам"
+            onClick={() => void exportLeads('filtered')}
+          >
+            <Download size={15} /> Экспорт
           </Button>
-        )}
-        <Button variant="outline" disabled={busy} onClick={() => void exportLeads('all')}>
-          Вся база
-        </Button>
-      </div>
+          {selected.length > 0 && (
+            <Button variant="outline" disabled={busy} onClick={() => void exportLeads('selected')}>
+              Выбранные ({selected.length})
+            </Button>
+          )}
+          <Button variant="outline" disabled={busy} onClick={() => void exportLeads('all')}>
+            Вся база
+          </Button>
+        </div>
+      )}
       {busy && (
         <p role="status" className="helper">
           Подготовка экспорта…

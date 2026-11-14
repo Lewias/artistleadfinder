@@ -1,0 +1,29 @@
+{
+  "renders": [
+    "a-light-windows-1360x900",
+    "b-dark-windows-1360x900",
+    "a-dark-windows-1360x900",
+    "b-light-windows-1360x900",
+    "a-light-mac-1360x900",
+    "b-dark-mac-1360x900",
+    "a-light-windows-1024x700",
+    "b-dark-windows-1024x700",
+    "a-light-windows-1920x1080",
+    "b-dark-windows-1920x1080"
+  ],
+  "checks": [
+    "row detail synchronization",
+    "arrow navigation",
+    "space bulk selection",
+    "three export scopes",
+    "search and empty state",
+    "genre filter",
+    "reset",
+    "per-channel last route",
+    "inspector toggle",
+    "narrow detail dialog and Escape",
+    "B list/detail synchronization",
+    "all 18 channel-specific routes reachable; 3 utility routes in app menu"
+  ],
+  "errors": []
+}

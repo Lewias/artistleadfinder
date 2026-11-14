@@ -25,8 +25,7 @@ import type {
 import { PageHeader } from '../components/PageHeader';
 import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
 import { chatBlocks } from '../components/assistant/chat';
-import { KeyForm } from '../components/assistant/AssistantSettings';
-import { dollars } from '../lib/format';
+import { ModelForm } from '../components/assistant/AssistantSettings';
 import { Button } from '../components/ui/button';
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
@@ -178,7 +177,7 @@ function ChatDraftCard({
   );
 }
 
-/** «Ассистент»: the chat with Claude; the messages it prepares are asked about right in the chat. */
+/** «Ассистент»: the chat with the connected model; the messages it prepares are asked about right in the chat. */
 export function Assistant() {
   const [poll, setPoll] = useState(10000);
   const state = useResource<AssistantState>('assistant.state', {}, poll);
@@ -226,9 +225,9 @@ export function Assistant() {
         <PageHeader page="assistant" />
         <section className="panel board">
           <div className="board-heading">
-            <h2>Подключите Claude</h2>
+            <h2>Подключите модель</h2>
           </div>
-          <KeyForm onSaved={state.refresh} />
+          <ModelForm provider={data.provider} onSaved={state.refresh} />
         </section>
       </div>
     );
@@ -237,7 +236,7 @@ export function Assistant() {
     <div className="screen work-flow">
       <PageHeader
         page="assistant"
-        count={`${dollars(data.usage.today)} сегодня`}
+        count={data.models.main}
         actions={
           <Button variant="outline" disabled={data.running} onClick={() => void call('assistant.new_chat')}>
             <MessageSquarePlus size={14} /> Новый чат
@@ -353,8 +352,8 @@ export function Assistant() {
             )}
           </form>
           <p className="assistant-disclosure">
-            Вопросы и фрагменты переписок, которые просматривает ассистент, отправляются в API Anthropic.
-            Ассистент готовит сообщения, но уходят они только после вашей кнопки. Ключ, модели и расходы — в
+            Вопросы и фрагменты переписок, которые просматривает ассистент, отправляются в API подключённой
+            модели. Ассистент готовит сообщения, но уходят они только после вашей кнопки. Модель и ключ — в
             «Настройках».
           </p>
           <ErrorToast message={error || state.error} />

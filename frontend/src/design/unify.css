@@ -1,0 +1,831 @@
+/* One look for every page, after the Flow Like reference: raised graphite cards with an icon
+   title, flat 4px controls, quiet type, no violet. Loaded last, so it settles conflicts between
+   the legacy theme.css and the graphite layers. Motion lives at the end of the file. */
+
+/* ---------- Shell: collapsible sidebar ----------
+   The grid column snaps; the sidebar animates its own width above the page while App slides
+   the page with a transform. Every inner offset below transitions too, so nothing jumps. */
+.alf-ui {
+  overflow: clip;
+}
+.alf-ui.sidebar-collapsed {
+  --alf-sidebar: var(--alf-sidebar-collapsed);
+}
+.alf-ui .sidebar {
+  position: relative;
+  z-index: 3;
+  width: var(--alf-sidebar);
+  overflow-x: hidden;
+  transition:
+    width var(--alf-motion-slow) var(--alf-ease),
+    padding var(--alf-motion-slow) var(--alf-ease);
+}
+.alf-nav-summary {
+  transition:
+    color var(--alf-motion-fast) var(--alf-ease),
+    padding var(--alf-motion-slow) var(--alf-ease);
+}
+/* Labels stay on one line and fade while the panel narrows. */
+.alf-ui
+  .sidebar
+  :is(
+    .brand-name,
+    .alf-channel-dropdown,
+    .nav-section,
+    .alf-nav-summary > span,
+    .alf-nav-chevron,
+    .nav-item > span,
+    .nav-count,
+    .alf-sidebar-toggle kbd,
+    .account-button > span,
+    .account-button > em,
+    .update-pill
+  ) {
+  white-space: nowrap;
+  transition:
+    opacity var(--alf-motion) var(--alf-ease) 60ms,
+    visibility 0s linear;
+}
+.alf-ui .nav-item {
+  transition:
+    background var(--alf-motion-fast) var(--alf-ease),
+    color var(--alf-motion-fast) var(--alf-ease),
+    padding var(--alf-motion-slow) var(--alf-ease);
+}
+.alf-ui .nav-item > span:not(.nav-count) {
+  flex: 1;
+  text-overflow: clip;
+}
+.alf-sidebar-toggle kbd {
+  margin-left: auto;
+  padding: 0 var(--alf-space-1);
+  background: transparent;
+  color: var(--alf-muted);
+  font: inherit;
+  font-size: var(--alf-font-xs);
+}
+.alf-sidebar-state .account-button > svg {
+  flex: none;
+}
+.alf-ui .alf-sidebar-state .core-status {
+  white-space: nowrap;
+  overflow: hidden;
+  transition:
+    color var(--alf-motion) var(--alf-ease),
+    padding var(--alf-motion-slow) var(--alf-ease);
+}
+/* Page icons inside the groups are always there, folded to zero width while labels show. */
+.alf-ui .alf-nav-group .nav-item > svg {
+  display: block;
+  width: 0;
+  margin-right: calc(var(--alf-space-2) * -1);
+  opacity: 0;
+  transition:
+    width var(--alf-motion-slow) var(--alf-ease),
+    margin var(--alf-motion-slow) var(--alf-ease),
+    opacity var(--alf-motion) var(--alf-ease);
+}
+.alf-ui .alf-nav-group nav {
+  transition:
+    margin var(--alf-motion-slow) var(--alf-ease),
+    padding var(--alf-motion-slow) var(--alf-ease),
+    border-color var(--alf-motion) var(--alf-ease);
+}
+
+/* Rail geometry: 12px gutter + 9px item inset puts every 18px icon on the rail's centre. */
+.alf-ui.sidebar-collapsed .sidebar {
+  --rail-inset: calc((var(--alf-sidebar-collapsed) - var(--alf-space-3) * 2 - var(--alf-icon)) / 2);
+  padding-inline: var(--alf-space-3);
+}
+.alf-ui.sidebar-collapsed
+  .sidebar
+  :is(
+    .brand-name,
+    .alf-channel-dropdown,
+    .nav-section,
+    .alf-nav-summary > span,
+    .alf-nav-chevron,
+    .nav-item > span,
+    .nav-count,
+    .alf-sidebar-toggle kbd,
+    .account-button > span,
+    .account-button > em,
+    .update-pill
+  ) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--alf-motion-fast) var(--alf-ease),
+    visibility 0s linear var(--alf-motion-fast);
+}
+.alf-ui.sidebar-collapsed .alf-nav-summary {
+  padding-inline: var(--rail-inset);
+  color: var(--alf-muted);
+}
+.alf-ui.sidebar-collapsed .alf-nav-group nav {
+  margin-left: -1px;
+  padding-left: 0;
+  border-left-color: transparent;
+}
+.alf-ui.sidebar-collapsed .alf-nav-group .nav-item > svg {
+  width: var(--alf-icon);
+  margin-right: 0;
+  opacity: 1;
+}
+.alf-ui.sidebar-collapsed .sidebar .nav-item {
+  padding-inline: var(--rail-inset);
+  border-radius: var(--alf-radius);
+}
+.alf-ui.sidebar-collapsed .alf-nav-group .nav-item.active {
+  background: var(--alf-surface-control);
+}
+.alf-ui.sidebar-collapsed .alf-nav-marker {
+  opacity: 0;
+}
+.alf-ui.sidebar-collapsed .alf-sidebar-state .core-status {
+  padding-left: calc(var(--rail-inset) + (var(--alf-icon) - 6px) / 2);
+  color: transparent;
+}
+
+/* ---------- Shell: navigation groups ---------- */
+.alf-nav-summary:hover {
+  color: var(--alf-secondary);
+}
+.alf-nav-summary:focus-visible {
+  outline-offset: 0;
+}
+.alf-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--alf-motion-slow) var(--alf-ease),
+    opacity var(--alf-motion) var(--alf-ease);
+}
+.alf-nav-group:not(.is-open) > .alf-collapse {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.alf-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.alf-ui .alf-nav-group nav {
+  position: relative;
+}
+/* The marker rides the guide line to the active page. */
+.alf-nav-marker {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 2px;
+  height: var(--marker-h, 0);
+  transform: translateY(var(--marker-y, 0));
+  border-radius: 2px;
+  background: var(--alf-text);
+  opacity: 0;
+  transition:
+    transform var(--alf-motion-slow) var(--alf-ease),
+    height var(--alf-motion-slow) var(--alf-ease),
+    opacity var(--alf-motion) var(--alf-ease);
+}
+.alf-nav-group nav.has-active > .alf-nav-marker {
+  opacity: 1;
+}
+.alf-ui .alf-nav-group .nav-item {
+  color: var(--alf-secondary);
+}
+.alf-ui .alf-nav-group .nav-item.active {
+  color: var(--alf-text);
+}
+.alf-ui .alf-nav-group .nav-item:hover {
+  color: var(--alf-text);
+}
+.alf-ui .alf-nav-group .nav-item:not(.active) {
+  transform: translateX(0);
+}
+.alf-ui .alf-nav-group .nav-item:hover:not(.active) {
+  transform: translateX(2px);
+}
+.alf-ui .alf-nav-group .nav-item {
+  transition:
+    color var(--alf-motion-fast) var(--alf-ease),
+    background var(--alf-motion-fast) var(--alf-ease),
+    transform var(--alf-motion) var(--alf-ease),
+    padding var(--alf-motion-slow) var(--alf-ease);
+}
+.alf-ui .sidebar-footer .nav-item:hover,
+.alf-ui .sidebar-footer .nav-item.active {
+  color: var(--alf-text);
+}
+.alf-ui .sidebar-footer .nav-item {
+  color: var(--alf-secondary);
+}
+.alf-ui .sidebar-footer .nav-item > svg {
+  color: currentColor;
+}
+.alf-ui .sidebar-footer .nav-item.active::before {
+  display: none;
+}
+
+/* ---------- Page frame ---------- */
+.alf-ui .page {
+  padding: var(--alf-space-8) var(--alf-reference-gutter) var(--alf-space-8);
+  gap: var(--alf-reference-gap);
+}
+.alf-ui .section-transition {
+  gap: var(--alf-reference-gap);
+}
+.alf-ui .screen {
+  gap: var(--alf-reference-gap);
+  min-height: calc(100vh - var(--alf-space-8) * 2);
+}
+.alf-ui .page-header {
+  padding-top: 0;
+  align-items: flex-end;
+}
+.alf-ui .page-heading {
+  gap: var(--alf-space-1);
+}
+.alf-ui .page-header .eyebrow {
+  display: none;
+}
+.alf-ui .page-header h1 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--alf-space-2);
+  font-size: var(--alf-font-identity);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.alf-ui .page-count {
+  margin-left: 0;
+  color: var(--alf-muted);
+  font-size: var(--alf-font-body);
+  font-weight: 400;
+}
+.alf-ui .page-description {
+  max-width: 820px;
+  color: var(--alf-muted);
+  font-size: var(--alf-font-body);
+  line-height: var(--alf-line);
+}
+.alf-ui .page-actions {
+  padding-top: 0;
+}
+.alf-ui .section-title h2 {
+  font-size: var(--alf-font-title);
+  font-weight: 600;
+}
+.alf-ui h2 {
+  font-size: var(--alf-font-title);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.alf-ui h3 {
+  font-size: var(--alf-font-body);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* ---------- Cards: the reference panel ---------- */
+.alf-ui :is(.panel, .board, .stat-card, .metric, .notice, .welcome-card) {
+  border: 1px solid var(--alf-border);
+  border-radius: var(--alf-radius-panel);
+  background: var(--alf-surface-panel);
+  box-shadow: none;
+}
+.alf-ui :is(.panel, .board) {
+  padding: var(--alf-reference-inset);
+}
+/* A card inside a card sits a step below its parent instead of repeating it. */
+.alf-ui :is(.panel, .board) :is(.panel, .board) {
+  background: rgba(0, 0, 0, 0.14);
+  border-color: var(--alf-border);
+}
+.alf-ui :is(.panel, .board) > :is(h2, .section-heading h2) {
+  font-size: var(--alf-font-title);
+}
+.alf-ui .section-heading {
+  margin-bottom: var(--alf-space-4);
+}
+.alf-ui .section-heading h2 svg,
+.alf-ui .panel > h2 svg {
+  width: var(--alf-space-5);
+  height: var(--alf-space-5);
+  color: var(--alf-text);
+  stroke-width: 1.8;
+}
+.alf-ui :is(.helper, .empty-copy) {
+  color: var(--alf-muted);
+  font-size: var(--alf-font-body);
+}
+.alf-ui :is(.stat-card, .metric) strong {
+  font-size: var(--alf-font-identity);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.alf-ui :is(.stat-card, .metric) span {
+  color: var(--alf-muted);
+  font-size: var(--alf-font-sm);
+}
+.alf-ui .stat-pill,
+.alf-ui .crm-totals {
+  border-color: var(--alf-border);
+  background: var(--alf-surface-panel);
+  border-radius: var(--alf-radius);
+}
+.alf-ui .stat-pill svg,
+.alf-ui .info-bar svg {
+  color: var(--alf-secondary);
+}
+
+/* ---------- Controls ---------- */
+.alf-ui label {
+  font-weight: 500;
+}
+/* :where keeps this at one class of weight, so wrappers that draw their own box
+   (search bars, chip inputs) still blank out the field inside. */
+.alf-ui
+  :where(
+    input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']),
+    select,
+    textarea
+  ) {
+  border-radius: var(--alf-radius-sm);
+  border-color: var(--alf-border-strong);
+  background-color: var(--alf-surface-control);
+  color: var(--alf-text);
+  font-size: var(--alf-font-body);
+  font-weight: 400;
+  transition:
+    border-color var(--alf-motion-fast) var(--alf-ease),
+    box-shadow var(--alf-motion-fast) var(--alf-ease),
+    background-color var(--alf-motion-fast) var(--alf-ease);
+}
+.alf-ui select {
+  appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23b1b1b1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+.alf-ui select option {
+  background: var(--alf-surface-panel);
+  color: var(--alf-text);
+}
+.alf-ui input[type='checkbox'],
+.alf-ui input[type='radio'] {
+  accent-color: var(--alf-text);
+}
+.alf-ui .input-with-icon input,
+.alf-ui .chip-input {
+  border-radius: var(--alf-radius-sm);
+}
+.alf-ui .chip-input {
+  background: var(--alf-surface-control);
+  border-color: var(--alf-border-strong);
+  transition:
+    border-color var(--alf-motion-fast) var(--alf-ease),
+    box-shadow var(--alf-motion-fast) var(--alf-ease);
+}
+.alf-ui .chip-input:focus-within {
+  border-color: #6a6a6a;
+  box-shadow: 0 0 0 3px var(--alf-tint);
+}
+.alf-ui .chip-input input:focus {
+  box-shadow: none;
+}
+.alf-ui :is(.crm-search, .alf-search) {
+  border-radius: var(--alf-radius-sm);
+}
+
+/* Chips and tags: the reference's small outlined labels. */
+.alf-ui :is(.chip, .board-chip, .tag, .genre-options label, .inline-check) {
+  border-radius: var(--alf-radius-sm);
+  border-color: var(--alf-border-strong);
+  font-weight: 500;
+}
+.alf-ui .tag {
+  background: var(--alf-surface-control);
+  color: var(--alf-text);
+}
+.alf-ui :is(.chip, .board-chip) {
+  transition:
+    background var(--alf-motion-fast) var(--alf-ease),
+    border-color var(--alf-motion-fast) var(--alf-ease);
+}
+.alf-ui :is(.chip, .board-chip):hover {
+  border-color: #5a5a5a;
+}
+.alf-ui .chip button {
+  border-radius: var(--alf-radius-sm);
+}
+
+/* Buttons: one height, flat, small radius; primary is the neutral fill. */
+.alf-ui .button {
+  min-height: var(--alf-control);
+  border-radius: var(--alf-radius-sm);
+  font-weight: 500;
+}
+.alf-ui .button-green {
+  background: var(--alf-surface-control);
+  border-color: var(--alf-positive);
+  color: var(--alf-positive);
+}
+.alf-ui .button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.alf-ui .button-primary {
+  background: var(--alf-text);
+  border-color: var(--alf-text);
+  color: #181818;
+}
+.alf-ui .button-primary:hover:not(:disabled) {
+  background: #fff;
+  border-color: #fff;
+  color: #111;
+}
+.alf-ui .alf-reference-profile .button-primary {
+  background: var(--alf-surface-control);
+  border-color: var(--alf-border-strong);
+  color: var(--alf-text);
+}
+
+/* ---------- Tab strips and segmented controls ---------- */
+.alf-ui :is(.crm-tabs, .segmented, .emoji-tabs) {
+  position: relative;
+  isolation: isolate;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--alf-radius);
+  border: 1px solid var(--alf-border);
+  background: var(--alf-surface-nav);
+}
+.alf-ui :is(.crm-tabs, .segmented) button {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--alf-radius-sm);
+  color: var(--alf-muted);
+  font-weight: 500;
+  transition: color var(--alf-motion) var(--alf-ease);
+}
+.alf-ui :is(.crm-tabs, .segmented) button:hover:not(:disabled) {
+  color: var(--alf-text);
+  filter: none;
+}
+.alf-ui :is(.crm-tabs, .segmented) button:is(.active, [aria-selected='true'], [aria-checked='true']) {
+  color: var(--alf-text);
+}
+.alf-ui .crm-tab-count {
+  border-radius: var(--alf-radius-sm);
+  background: var(--alf-tint);
+  font-variant-numeric: tabular-nums;
+}
+/* The shared highlight; the selected button's own fill steps aside once it is placed. */
+:is(.crm-tabs, .segmented, .alf-tabs, .emoji-tabs).has-indicator::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  top: 0;
+  width: var(--tab-w);
+  height: var(--tab-h);
+  transform: translate(var(--tab-x), var(--tab-y));
+  border-radius: var(--alf-radius-sm);
+  background: var(--alf-surface-control);
+  box-shadow: inset 0 0 0 1px var(--alf-border);
+  pointer-events: none;
+}
+.alf-tabs.has-indicator::before {
+  top: auto;
+  height: 2px;
+  transform: translate(var(--tab-x), calc(var(--tab-y) + var(--tab-h) - 2px));
+  background: var(--alf-text);
+  box-shadow: none;
+}
+:is(.crm-tabs, .segmented, .alf-tabs, .emoji-tabs).has-indicator.indicator-ready::before {
+  transition:
+    transform var(--alf-motion-slow) var(--alf-ease),
+    width var(--alf-motion-slow) var(--alf-ease),
+    height var(--alf-motion-slow) var(--alf-ease);
+}
+:is(.crm-tabs, .segmented, .emoji-tabs).has-indicator
+  > :is(.active, [aria-selected='true'], [aria-checked='true']) {
+  background: transparent;
+}
+.alf-tabs {
+  position: relative;
+}
+.alf-tabs.has-indicator button[aria-selected='true'] {
+  border-bottom-color: transparent;
+}
+.alf-tabs button {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Tables ---------- */
+.alf-ui :is(.crm-table, .table-wrap) {
+  border-radius: var(--alf-radius-panel);
+  border-color: var(--alf-border);
+  background: var(--alf-surface-panel);
+}
+.alf-ui th {
+  color: var(--alf-muted);
+  font-weight: 500;
+}
+.alf-ui tbody tr {
+  transition: background var(--alf-motion-fast) var(--alf-ease);
+}
+
+/* ---------- Overlays ---------- */
+.modal {
+  border-radius: var(--alf-radius-panel);
+  border-color: var(--alf-border);
+  background: var(--alf-surface-panel);
+  box-shadow: 0 24px 64px #000a;
+}
+.modal h2 {
+  font-size: var(--alf-font-title);
+  font-weight: 600;
+}
+.drawer-overlay {
+  background: rgba(8, 8, 8, 0.62);
+  backdrop-filter: blur(2px);
+}
+.alf-ui .menu,
+.alf-ui .account-dropdown {
+  border-radius: var(--alf-radius);
+  border-color: var(--alf-border-strong);
+  background: var(--alf-surface-panel);
+  box-shadow: var(--alf-shadow);
+}
+.alf-ui .account-button em {
+  background: transparent;
+  color: var(--alf-secondary);
+}
+
+/* =================================================================== */
+/* ---------- Motion ---------- */
+
+/* Page switch: the page eases up, its cards follow one after another. */
+.alf-ui .section-transition.is-entering {
+  animation: alfPageIn var(--alf-motion-slow) var(--alf-ease) backwards;
+}
+@keyframes alfPageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.alf-ui .section-transition.is-entering :is(.panel, .board, .stat-card, .metric, .alf-panel, .crm-table) {
+  animation: alfCardIn 420ms var(--alf-ease) backwards;
+  animation-delay: 60ms;
+}
+.alf-ui
+  .section-transition.is-entering
+  :is(.panel, .board, .stat-card, .metric, .alf-panel, .crm-table):nth-child(2) {
+  animation-delay: 110ms;
+}
+.alf-ui
+  .section-transition.is-entering
+  :is(.panel, .board, .stat-card, .metric, .alf-panel, .crm-table):nth-child(3) {
+  animation-delay: 160ms;
+}
+.alf-ui
+  .section-transition.is-entering
+  :is(.panel, .board, .stat-card, .metric, .alf-panel, .crm-table):nth-child(n + 4) {
+  animation-delay: 210ms;
+}
+@keyframes alfCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.alf-ui .section-transition.is-entering :is(h1, h2, h3, .page-description, .eyebrow) {
+  animation: alfFadeIn var(--alf-motion-slow) var(--alf-ease) 40ms backwards;
+}
+@keyframes alfFadeIn {
+  from {
+    opacity: 0;
+  }
+}
+/* Modals inside a page keep their own entrance. */
+.alf-ui
+  .section-transition.is-entering
+  .modal
+  :is(h2, h3, .panel, .board, .stat-card, .metric, .alf-panel, .crm-table) {
+  animation: none;
+}
+/* The artist base fills the window: a fade only, nothing that would offset fixed overlays. */
+.alf-database-shell .section-transition.is-entering {
+  animation: alfFadeIn var(--alf-motion) var(--alf-ease) backwards;
+}
+
+/* Sidebar items enter one after another on start and when the channel changes. */
+.alf-ui .alf-nav-group .nav-item {
+  animation: alfNavIn var(--alf-motion-slow) var(--alf-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+@keyframes alfNavIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+.alf-ui .sidebar {
+  animation: alfSidebarIn var(--alf-motion-slow) var(--alf-ease) backwards;
+}
+@keyframes alfSidebarIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+/* Dropdowns and menus grow from their trigger. */
+.alf-dropdown > svg {
+  transition: transform var(--alf-motion) var(--alf-ease);
+}
+.alf-dropdown[aria-expanded='true'] > svg {
+  transform: rotate(180deg);
+}
+.alf-dropdown-menu {
+  transform-origin: top center;
+  animation: alfMenuIn var(--alf-motion) var(--alf-ease);
+}
+@keyframes alfMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+.alf-dropdown-menu [role='option'] {
+  transition: background var(--alf-motion-fast) var(--alf-ease);
+}
+.alf-ui .menu {
+  animation: alfMenuIn var(--alf-motion) var(--alf-ease);
+}
+.alf-sidebar-state .account-dropdown {
+  transform-origin: bottom center;
+  animation: alfMenuUp var(--alf-motion) var(--alf-ease);
+}
+@keyframes alfMenuUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+
+/* Tooltips fade in after a short pause instead of snapping. */
+.alf-tooltip {
+  display: block;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition:
+    opacity var(--alf-motion-fast) var(--alf-ease),
+    transform var(--alf-motion-fast) var(--alf-ease),
+    visibility 0s linear var(--alf-motion-fast);
+}
+.alf-tooltip-host:hover > .alf-tooltip,
+.alf-tooltip-host:focus-within > .alf-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 300ms, 300ms, 0s;
+}
+
+/* Modal in and out; the centering translate stays in every frame. */
+.modal {
+  animation: alfModalIn 260ms var(--alf-ease);
+}
+@keyframes alfModalIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 10px)) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+.modal.is-closing {
+  animation: alfModalOut 160ms var(--alf-ease-inout) forwards;
+  pointer-events: none;
+}
+@keyframes alfModalOut {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 6px)) scale(0.98);
+  }
+}
+.drawer-overlay {
+  animation: alfFadeIn var(--alf-motion) var(--alf-ease);
+}
+.drawer-overlay.is-closing {
+  animation: alfFadeOut 160ms var(--alf-ease-inout) forwards;
+}
+@keyframes alfFadeOut {
+  to {
+    opacity: 0;
+  }
+}
+.drawer {
+  animation: alfDrawerIn var(--alf-motion-slow) var(--alf-ease);
+}
+@keyframes alfDrawerIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+/* Small feedback: switches and checkboxes ease between states. */
+.alf-switch,
+.alf-switch > span {
+  transition:
+    background var(--alf-motion) var(--alf-ease),
+    transform var(--alf-motion) var(--alf-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alf-ui,
+  .alf-collapse,
+  .alf-nav-marker,
+  :is(.crm-tabs, .segmented, .alf-tabs, .emoji-tabs)::before {
+    transition: none !important;
+  }
+}
+
+/* The artist base scrolls inside its own frame and sets its own gutter. */
+.alf-ui.alf-database-shell .page {
+  padding: 0;
+}
+
+/* ---------- Assistant: model connection ---------- */
+.assistant-model {
+  display: grid;
+  gap: var(--alf-space-4);
+}
+.assistant-model > .segmented {
+  justify-self: start;
+}
+.assistant-model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--alf-space-4);
+}
+.assistant-model-grid .alf-dropdown {
+  width: 100%;
+  min-height: var(--alf-control-lg);
+}
+.assistant-model-key {
+  grid-column: 1 / -1;
+}
+.assistant-model-summary {
+  display: grid;
+  gap: var(--alf-space-3);
+  margin: 0;
+}
+.assistant-model-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--alf-space-4);
+}
+.assistant-model-summary dt {
+  color: var(--alf-muted);
+}
+.assistant-model-summary dd {
+  margin: 0;
+  color: var(--alf-text);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+@media (max-width: 1150px) {
+  .assistant-model-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The sidebar still scrolls on short windows, without a bar beside the labels. */
+.alf-ui .sidebar {
+  scrollbar-width: none;
+}
+.alf-ui .sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Artist base: the way back from a profile to the whole list sits on top. */
+.alf-reference-database .alf-back-to-list {
+  margin-bottom: var(--alf-space-4);
+}

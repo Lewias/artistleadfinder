@@ -1,0 +1,467 @@
+/* Flow Like reference: matching composition and geometry, using ALF content. */
+:root {
+  --alf-sidebar: clamp(210px, 17vw, 280px);
+  --alf-font-body: 14px;
+  --alf-font-sm: 13px;
+  --alf-font-xs: 12px;
+  --alf-control: 34px;
+  --alf-control-lg: 38px;
+  --alf-icon: 18px;
+  --alf-reference-gutter: clamp(24px, 3.2vw, 52px);
+  --alf-reference-gap: clamp(18px, 1.6vw, 28px);
+  --alf-reference-inset: clamp(20px, 1.6vw, 28px);
+  --alf-reference-image: clamp(150px, 14.8vw, 250px);
+  --alf-radius-panel: 8px;
+  --alf-surface-base: #191919;
+  --alf-surface-nav: #171717;
+  --alf-surface-work: #1b1b1b;
+  --alf-surface-panel: #272727;
+  --alf-surface-control: #303030;
+  --alf-surface-hover: #373737;
+  --alf-border: #414141;
+  --alf-border-strong: #484848;
+  --alf-accent: #ddd;
+  --alf-accent-fill: #535353;
+}
+.alf-ui {
+  grid-template-columns: var(--alf-sidebar) minmax(0, 1fr);
+}
+.alf-ui .sidebar {
+  position: relative;
+  padding: var(--alf-space-4);
+  border-right-color: var(--alf-border);
+}
+.alf-ui .brand {
+  align-items: flex-start;
+  gap: var(--alf-space-3);
+  padding: var(--alf-space-1) 0 var(--alf-space-6);
+  min-height: calc(var(--alf-control) * 2);
+}
+.alf-ui .brand-logo {
+  width: var(--alf-control);
+  height: var(--alf-control);
+  color: var(--alf-text);
+  border: 0;
+  background: var(--alf-surface-control);
+}
+.alf-ui .brand-name {
+  font-size: var(--alf-font-body);
+  line-height: 1.3;
+  white-space: normal;
+  max-width: calc(100% - var(--alf-control));
+}
+.alf-ui .alf-channel-dropdown {
+  position: absolute;
+  top: var(--alf-control-lg);
+  left: calc(var(--alf-space-4) + var(--alf-control) + var(--alf-space-3));
+  right: var(--alf-space-4);
+  width: auto;
+  padding: 0;
+  min-height: var(--alf-space-6);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--alf-font-sm);
+}
+.alf-ui .nav-section {
+  padding: var(--alf-space-4) 0 var(--alf-space-3);
+  font-size: var(--alf-font-sm);
+  color: var(--alf-secondary);
+  font-weight: 500;
+}
+.alf-nav-group {
+  margin: var(--alf-space-1) 0 var(--alf-space-3);
+}
+.alf-nav-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--alf-space-2);
+  width: 100%;
+  padding: var(--alf-space-2) 0;
+  border: 0;
+  background: transparent;
+  color: var(--alf-text);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--alf-radius-sm);
+}
+.alf-nav-summary > svg {
+  width: var(--alf-icon);
+  height: var(--alf-icon);
+  flex: none;
+  stroke-width: 1.8;
+}
+.alf-nav-summary > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alf-nav-summary > .alf-nav-chevron {
+  width: var(--alf-font-body);
+  height: var(--alf-font-body);
+  color: var(--alf-secondary);
+  transition: transform var(--alf-motion) var(--alf-ease);
+}
+.alf-nav-group:not(.is-open) .alf-nav-chevron {
+  transform: rotate(-90deg);
+}
+.alf-ui .alf-nav-group nav {
+  border-left: 1px solid var(--alf-border-strong);
+  margin-left: var(--alf-space-2);
+  padding-left: var(--alf-space-3);
+  gap: var(--alf-space-1);
+}
+.alf-ui .alf-nav-group .nav-item {
+  padding: var(--alf-space-2) var(--alf-space-1);
+  min-height: var(--alf-control-lg);
+  border: 0;
+  border-radius: 0;
+  color: var(--alf-text);
+  font-size: var(--alf-font-body);
+}
+.alf-ui .alf-nav-group .nav-item > svg,
+.alf-ui .alf-nav-group .nav-count {
+  display: none;
+}
+.alf-ui .alf-nav-group .nav-item.active {
+  background: transparent;
+  font-weight: 600;
+}
+.alf-ui .alf-nav-group .nav-item.active::before {
+  display: none;
+}
+.alf-ui .alf-nav-group .nav-item:hover {
+  background: transparent;
+  color: var(--alf-secondary);
+}
+.alf-ui .sidebar-footer {
+  border: 0;
+  padding-top: var(--alf-space-6);
+}
+.alf-ui .sidebar-footer .nav-item {
+  border: 0;
+  background: transparent;
+  padding: var(--alf-space-2) 0;
+  font-size: var(--alf-font-body);
+  color: var(--alf-text);
+  gap: var(--alf-space-2);
+}
+.alf-ui .alf-sidebar-state {
+  position: static;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: var(--alf-space-3) 0 0;
+  gap: var(--alf-space-3);
+  background: transparent;
+  border: 0;
+  flex: none;
+}
+.alf-sidebar-state .alf-location {
+  display: none;
+}
+.alf-ui .alf-sidebar-state .core-status {
+  white-space: normal;
+  font-size: var(--alf-font-xs);
+}
+.alf-sidebar-state .account-menu {
+  max-width: 100%;
+}
+.alf-sidebar-state .account-dropdown {
+  top: auto;
+  bottom: calc(100% + var(--alf-space-2));
+  left: 0;
+  right: 0;
+  min-width: 0;
+  width: 100%;
+  border-radius: var(--alf-radius);
+}
+.alf-sidebar-state .account-dropdown > span {
+  overflow-wrap: anywhere;
+}
+.alf-sidebar-state .account-button {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  min-height: calc(var(--alf-control) + var(--alf-space-2));
+  font-size: var(--alf-font-body);
+}
+.alf-sidebar-state .account-button > svg {
+  width: var(--alf-control);
+  height: var(--alf-control);
+  padding: var(--alf-space-2);
+  border-radius: var(--alf-radius);
+  background: var(--alf-surface-control);
+}
+.alf-sidebar-state .account-button > span {
+  margin-right: auto;
+}
+.alf-sidebar-state .account-button > em {
+  background: transparent;
+  color: var(--alf-secondary);
+  padding: 0;
+}
+.alf-ui .main {
+  background: var(--alf-surface-work);
+}
+.alf-database-shell .page {
+  height: 100%;
+}
+.alf-reference-database {
+  padding: var(--alf-space-6) var(--alf-reference-gutter);
+  overflow: auto;
+  display: block;
+  background: var(--alf-surface-work);
+}
+.alf-reference-database:not(.alf-show-collection) > .alf-workspace-header,
+.alf-reference-database:not(.alf-show-collection) > .alf-lead-toolbar,
+.alf-reference-database:not(.alf-show-collection) .alf-master {
+  display: none;
+}
+.alf-reference-database .alf-master-detail {
+  display: block;
+  min-height: 0;
+}
+.alf-reference-database .alf-detail-workspace {
+  overflow: visible;
+  padding: 0;
+}
+.alf-reference-database .alf-record-info {
+  display: none;
+}
+.alf-reference-profile {
+  width: 100%;
+}
+.alf-reference-top {
+  display: grid;
+  grid-template-columns: minmax(0, 2.05fr) minmax(0, 1fr);
+  gap: var(--alf-reference-gap);
+  align-items: stretch;
+}
+.alf-reference-profile .alf-panel {
+  background: var(--alf-surface-panel);
+  border: 1px solid var(--alf-border);
+  border-radius: var(--alf-radius-panel);
+  overflow: hidden;
+}
+.alf-reference-profile > .alf-reference-top > .alf-panel {
+  min-height: calc(var(--alf-reference-image) * 2.65);
+}
+.alf-reference-profile .alf-section-header {
+  padding: var(--alf-reference-inset) var(--alf-reference-inset) 0;
+  border: 0;
+  min-height: 0;
+}
+.alf-reference-profile .alf-section-header > span {
+  font-size: var(--alf-font-title);
+  font-weight: 600;
+  gap: var(--alf-space-2);
+  align-items: center;
+}
+.alf-reference-profile .alf-section-header svg {
+  width: var(--alf-space-5);
+  height: var(--alf-space-5);
+  color: var(--alf-text);
+}
+.alf-reference-profile .alf-panel-body {
+  padding: var(--alf-space-2) var(--alf-reference-inset) var(--alf-reference-inset);
+}
+.alf-reference-description {
+  font-size: var(--alf-font-body);
+  color: var(--alf-muted);
+  line-height: var(--alf-line);
+  margin: 0 0 var(--alf-space-6);
+}
+.alf-reference-identity {
+  display: grid;
+  grid-template-columns: var(--alf-reference-image) minmax(0, 1fr);
+  gap: var(--alf-space-5);
+  margin-bottom: var(--alf-space-5);
+  align-items: start;
+}
+.alf-reference-image {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--alf-border-strong);
+  border-radius: var(--alf-radius-sm);
+  background: var(--alf-surface-control);
+}
+.alf-reference-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--alf-space-3);
+  min-width: 0;
+}
+.alf-reference-field,
+.alf-reference-fields > label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--alf-space-2);
+  color: var(--alf-text);
+  font-size: var(--alf-font-body);
+  font-weight: 500;
+  min-width: 0;
+}
+.alf-reference-field {
+  margin-bottom: var(--alf-space-4);
+}
+.alf-reference-profile input,
+.alf-reference-profile textarea,
+.alf-reference-profile .alf-dropdown {
+  border: 1px solid var(--alf-border-strong);
+  background: var(--alf-surface-control);
+  color: var(--alf-text);
+  border-radius: var(--alf-radius-sm);
+  padding: var(--alf-space-1) var(--alf-space-3);
+  font-size: var(--alf-font-body);
+  font-weight: 400;
+  line-height: var(--alf-line);
+  min-height: var(--alf-control);
+  width: 100%;
+}
+.alf-reference-profile textarea {
+  resize: vertical;
+  min-height: calc(var(--alf-control) * 2.2);
+}
+.alf-reference-profile input[readonly] {
+  color: var(--alf-secondary);
+}
+.alf-reference-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--alf-space-2);
+  margin: calc(var(--alf-space-2) * -1) 0 var(--alf-space-5);
+}
+.alf-reference-tags > span {
+  padding: var(--alf-space-1) var(--alf-space-2);
+  border: 1px solid var(--alf-border-strong);
+  border-radius: var(--alf-radius-sm);
+  color: var(--alf-text);
+  font-size: var(--alf-font-sm);
+}
+.alf-reference-statistics .alf-panel-body {
+  padding-top: var(--alf-space-8);
+}
+.alf-reference-statistics dl {
+  margin: 0;
+  display: grid;
+  gap: var(--alf-space-4);
+}
+.alf-reference-statistics dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--alf-space-3);
+  align-items: baseline;
+  font-size: var(--alf-font-body);
+}
+.alf-reference-statistics dt {
+  color: var(--alf-muted);
+  flex: 1;
+}
+.alf-reference-statistics dd {
+  color: var(--alf-text);
+  font-weight: 500;
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  max-width: 60%;
+  font-variant-numeric: tabular-nums;
+}
+.alf-reference-tools {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--alf-reference-gap);
+  margin-top: var(--alf-reference-gap);
+}
+.alf-reference-tools .alf-reference-description {
+  min-height: calc(var(--alf-font-body) * 3);
+  margin-bottom: var(--alf-space-5);
+}
+.alf-reference-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--alf-space-2);
+}
+.alf-reference-details {
+  margin-top: var(--alf-reference-gap);
+}
+.alf-reference-details[hidden] {
+  display: none;
+}
+.alf-reference-details > .alf-profile {
+  padding: var(--alf-reference-inset);
+}
+.alf-reference-details .alf-profile-hero,
+.alf-reference-details .alf-profile-facts,
+.alf-reference-details .alf-profile-command {
+  display: none;
+}
+.alf-reference-profile .button-primary {
+  background: var(--alf-surface-control);
+  border-color: var(--alf-border-strong);
+  color: var(--alf-text);
+}
+.alf-show-collection {
+  display: flex;
+}
+.alf-show-collection .alf-workspace-header,
+.alf-show-collection .alf-lead-toolbar {
+  margin-bottom: var(--alf-space-4);
+}
+.alf-show-collection .alf-master-detail {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.alf-show-collection .alf-master {
+  width: 100%;
+}
+.alf-show-collection .alf-detail-workspace {
+  display: none;
+}
+.alf-show-collection .alf-artist-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: var(--alf-space-2);
+}
+.alf-show-collection .alf-artist-row {
+  min-width: 0;
+}
+@media (max-width: 1150px) {
+  .alf-ui {
+    --alf-sidebar: 210px;
+    --alf-reference-gutter: 24px;
+    --alf-reference-image: 150px;
+  }
+  .alf-reference-top {
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
+  }
+  .alf-reference-identity {
+    grid-template-columns: 1fr;
+  }
+  .alf-reference-image {
+    width: var(--alf-reference-image);
+  }
+  .alf-reference-tools {
+    grid-template-columns: 1fr;
+  }
+  .alf-show-collection .alf-artist-list {
+    grid-template-columns: 1fr;
+  }
+  .alf-reference-statistics dl > div {
+    flex-direction: column;
+    gap: var(--alf-space-1);
+  }
+  .alf-reference-statistics dd {
+    max-width: 100%;
+    text-align: left;
+  }
+}

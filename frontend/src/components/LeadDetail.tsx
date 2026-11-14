@@ -1,24 +1,53 @@
 import { ErrorToast } from './Toaster';
 import { errorText } from '../lib/errors';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, ExternalLink } from 'lucide-react';
+import {
+  X,
+  ExternalLink,
+  UserRound,
+  ScanSearch,
+  MessageSquareText,
+  CalendarDays,
+  Settings2,
+} from 'lucide-react';
+import appIcon from '../../../src-tauri/icons/icon.png';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import type { LeadDetail as Detail } from '../services/types';
-import { number, activity, relativeTime, statusLabels } from '../lib/format';
+import { number, date, activity, relativeTime, statusLabels } from '../lib/format';
 import { DataState } from './DataState';
 import { Button } from './ui/button';
+import { Dropdown, Panel, Tabs, StatusIndicator } from './ui/desktop';
 import { categoryLabels, methodLabel } from './scoutStatus';
 import { conversationLabels, dateTime, reasonLabel, recipientStatusLabels } from './outreach/outreachText';
 
 const decidedByLabels = { local: 'локально', ai: 'AI', 'local+ai': 'локально + AI' };
 
-export function LeadDetail({ id, close, refresh }: { id: number; close: () => void; refresh: () => void }) {
+export function LeadDetail({
+  id,
+  close,
+  refresh,
+  embedded = false,
+  artists,
+  onChooseArtist,
+  onBrowse,
+}: {
+  id: number;
+  close: () => void;
+  refresh: () => void;
+  embedded?: boolean;
+  artists?: { value: string; label: string }[];
+  onChooseArtist?: (id: number) => void;
+  onBrowse?: () => void;
+}) {
   const resource = useResource<Detail>('leads.detail', { id });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [ignored, setIgnored] = useState(false);
+  const [tab, setTab] = useState('profile');
+  const [expanded, setExpanded] = useState(false);
+  const fullDetails = useRef<HTMLDivElement>(null);
   const lead = resource.data;
   const ignore = async () => {
     if (!lead) return;
@@ -65,35 +94,84 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
       setError(errorText(err));
     }
   };
-  return (
-    <Dialog.Root
-      open
-      onOpenChange={value => {
-        if (!value) close();
-      }}
-    >
-      <Dialog.Portal>
-        <Dialog.Overlay className="drawer-overlay" />
-        <Dialog.Content className="drawer">
-          <Dialog.Close className="drawer-close" aria-label="Закрыть профиль">
-            <X size={20} />
-          </Dialog.Close>
-          <Dialog.Title className="drawer-title">{lead ? `@${lead.username}` : 'Профиль'}</Dialog.Title>
-          <Dialog.Description className="helper">Анализ профиля и причины оценки</Dialog.Description>
-          {!lead ? (
-            <DataState {...resource} retry={resource.refresh} />
-          ) : (
-            <>
-              <div className="avatar large">{lead.display_name.slice(0, 1) || lead.username.slice(0, 1)}</div>
-              <h2>{lead.display_name}</h2>
-              <p>{lead.genres.join(' / ') || 'Жанр не определён'}</p>
-              <p className="helper">
-                {capture?.unknown_fields.includes('followers')
-                  ? 'Подписчики не прочитаны'
-                  : `${number(lead.followers)} подписчиков`}{' '}
-                · {lead.platform === 'mock' ? 'Демонстрационный профиль' : lead.platform}
-                {lead.is_private && ' · Закрытый аккаунт'}
+  const content = (
+    <>
+      {!lead ? (
+        <DataState {...resource} retry={resource.refresh} />
+      ) : (
+        <>
+          <div className="alf-profile-hero">
+            <span className="alf-profile-avatar">
+              {lead.display_name.slice(0, 1) || lead.username.slice(0, 1)}
+            </span>
+            <div className="alf-profile-name">
+              <span className="alf-overline">
+                {lead.platform} /{' '}
+                {lead.classification ? categoryLabels[lead.classification.category] : 'Профиль'}
+              </span>
+              <h2>{lead.display_name || `@${lead.username}`}</h2>
+              <p>
+                @{lead.username} · {lead.genres.join(' / ') || 'Жанр не определён'}
               </p>
+              <StatusIndicator
+                tone={lead.do_not_contact ? 'danger' : lead.status === 'qualified' ? 'positive' : 'neutral'}
+              >
+                {lead.do_not_contact ? 'Не связываться' : statusLabels[lead.status]}
+              </StatusIndicator>
+            </div>
+            <div className="alf-profile-score">
+              <strong>{lead.lead_score}</strong>
+              <span>из 100</span>
+            </div>
+          </div>
+          <div className="alf-profile-facts">
+            <span>
+              Подписчики
+              <strong>
+                {lead.unknown_fields?.includes('followers') || capture?.unknown_fields.includes('followers')
+                  ? 'Не прочитаны'
+                  : number(lead.followers)}
+              </strong>
+            </span>
+            <span>
+              Активность<strong>{activity(lead.last_activity_at)}</strong>
+            </span>
+            <span>
+              Доступ<strong>{lead.is_private ? 'Закрытый профиль' : 'Открытый профиль'}</strong>
+            </span>
+          </div>
+          <div className="alf-profile-command">
+            <Dropdown
+              label="Статус CRM"
+              value={lead.status}
+              disabled={busy}
+              options={['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(value => ({
+                value,
+                label: statusLabels[value],
+              }))}
+              onChange={value => void action(value)}
+            />
+            <Button
+              variant="outline"
+              disabled={!lead.profile_url}
+              onClick={() => void open(lead.profile_url)}
+            >
+              <ExternalLink size={14} />
+              Открыть профиль
+            </Button>
+          </div>
+          <Tabs
+            label="Разделы профиля"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'profile', label: 'Профиль' },
+              { value: 'analysis', label: 'Анализ и оценка' },
+              { value: 'history', label: 'Общение' },
+            ]}
+          />
+          <div hidden={tab !== 'analysis'}>
+            <Panel title="Анализ и соответствие" icon={<ScanSearch />}>
               {capture && (
                 <>
                   <h3>Данные со страницы</h3>
@@ -193,6 +271,15 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                 </p>
               ))}
               <p className="helper">Вероятность артиста: {Math.round(lead.artist_probability * 100)}%</p>
+            </Panel>
+          </div>
+          <div hidden={tab !== 'profile'}>
+            <Panel title="Информация о профиле" icon={<UserRound />}>
+              <h3>Контактные данные</h3>
+              <p className="helper">
+                {[...(lead.scout_profile?.emails || []), ...(lead.scout_profile?.phones || [])].join(' · ') ||
+                  'Контакты не найдены в профиле'}
+              </p>
               <h3>{capture?.bio_method === 'header_excerpt' ? 'Текст шапки профиля' : 'Биография'}</h3>
               <p className="bio">{lead.bio || 'Не указана'}</p>
               {lead.external_url && (
@@ -234,20 +321,11 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
               ))}
               <h3>Последняя активность</h3>
               <p className="helper">{activity(lead.last_activity_at)}</p>
-              <label>
-                Статус CRM
-                <select
-                  value={lead.status}
-                  disabled={busy}
-                  onChange={event => void action(event.target.value)}
-                >
-                  {['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(status => (
-                    <option key={status} value={status}>
-                      {statusLabels[status]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            </Panel>
+          </div>
+          <div hidden={tab !== 'history'}>
+            <Panel title="История общения" icon={<MessageSquareText />}>
+              {!outreach && <p className="helper">История общения пока недоступна для этого профиля.</p>}
               {outreach && (
                 <>
                   <h3>Рассылка</h3>
@@ -377,35 +455,220 @@ export function LeadDetail({ id, close, refresh }: { id: number; close: () => vo
                   </div>
                 </>
               )}
-              <p className="helper">
-                «Написали» ставится автоматически после отправки из «Первичной рассылки» или вручную.
-              </p>
-              <div className="actions">
-                <Button
-                  variant="outline"
-                  disabled={!lead.profile_url}
-                  onClick={() => void open(lead.profile_url)}
-                >
-                  Открыть профиль
-                </Button>
-                <Button disabled={busy} onClick={() => void action('qualified')}>
-                  Подходит
-                </Button>
-                <Button variant="outline" disabled={busy} onClick={() => void action('rejected')}>
-                  Отклонить
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={ignored}
-                  title="Парсер больше не будет анализировать этот профиль"
-                  onClick={() => void ignore()}
-                >
-                  {ignored ? 'В игноре парсера' : 'Игнорировать в парсере'}
-                </Button>
+            </Panel>
+          </div>
+          <p className="helper">
+            «Написали» ставится автоматически после отправки из «Первичной рассылки» или вручную.
+          </p>
+          <div className="actions">
+            <Button
+              variant="outline"
+              disabled={!lead.profile_url}
+              onClick={() => void open(lead.profile_url)}
+            >
+              Открыть профиль
+            </Button>
+            <Button disabled={busy} onClick={() => void action('qualified')}>
+              Подходит
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={() => void action('rejected')}>
+              Отклонить
+            </Button>
+            <Button
+              variant="outline"
+              disabled={ignored}
+              title="Парсер больше не будет анализировать этот профиль"
+              onClick={() => void ignore()}
+            >
+              {ignored ? 'В игноре парсера' : 'Игнорировать в парсере'}
+            </Button>
+          </div>
+        </>
+      )}
+      <ErrorToast message={error} />
+    </>
+  );
+  if (embedded) {
+    if (!lead) return <DataState {...resource} retry={resource.refresh} />;
+    const reveal = (next: string) => {
+      setTab(next);
+      setExpanded(true);
+      requestAnimationFrame(() => fullDetails.current?.scrollIntoView({ behavior: 'auto', block: 'start' }));
+    };
+    const emails = lead.scout_profile?.emails || [];
+    const phones = lead.scout_profile?.phones || [];
+    return (
+      <section className="alf-reference-profile" aria-label="Профиль артиста">
+        <div className="alf-reference-top">
+          <Panel title="Информация об артисте" icon={<UserRound />} className="alf-reference-information">
+            <p className="alf-reference-description">Основная информация о выбранном артисте</p>
+            <div className="alf-reference-identity">
+              <img
+                className="alf-reference-image"
+                src={lead.avatar_url?.startsWith('data:') ? lead.avatar_url : appIcon}
+                alt={lead.avatar_url?.startsWith('data:') ? lead.display_name : 'Artist Lead Finder'}
+              />
+              <div className="alf-reference-fields">
+                <label>
+                  Имя артиста
+                  {artists && onChooseArtist ? (
+                    <Dropdown
+                      label="Выбранный артист"
+                      value={String(id)}
+                      options={artists}
+                      onChange={value => onChooseArtist(Number(value))}
+                    />
+                  ) : (
+                    <input readOnly value={lead.display_name || lead.username} />
+                  )}
+                </label>
+                <label>
+                  Биография
+                  <textarea readOnly value={lead.bio || 'Не указана'} rows={3} />
+                </label>
+                <label>
+                  Профиль
+                  <input readOnly value={lead.profile_url || `@${lead.username}`} />
+                </label>
               </div>
-            </>
-          )}
-          <ErrorToast message={error} />
+            </div>
+            <label className="alf-reference-field">
+              Контакты
+              <input readOnly value={[...emails, ...phones].join(' · ') || 'Контакты не найдены в профиле'} />
+            </label>
+            {!!emails.length && (
+              <div className="alf-reference-tags">
+                {emails.map(email => (
+                  <span key={email}>{email}</span>
+                ))}
+              </div>
+            )}
+            <label className="alf-reference-field">
+              Жанры
+              <input readOnly value={lead.genres.join(', ') || 'Жанр не определён'} />
+            </label>
+            {!!lead.genres.length && (
+              <div className="alf-reference-tags">
+                {lead.genres.map(genre => (
+                  <span key={genre}>{genre}</span>
+                ))}
+              </div>
+            )}
+          </Panel>
+          <Panel title="Данные профиля" icon={<CalendarDays />} className="alf-reference-statistics">
+            <dl>
+              <div>
+                <dt>Добавлен</dt>
+                <dd>{date(lead.created_at)}</dd>
+              </div>
+              <div>
+                <dt>Активность</dt>
+                <dd>{activity(lead.last_activity_at)}</dd>
+              </div>
+              <div>
+                <dt>Подписчики</dt>
+                <dd>
+                  {lead.unknown_fields?.includes('followers') || capture?.unknown_fields.includes('followers')
+                    ? 'Не прочитаны'
+                    : number(lead.followers)}
+                </dd>
+              </div>
+              <div>
+                <dt>Подписки</dt>
+                <dd>
+                  {lead.unknown_fields?.includes('following') ? 'Не прочитаны' : number(lead.following)}
+                </dd>
+              </div>
+              <div>
+                <dt>Оценка</dt>
+                <dd>{lead.lead_score} / 100</dd>
+              </div>
+              <div>
+                <dt>Статус</dt>
+                <dd>{statusLabels[lead.status] || lead.status}</dd>
+              </div>
+            </dl>
+          </Panel>
+        </div>
+        <div className="alf-reference-tools">
+          <Panel title="Анализ профиля" icon={<ScanSearch />}>
+            <p className="alf-reference-description">Классификация и объяснение оценки</p>
+            <label className="alf-reference-field">
+              Тип профиля
+              <input
+                readOnly
+                value={lead.classification ? categoryLabels[lead.classification.category] : 'Не определён'}
+              />
+            </label>
+            <Button variant="outline" onClick={() => reveal('analysis')}>
+              Открыть анализ
+            </Button>
+          </Panel>
+          <Panel title="Рассылка" icon={<MessageSquareText />}>
+            <p className="alf-reference-description">История общения и следующие шаги</p>
+            <label className="alf-reference-field">
+              Статус CRM
+              <Dropdown
+                label="Статус CRM"
+                value={lead.status}
+                disabled={busy}
+                options={['new', 'reviewed', 'qualified', 'rejected', 'contacted'].map(value => ({
+                  value,
+                  label: statusLabels[value],
+                }))}
+                onChange={value => void action(value)}
+              />
+            </label>
+            <Button variant="outline" onClick={() => reveal('history')}>
+              История общения
+            </Button>
+          </Panel>
+          <Panel title="Работа с базой" icon={<Settings2 />}>
+            <p className="alf-reference-description">Артисты, фильтры и действия с профилем</p>
+            <div className="alf-reference-action-list">
+              <Button variant="outline" onClick={onBrowse}>
+                Все артисты
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!lead.profile_url}
+                onClick={() => void open(lead.profile_url)}
+              >
+                <ExternalLink />
+                Открыть профиль
+              </Button>
+              <Button variant="outline" disabled={busy} onClick={() => void action('qualified')}>
+                Подходит
+              </Button>
+              <Button variant="outline" onClick={() => reveal('profile')}>
+                Все сведения и действия
+              </Button>
+            </div>
+          </Panel>
+        </div>
+        <div ref={fullDetails} hidden={!expanded} className="alf-reference-details">
+          <div className="alf-profile">{content}</div>
+        </div>
+        <ErrorToast message={error} />
+      </section>
+    );
+  }
+  return (
+    <Dialog.Root
+      open
+      onOpenChange={value => {
+        if (!value) close();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="drawer-overlay" />
+        <Dialog.Content className="drawer">
+          <Dialog.Close className="drawer-close" aria-label="Закрыть профиль">
+            <X size={20} />
+          </Dialog.Close>
+          <Dialog.Title className="drawer-title">{lead ? `@${lead.username}` : 'Профиль'}</Dialog.Title>
+          <Dialog.Description className="helper">Анализ профиля и причины оценки</Dialog.Description>
+          {content}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
