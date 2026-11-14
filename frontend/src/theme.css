@@ -1,43 +1,7 @@
-/* Graphite dark theme: pill controls, large soft panels, restrained violet accent. */
+/* Base text of the app; every design value comes from design/tokens.css. */
 :root {
-  color-scheme: dark;
-  --bg: #0d0e12;
-  --sidebar: #15161a;
-  --panel: #1c1e23;
-  --panel-top: #25272d;
-  --raised: #2a2c32;
-  --raised-hover: #33353c;
-  --input: #141519;
-  --line: #2c2e35;
-  --line-strong: #3b3d45;
-  --ink: #f3f4f6;
-  --text: #d7d9de;
-  --muted: #9a9ea8;
-  --faint: #6f737d;
-  --violet: #9d8bff;
-  --violet-strong: #7c63f5;
-  --violet-bg: rgba(141, 118, 255, 0.14);
-  --violet-line: rgba(141, 118, 255, 0.42);
-  --green: #6fdcaa;
-  --green-bg: rgba(52, 199, 132, 0.12);
-  --green-line: rgba(52, 199, 132, 0.4);
-  --amber: #f2c46d;
-  --amber-bg: rgba(242, 196, 109, 0.12);
-  --red: #f28b8b;
-  --red-bg: rgba(242, 110, 110, 0.1);
-  --red-line: rgba(242, 110, 110, 0.38);
-  --radius-sm: 10px;
-  --radius: 16px;
-  --radius-lg: 22px;
-  --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
-  --topbar-height: 62px;
-  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --motion-enter-ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --motion-fast: 120ms;
-  --motion-normal: 180ms;
-  --motion-page: 380ms;
   font-family: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
-  font-size: 14px;
+  font-size: var(--alf-font-body);
   line-height: 1.45;
   color: var(--text);
   background: var(--bg);
@@ -76,11 +40,11 @@ h4 {
   letter-spacing: -0.01em;
 }
 h2 {
-  font-size: 17px;
+  font-size: var(--alf-font-heading);
   font-weight: 600;
 }
 h3 {
-  font-size: 15px;
+  font-size: var(--alf-font-title);
   font-weight: 600;
 }
 p {
@@ -93,7 +57,7 @@ a,
 code,
 kbd {
   font-family: ui-monospace, 'Cascadia Code', monospace;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   background: var(--raised);
   border-radius: var(--alf-radius-sm);
   padding: 1px 6px;
@@ -109,11 +73,23 @@ textarea {
   outline: 2px solid var(--violet);
   outline-offset: 2px;
 }
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ---------- Shell ---------- */
 .app-shell {
   display: grid;
-  grid-template-columns: 262px minmax(0, 1fr);
+  grid-template-columns: var(--alf-sidebar) minmax(0, 1fr);
   height: 100%;
 }
 .sidebar {
@@ -144,7 +120,7 @@ textarea {
 .brand-name {
   color: var(--ink);
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--alf-font-body);
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
@@ -154,13 +130,13 @@ textarea {
   border: 1px solid var(--line-strong);
   background: var(--raised);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .nav-section {
   padding: 0 10px 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
 }
@@ -179,7 +155,7 @@ textarea {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--alf-font-body);
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -206,7 +182,7 @@ textarea {
   border-radius: var(--alf-radius);
   background: var(--raised);
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
   text-align: center;
 }
@@ -242,7 +218,7 @@ textarea {
   padding: 8px 15px;
   border-radius: var(--alf-radius);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
 }
 .channel-pill.active {
@@ -257,7 +233,7 @@ textarea {
   border-radius: var(--alf-radius);
   border: 1px solid var(--line);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
 }
 .core-status i {
@@ -312,7 +288,7 @@ textarea {
 }
 .eyebrow {
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
   letter-spacing: 0.14em;
 }
@@ -325,13 +301,13 @@ textarea {
 .page-count {
   margin-left: 12px;
   color: var(--muted);
-  font-size: 15px;
+  font-size: var(--alf-font-title);
   font-weight: 500;
   letter-spacing: 0;
 }
 .page-description {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--alf-font-body);
 }
 .page-actions {
   display: flex;
@@ -351,12 +327,12 @@ textarea {
   margin-top: 8px;
 }
 .section-title h2 {
-  font-size: 22px;
+  font-size: var(--alf-font-identity);
   font-weight: 500;
   letter-spacing: -0.02em;
 }
 .section-title .page-count {
-  font-size: 14px;
+  font-size: var(--alf-font-body);
 }
 .section-heading {
   display: flex;
@@ -387,7 +363,7 @@ textarea {
   border: 1px solid var(--line-strong);
   background: var(--panel);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .stat-pill svg {
@@ -405,7 +381,7 @@ textarea {
   border: 1px solid var(--violet-line);
   background: var(--violet-bg);
   color: var(--violet);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .stat-cards,
@@ -426,14 +402,14 @@ textarea {
 .stat-card strong,
 .metric strong {
   color: var(--ink);
-  font-size: 22px;
+  font-size: var(--alf-font-identity);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 .stat-card span,
 .metric span {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .metric {
   grid-template-rows: auto auto;
@@ -445,7 +421,7 @@ textarea {
   padding: 12px 14px;
 }
 .metrics.compact strong {
-  font-size: 18px;
+  font-size: var(--alf-font-heading);
 }
 
 /* ---------- Buttons ---------- */
@@ -458,7 +434,7 @@ textarea {
   padding: 0 17px;
   border-radius: var(--alf-radius);
   border: 1px solid transparent;
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -493,7 +469,7 @@ textarea {
   color: var(--green);
 }
 .button-green:hover:not(:disabled) {
-  background: rgba(52, 199, 132, 0.18);
+  background: color-mix(in srgb, var(--alf-positive) 18%, transparent);
 }
 .button-danger {
   background: var(--red-bg);
@@ -501,7 +477,7 @@ textarea {
   color: var(--red);
 }
 .button-danger:hover:not(:disabled) {
-  background: rgba(242, 110, 110, 0.16);
+  background: color-mix(in srgb, var(--alf-danger) 16%, transparent);
 }
 .button-icon {
   width: 38px;
@@ -571,7 +547,7 @@ textarea {
 .helper,
 .empty-copy {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .empty-copy {
   padding: 18px;
@@ -579,7 +555,7 @@ textarea {
 .error-text,
 .error-cell {
   color: var(--red);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .error-banner {
   display: flex;
@@ -622,7 +598,7 @@ label {
   display: grid;
   gap: 6px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
 }
 label small,
@@ -639,19 +615,20 @@ textarea {
   border: 1px solid var(--line-strong);
   background: var(--input);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   font-weight: 500;
 }
 input::placeholder,
 textarea::placeholder {
   color: var(--faint);
 }
+/* Fields draw their focus as a 2px ring on the border: visible (>3:1) without an outer halo. */
 input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: #6a6a6a;
-  box-shadow: 0 0 0 3px var(--alf-tint);
+  border-color: var(--alf-focus);
+  box-shadow: 0 0 0 1px var(--alf-focus);
 }
 input:disabled,
 select:disabled,
@@ -748,7 +725,7 @@ progress::-webkit-progress-value {
   border: 1px solid var(--line-strong);
   background: var(--raised);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   font-weight: 550;
 }
 .chip button {
@@ -806,7 +783,7 @@ progress::-webkit-progress-value {
 }
 .board-status {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 
 /* ---------- Account cards (scout + profiles) ---------- */
@@ -830,7 +807,7 @@ progress::-webkit-progress-value {
   gap: 12px;
 }
 .account-head h3 {
-  font-size: 16px;
+  font-size: var(--alf-font-title);
 }
 .account-meta {
   display: flex;
@@ -839,7 +816,7 @@ progress::-webkit-progress-value {
   gap: 6px;
   margin-top: 5px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .account-meta .dot {
   margin-left: 8px;
@@ -859,7 +836,7 @@ progress::-webkit-progress-value {
   border: 1px solid var(--line-strong);
   background: var(--raised);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -874,7 +851,7 @@ progress::-webkit-progress-value {
   color: var(--green);
 }
 .status-chip.amber {
-  border-color: rgba(242, 196, 109, 0.4);
+  border-color: var(--amber-line);
   background: var(--amber-bg);
   color: var(--amber);
 }
@@ -906,7 +883,7 @@ progress::-webkit-progress-value {
 }
 .goal-progress {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .goal-progress b {
   color: var(--ink);
@@ -931,12 +908,12 @@ progress::-webkit-progress-value {
 }
 .account-detail {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   overflow-wrap: anywhere;
 }
 .account-notices p {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   padding: 3px 0;
 }
 .profile-create {
@@ -1041,7 +1018,7 @@ progress::-webkit-progress-value {
   color: var(--ink);
 }
 .scout-scores strong span {
-  font-size: 18px;
+  font-size: var(--alf-font-heading);
 }
 .scout-scores small {
   color: var(--muted);
@@ -1108,7 +1085,7 @@ blockquote {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .filter-grid {
   display: grid;
@@ -1118,7 +1095,7 @@ blockquote {
 .selection-count {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .export-bar {
   display: grid;
@@ -1137,7 +1114,7 @@ blockquote {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 th {
   position: sticky;
@@ -1145,7 +1122,7 @@ th {
   padding: 15px 16px;
   background: var(--alf-surface-control);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
   text-align: left;
   white-space: nowrap;
@@ -1173,7 +1150,7 @@ tbody tr:hover td {
 .profile-cell .avatar {
   width: 32px;
   height: 32px;
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .profile-cell strong {
   display: block;
@@ -1192,7 +1169,7 @@ tbody tr:hover td {
   background: var(--alf-surface-work);
   border: 1px solid var(--line);
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1310,7 +1287,7 @@ tbody tr:hover td {
 }
 .configuration dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .configuration dd {
   margin: 2px 0 0;
@@ -1325,7 +1302,7 @@ tbody tr:hover td {
   display: flex;
   justify-content: space-between;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .discovery-layout {
   display: grid;
@@ -1382,7 +1359,7 @@ tbody tr:hover td {
   margin-top: 10px;
 }
 .drawer-title {
-  font-size: 22px;
+  font-size: var(--alf-font-identity);
   font-weight: 600;
 }
 .drawer-close {
@@ -1412,7 +1389,7 @@ tbody tr:hover td {
 }
 .detail-score span {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
   letter-spacing: 0.12em;
 }
@@ -1423,7 +1400,7 @@ tbody tr:hover td {
 }
 .detail-score small {
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--alf-font-body);
   font-weight: 600;
 }
 .breakdown {
@@ -1439,7 +1416,7 @@ tbody tr:hover td {
 }
 .source-line {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   overflow-wrap: anywhere;
 }
 
@@ -1496,7 +1473,7 @@ tbody tr:hover td {
   gap: 12px;
   padding: 8px 14px;
   border-top: 1px solid var(--line);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 .source-row.source-head {
   position: sticky;
@@ -1505,7 +1482,7 @@ tbody tr:hover td {
   border-top: 0;
   background: var(--alf-surface-panel);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .source-row.disabled .source-name {
@@ -1579,7 +1556,7 @@ tbody tr:hover td {
 }
 .status-chip.source-rate_limited {
   color: var(--amber);
-  border-color: rgba(242, 196, 109, 0.4);
+  border-color: var(--amber-line);
   background: var(--amber-bg);
 }
 .scout-settings > summary {
@@ -1594,7 +1571,7 @@ tbody tr:hover td {
 .scout-settings > summary::after {
   content: 'Свернуть';
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
 }
 .scout-settings:not([open]) > summary::after {
@@ -1616,7 +1593,7 @@ tbody tr:hover td {
   background: var(--input);
 }
 .scout-settings-grid h3 {
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   letter-spacing: 0.02em;
 }
 .check-list {
@@ -1637,7 +1614,7 @@ tbody tr:hover td {
 .check-list small {
   grid-column: 2;
   color: var(--faint);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .scout-settings-grid .segmented {
   display: flex;
@@ -1655,7 +1632,7 @@ tbody tr:hover td {
 .field-row label {
   grid-template-rows: 1fr auto;
   align-items: end;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .segmented {
   display: inline-flex;
@@ -1675,7 +1652,7 @@ tbody tr:hover td {
   border-radius: var(--alf-radius);
   background: transparent;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 500;
   cursor: pointer;
 }
@@ -1685,7 +1662,7 @@ tbody tr:hover td {
 }
 .segmented.small button {
   padding: 5px 11px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .run-stats {
   display: grid;
@@ -1702,7 +1679,7 @@ tbody tr:hover td {
 }
 .run-stats dt {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .run-stats dd {
   margin: 2px 0 0;
@@ -1746,7 +1723,7 @@ tbody tr:hover td {
   align-items: baseline;
   padding: 6px 10px;
   border-radius: var(--alf-radius);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .event:nth-child(odd) {
   background: rgba(255, 255, 255, 0.02);
@@ -1784,7 +1761,7 @@ tbody tr:hover td {
   align-items: baseline;
   padding: 6px 10px;
   border-radius: var(--alf-radius);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .activity-list li:nth-child(odd) {
   background: rgba(255, 255, 255, 0.02);
@@ -1810,7 +1787,7 @@ tbody tr:hover td {
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   color: var(--muted);
 }
 .skip-breakdown li {
@@ -1840,7 +1817,7 @@ tbody tr:hover td {
   background: var(--input);
   color: var(--text);
   font-family: ui-monospace, 'Cascadia Code', monospace;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -1868,7 +1845,7 @@ tbody tr:hover td {
 .discovery-metrics > summary,
 .scout-advanced > summary {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .scout-advanced {
   margin-bottom: 16px;
@@ -1890,7 +1867,7 @@ tbody tr:hover td {
 }
 .scout-block h3 {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1923,7 +1900,7 @@ tbody tr:hover td {
 .scout-option small {
   grid-column: 2;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
 }
 .scout-option.muted {
@@ -1942,11 +1919,11 @@ tbody tr:hover td {
   border-radius: var(--alf-radius);
   background: var(--amber-bg);
   color: var(--amber);
-  font-size: 10.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
 }
 .scout-block label > small {
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .scout-ai {
   display: grid;
@@ -1978,7 +1955,7 @@ tbody tr:hover td {
   border: 1px solid var(--line);
 }
 .metrics-table table {
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .metrics-table th,
 .metrics-table td {
@@ -2020,12 +1997,12 @@ tbody tr:hover td {
   width: 100%;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .cell-sub {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2053,7 +2030,7 @@ tbody tr:hover td {
   align-items: center;
   gap: 6px 10px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .sender-option small {
   display: block;
@@ -2134,7 +2111,7 @@ tbody tr:hover td {
   border-radius: var(--alf-radius);
   border-color: var(--alf-surface-hover);
   background: var(--alf-surface-control);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   font-weight: 500;
 }
 .board-chip button {
@@ -2178,27 +2155,27 @@ tbody tr:hover td {
   border-radius: var(--alf-radius);
   border-color: var(--alf-surface-control);
   background: var(--alf-surface-work);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   line-height: 1.55;
   resize: none;
 }
 .board-bulk:focus,
 .board-bulk:focus-visible {
   outline: none;
-  border-color: var(--line-strong);
-  box-shadow: none;
+  border-color: var(--alf-focus);
+  box-shadow: 0 0 0 1px var(--alf-focus);
 }
 .board .chip-input {
   background: var(--alf-surface-work);
 }
 .board .chip-input input {
   height: 46px;
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 .board .button {
   min-height: 40px;
   padding: 0 18px;
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .board .button-outline {
   border-color: var(--alf-surface-hover);
@@ -2214,7 +2191,7 @@ tbody tr:hover td {
 }
 .board > .board-status {
   margin-top: -6px;
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .scout-footer .actions {
   flex-wrap: nowrap;
@@ -2246,7 +2223,7 @@ tbody tr:hover td {
   border-radius: var(--alf-radius);
   background: none;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -2275,10 +2252,10 @@ tbody tr:hover td {
   margin-top: 6px;
 }
 .board-heading h2 {
-  font-size: 15px;
+  font-size: var(--alf-font-title);
 }
 .board-heading .helper {
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .message-grid {
   display: grid;
@@ -2302,7 +2279,7 @@ tbody tr:hover td {
   border: 1px solid var(--alf-surface-control);
   background: var(--alf-surface-work);
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   line-height: 1.5;
 }
 .message-bulk {
@@ -2344,7 +2321,7 @@ tbody tr:hover td {
   border-radius: var(--alf-radius);
   resize: none;
   background: var(--alf-surface-work);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .outreach-board .board-footer {
   display: grid;
@@ -2383,7 +2360,7 @@ tbody tr:hover td {
   }
   .board .button:not(.button-icon) {
     padding: 0 13px;
-    font-size: 12.5px;
+    font-size: var(--alf-font-sm);
   }
   .board .button-primary {
     padding: 0 20px;
@@ -2449,7 +2426,7 @@ tbody tr:hover td {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .modal-fields .check-row {
   grid-column: 1 / -1;
@@ -2466,12 +2443,12 @@ tbody tr:hover td {
   border: 1px solid var(--green-line);
   background: var(--green-bg);
   color: var(--green);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 500;
   cursor: pointer;
 }
 .update-pill:hover {
-  background: rgba(52, 199, 132, 0.18);
+  background: color-mix(in srgb, var(--alf-positive) 18%, transparent);
 }
 .update-notes {
   max-height: 220px;
@@ -2501,7 +2478,7 @@ tbody tr:hover td {
 .stat-pill.small {
   gap: 5px;
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .profiles-page .info-bar {
   padding: 13px 20px;
@@ -2543,14 +2520,14 @@ tbody tr:hover td {
 }
 .account-title h3 {
   overflow: hidden;
-  font-size: 15px;
+  font-size: var(--alf-font-title);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .account-title .account-meta {
   flex-wrap: nowrap;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   white-space: nowrap;
 }
 .account-title .account-meta span:last-child {
@@ -2575,7 +2552,7 @@ tbody tr:hover td {
 .account-actions .button {
   min-height: 38px;
   padding: 0 18px;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .account-actions .button-icon {
   width: 38px;
@@ -2606,12 +2583,12 @@ tbody tr:hover td {
   background: transparent;
   box-shadow: none;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
 }
 .row-error {
   color: var(--red);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .profile-form {
   display: grid;
@@ -2662,7 +2639,7 @@ button.channel-pill:hover:not(.active) {
   padding: 2px 4px 4px;
 }
 .im-board-head h2 {
-  font-size: 16px;
+  font-size: var(--alf-font-title);
 }
 .im-board-head .eyebrow {
   display: block;
@@ -2691,7 +2668,7 @@ button.channel-pill:hover:not(.active) {
   border: 1px solid var(--line);
   background: var(--alf-surface-work);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .im-card {
@@ -2709,12 +2686,12 @@ button.channel-pill:hover:not(.active) {
   gap: 10px;
 }
 .im-card-head h3 {
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 .im-card-head p {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .im-card-icon {
   display: grid;
@@ -2731,7 +2708,7 @@ button.channel-pill:hover:not(.active) {
   margin: 0;
   padding: 6px 0;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   text-align: center;
 }
 .im-messages-empty {
@@ -2750,7 +2727,7 @@ button.channel-pill:hover:not(.active) {
   flex: 1 1 auto;
   height: 58px;
   min-height: 58px;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .im-compose .button-icon {
   width: 46px;
@@ -2761,7 +2738,7 @@ button.channel-pill:hover:not(.active) {
 .im-files-empty {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .im-chips .board-chip svg {
   color: var(--muted);
@@ -2776,7 +2753,7 @@ button.channel-pill:hover:not(.active) {
 .im-footer .board-status {
   flex: 1 1 auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .im-settings {
   align-items: start;
@@ -2820,7 +2797,7 @@ button.channel-pill:hover:not(.active) {
   border-radius: var(--alf-radius);
   border-color: var(--alf-surface-control);
   background: var(--alf-surface-work);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .row-remove {
   display: grid;
@@ -2838,7 +2815,7 @@ button.channel-pill:hover:not(.active) {
   color: var(--ink);
 }
 .board-chip.warn {
-  border-color: rgba(242, 196, 109, 0.4);
+  border-color: var(--amber-line);
   background: var(--amber-bg);
   color: var(--amber);
 }
@@ -2846,7 +2823,7 @@ button.channel-pill:hover:not(.active) {
   justify-self: start;
   height: 28px;
   padding: 0 11px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .imessage-message {
   min-height: 74px;
@@ -2870,11 +2847,11 @@ button.channel-pill:hover:not(.active) {
 }
 .imessage-options .helper {
   flex: 1 1 320px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .delay-field {
   width: 200px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .delay-field input {
   height: 38px;
@@ -2937,13 +2914,13 @@ button.channel-pill:hover:not(.active) {
   max-width: 420px;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   white-space: normal;
 }
 .job-actions .button {
   min-height: 30px;
   padding: 0 11px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .preview-list {
   display: grid;
@@ -3046,7 +3023,7 @@ button.channel-pill:hover:not(.active) {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 15px;
+  font-size: var(--alf-font-title);
 }
 .modal-title-icon svg {
   color: var(--violet);
@@ -3078,11 +3055,11 @@ button.channel-pill:hover:not(.active) {
 }
 .phone-status strong {
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .phone-status span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   overflow-wrap: anywhere;
 }
 .spin {
@@ -3121,11 +3098,11 @@ button.channel-pill:hover:not(.active) {
 }
 .phone-qr strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .phone-qr span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .phone-qr .phone-address {
   color: var(--faint);
@@ -3149,7 +3126,7 @@ button.channel-pill:hover:not(.active) {
   align-items: center;
   gap: 8px;
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .phone-help strong svg {
@@ -3157,7 +3134,7 @@ button.channel-pill:hover:not(.active) {
 }
 .phone-help p {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   line-height: 1.5;
 }
 .phone-help .button {
@@ -3209,7 +3186,7 @@ button.channel-pill:hover:not(.active) {
   border-radius: var(--alf-radius);
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   font-weight: 500;
   cursor: pointer;
 }
@@ -3223,7 +3200,7 @@ button.channel-pill:hover:not(.active) {
   border-radius: var(--alf-radius);
   background: rgba(255, 255, 255, 0.07);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   text-align: center;
 }
 .crm-totals {
@@ -3234,12 +3211,12 @@ button.channel-pill:hover:not(.active) {
   border: 1px solid var(--line-strong);
   background: var(--sidebar);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .crm-totals strong {
   margin-left: 4px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .crm-search {
   display: flex;
@@ -3262,11 +3239,12 @@ button.channel-pill:hover:not(.active) {
   outline: none;
 }
 .crm-search:focus-within {
-  border-color: var(--violet-line);
+  border-color: var(--alf-focus);
+  box-shadow: 0 0 0 1px var(--alf-focus);
 }
 .crm-found {
   flex: none;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .crm-found strong {
   color: var(--ink);
@@ -3278,7 +3256,7 @@ button.channel-pill:hover:not(.active) {
   border-radius: var(--alf-radius);
   background: var(--violet-bg);
   color: var(--violet);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
   cursor: pointer;
 }
@@ -3292,7 +3270,7 @@ button.channel-pill:hover:not(.active) {
   border: 1px solid var(--violet-line);
   background: var(--violet-bg);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .crm-selection > span {
   margin-right: auto;
@@ -3321,7 +3299,7 @@ button.channel-pill:hover:not(.active) {
 .crm-table th {
   z-index: 1;
   padding: 13px 14px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .crm-table td {
   padding: 12px 14px;
@@ -3345,7 +3323,7 @@ button.channel-pill:hover:not(.active) {
 .crm-action-cell .button {
   min-height: 32px;
   padding: 0 13px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .crm-head-button {
   display: inline-grid;
@@ -3394,7 +3372,7 @@ button.channel-pill:hover:not(.active) {
   border-radius: var(--alf-radius);
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -3429,7 +3407,7 @@ button.channel-pill:hover:not(.active) {
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 .crm-person:hover strong {
   color: var(--violet);
@@ -3444,7 +3422,7 @@ button.channel-pill:hover:not(.active) {
   border: 1px solid var(--line-strong);
   background: var(--input);
   color: var(--ink);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .crm-chips,
@@ -3467,7 +3445,7 @@ button.channel-pill:hover:not(.active) {
   border: 1px solid color-mix(in srgb, var(--chip) 45%, transparent);
   background: color-mix(in srgb, var(--chip) 13%, transparent);
   color: var(--chip);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -3511,14 +3489,14 @@ button.crm-chip.off {
   max-width: 220px;
   overflow: hidden;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 500;
   text-overflow: ellipsis;
 }
 .crm-channels small {
   padding-left: 18px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .crm-main {
   flex: none;
@@ -3531,7 +3509,7 @@ button.crm-chip.off {
 }
 .crm-muted {
   color: var(--muted) !important;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .crm-next {
   display: grid;
@@ -3544,7 +3522,7 @@ button.crm-chip.off {
 }
 .crm-next small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .crm-next small.today {
   color: var(--amber);
@@ -3556,7 +3534,7 @@ button.crm-chip.off {
   max-width: 240px;
   overflow: hidden;
   color: var(--muted) !important;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   text-overflow: ellipsis;
 }
 .crm-money {
@@ -3565,11 +3543,11 @@ button.crm-chip.off {
 }
 .crm-money strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .crm-money small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .crm-empty {
   position: absolute;
@@ -3583,7 +3561,7 @@ button.crm-chip.off {
 }
 .crm-empty strong {
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--alf-font-body);
 }
 .crm-sources {
   display: grid;
@@ -3629,10 +3607,10 @@ button.crm-chip.off {
 }
 .crm-source-text strong {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--alf-font-body);
 }
 .crm-source-text small {
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
   line-height: 1.45;
 }
 .crm-source-count {
@@ -3641,7 +3619,7 @@ button.crm-chip.off {
   border-radius: var(--alf-radius);
   background: var(--raised);
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
 }
 .crm-wide-button {
@@ -3770,7 +3748,7 @@ img.emoji {
 .emoji-group-name {
   padding: 0 4px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 500;
 }
 .emoji-grid {
@@ -3795,7 +3773,7 @@ img.emoji {
   border-radius: var(--alf-radius);
   background: transparent;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   cursor: pointer;
 }
 .emoji-clear:hover {
@@ -3811,7 +3789,7 @@ img.emoji {
 }
 .crm-form-label {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .crm-form-grid {
   display: grid;
@@ -3822,7 +3800,7 @@ img.emoji {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .crm-channel-row {
   display: flex;
@@ -4086,7 +4064,7 @@ button:active:not(:disabled) {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4123,7 +4101,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: var(--raised);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .template-parts {
   display: grid;
@@ -4150,7 +4128,7 @@ button:active:not(:disabled) {
   width: 100%;
   overflow: hidden;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   line-height: 1.45;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
@@ -4165,7 +4143,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius-sm);
   background: var(--violet-bg);
   color: var(--violet);
-  font-size: 10px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 .template-file {
@@ -4178,7 +4156,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: var(--raised);
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--alf-font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4187,7 +4165,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 5px;
   color: var(--amber);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .template-warning.bad {
   color: var(--red);
@@ -4225,7 +4203,7 @@ button:active:not(:disabled) {
 }
 .part-card header strong {
   flex: 1;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .part-tools {
   display: flex;
@@ -4238,7 +4216,7 @@ button:active:not(:disabled) {
 .part-text {
   min-height: 64px;
   resize: vertical;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 .part-files {
   display: flex;
@@ -4279,7 +4257,7 @@ button:active:not(:disabled) {
   min-height: 32px;
   gap: 6px;
   padding: 0 11px;
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 
 /* ---------- Notifications (bottom right) ---------- */
@@ -4334,7 +4312,11 @@ button:active:not(:disabled) {
 }
 .toast.error {
   --tone: var(--red);
-  background: color-mix(in srgb, #2a1d20 92%, transparent);
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--alf-danger) 10%, var(--alf-surface-panel)) 92%,
+    transparent
+  );
   border-color: var(--red-line);
   border-left-color: var(--tone);
 }
@@ -4366,11 +4348,11 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 6px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .toast-body p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -4379,7 +4361,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: color-mix(in srgb, var(--tone) 22%, transparent);
   color: var(--tone);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   animation: toastBump 320ms var(--motion-enter-ease);
 }
 .toast-code {
@@ -4388,7 +4370,7 @@ button:active:not(:disabled) {
   gap: 8px;
   margin-top: 3px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   font-variant-numeric: tabular-nums;
 }
 .toast-code button {
@@ -4400,12 +4382,27 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   cursor: pointer;
 }
 .toast-code button:hover {
   background: var(--raised-hover);
   color: var(--ink);
+}
+.toast-action {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--alf-radius);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--alf-font-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: var(--raised-hover);
 }
 .toast-close {
   display: grid;
@@ -4524,7 +4521,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 9px;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   font-weight: 600;
 }
 .gate-icon {
@@ -4538,7 +4535,7 @@ button:active:not(:disabled) {
   color: var(--violet);
 }
 .gate-card h1 {
-  font-size: 22px;
+  font-size: var(--alf-font-identity);
 }
 .gate-card .helper {
   margin: 0;
@@ -4563,7 +4560,7 @@ button:active:not(:disabled) {
 }
 .gate-note {
   color: var(--faint);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .gate-switch {
   padding: 0;
@@ -4579,7 +4576,7 @@ button:active:not(:disabled) {
 }
 .gate-error {
   color: var(--red);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .account-menu {
   position: relative;
@@ -4594,7 +4591,7 @@ button:active:not(:disabled) {
   border: 1px solid var(--line);
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -4611,7 +4608,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: var(--violet-bg);
   color: var(--violet);
-  font-size: 10.5px;
+  font-size: var(--alf-font-xs);
   font-style: normal;
 }
 .account-dropdown {
@@ -4631,11 +4628,11 @@ button:active:not(:disabled) {
 }
 .account-dropdown strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .account-dropdown span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .account-dropdown .account-role {
   margin-bottom: 6px;
@@ -4650,7 +4647,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -4674,7 +4671,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: var(--violet-bg);
   color: var(--violet);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .admin-blocked td {
   opacity: 0.6;
@@ -4684,7 +4681,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: var(--raised);
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
 }
 .admin-key.good {
   background: var(--green-bg);
@@ -4705,7 +4702,7 @@ button:active:not(:disabled) {
   border: 1px dashed var(--violet-line);
   background: var(--violet-bg);
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--alf-font-title);
   letter-spacing: 0.04em;
   text-align: center;
   user-select: all;
@@ -4749,12 +4746,12 @@ button:active:not(:disabled) {
   gap: 6px;
   min-width: 200px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .inbox-status {
   margin: 0;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   font-weight: 600;
 }
 .inbox-progress {
@@ -4796,12 +4793,12 @@ button:active:not(:disabled) {
   display: block;
   margin-top: 3px;
   color: var(--amber);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .inbox-snippet {
   max-width: 420px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
 }
 
 /* ---------- Outreach: «Найти и написать» ---------- */
@@ -4822,13 +4819,13 @@ button:active:not(:disabled) {
   align-self: center;
   margin-right: 8px;
   color: var(--ink);
-  font-size: 15px;
+  font-size: var(--alf-font-title);
 }
 .autopilot-row label {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .autopilot-row select {
   min-width: 200px;
@@ -4839,7 +4836,7 @@ button:active:not(:disabled) {
 .autopilot-status {
   margin: 0;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   font-weight: 600;
 }
 
@@ -4878,7 +4875,7 @@ button:active:not(:disabled) {
 .autopilot-go {
   min-height: 44px;
   padding: 0 22px;
-  font-size: 15px;
+  font-size: var(--alf-font-title);
 }
 .settings-panel {
   display: grid;
@@ -4901,7 +4898,7 @@ button:active:not(:disabled) {
   display: grid;
   gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .cloud-field small {
   justify-self: end;
@@ -4923,7 +4920,7 @@ button:active:not(:disabled) {
   padding: 0 6px;
   color: var(--ink);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 .cloud-stack {
   display: grid;
@@ -4952,7 +4949,7 @@ button:active:not(:disabled) {
 .cloud-detail td small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .cloud-form .board-footer {
   display: flex;
@@ -4983,7 +4980,7 @@ button:active:not(:disabled) {
 }
 .cloud-counters span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .cloud-user {
   padding: 0;
@@ -5011,7 +5008,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   background: var(--alf-tint);
   color: var(--alf-accent);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   font-weight: 600;
 }
 @media (max-width: 720px) {
@@ -5138,13 +5135,13 @@ button:active:not(:disabled) {
 .assistant-md h2,
 .assistant-md h3 {
   margin: 12px 0 6px;
-  font-size: 14px;
+  font-size: var(--alf-font-body);
 }
 .assistant-md code {
   padding: 1px 4px;
   border-radius: 4px;
   background: var(--raised);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .assistant-md blockquote {
   margin: 0 0 8px;
@@ -5160,7 +5157,7 @@ button:active:not(:disabled) {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .assistant-steps summary {
   display: flex;
@@ -5200,7 +5197,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--alf-font-xs);
 }
 .assistant-dot {
   width: 7px;
@@ -5228,7 +5225,7 @@ button:active:not(:disabled) {
 .assistant-empty-title {
   margin-bottom: 16px;
   color: var(--ink);
-  font-size: 18px;
+  font-size: var(--alf-font-heading);
   font-weight: 600;
 }
 .assistant-suggestions {
@@ -5244,7 +5241,7 @@ button:active:not(:disabled) {
   background: var(--panel);
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   text-align: left;
   cursor: pointer;
   transition:
@@ -5304,11 +5301,16 @@ button:active:not(:disabled) {
   box-shadow: none;
   outline: none;
 }
+/* The borderless field sits in the card, so the card shows that it has focus. */
+.assistant-ask:focus-within {
+  border-color: var(--alf-focus);
+  box-shadow: 0 0 0 1px var(--alf-focus);
+}
 .assistant-disclosure {
   max-width: 860px;
   margin: 8px auto 0;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
   text-align: center;
 }
 .assistant-side {
@@ -5334,7 +5336,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   border: 1px solid var(--line-strong);
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   white-space: nowrap;
 }
 .assistant-model.strong {
@@ -5373,7 +5375,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
 }
 .spotify-target input {
   width: 96px;
@@ -5425,7 +5427,7 @@ button:active:not(:disabled) {
   border-radius: var(--alf-radius);
   border: 1px solid var(--line-strong);
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--alf-font-xs);
   white-space: nowrap;
 }
 .send-state.good {
@@ -5565,7 +5567,7 @@ button:active:not(:disabled) {
   gap: 8px;
   color: var(--ink);
   font-weight: 500;
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
 }
 .dialogs-row-top small {
   color: var(--faint);
@@ -5574,7 +5576,7 @@ button:active:not(:disabled) {
 .dialogs-preview {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--alf-font-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5632,7 +5634,7 @@ button:active:not(:disabled) {
 .dialogs-message p {
   margin: 0;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: var(--alf-font-body);
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -5641,7 +5643,7 @@ button:active:not(:disabled) {
   display: block;
   margin-top: 4px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--alf-font-xs);
 }
 .dialogs-compose {
   display: flex;
@@ -5663,7 +5665,8 @@ button:active:not(:disabled) {
 }
 .dialogs-compose textarea:focus {
   outline: none;
-  border-color: var(--violet-line);
+  border-color: var(--alf-focus);
+  box-shadow: 0 0 0 1px var(--alf-focus);
 }
 @media (max-width: 900px) {
   .dialogs-grid {

@@ -10,10 +10,13 @@ export function SourceTable({
   rows,
   busy,
   act,
+  onRemove,
 }: {
   rows: ScoutSourceRow[];
   busy: boolean;
   act: (operation: () => Promise<unknown>) => Promise<boolean>;
+  /** Removes with an «Отменить» toast; the board owns it so the chips hide the row too. */
+  onRemove: (row: ScoutSourceRow) => void;
 }) {
   if (!rows.length) return <p className="helper">Источников пока нет.</p>;
   return (
@@ -84,7 +87,7 @@ export function SourceTable({
               aria-label={`Удалить ${row.username}`}
               title="Удалить источник"
               disabled={busy}
-              onClick={() => void act(() => api.request('scout.source_remove', { url: row.url }))}
+              onClick={() => onRemove(row)}
             >
               <Trash2 size={15} />
             </Button>

@@ -428,6 +428,10 @@ CORE["instagram_warmup.state"] = {
                  "message": "", "messages": 6, "likes": 3, "follows": 5, "delay_seconds": 20},
 }
 CORE["instagram_warmup.history"] = []
+# The mock ignores params, so one answer holds the badges of every channel.
+CORE["nav.counts"] = {"crm": 38, "discovery": len(SOURCES), "profiles": len(PROFILES), "leads": 1606,
+                      "history": 4, "imessage-crm": 12, "imessage": 3, "imessage-templates": 2,
+                      "email-crm": 7}
 MOCK = """
 (() => {
   const core = %s;

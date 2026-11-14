@@ -1,28 +1,5 @@
-/* Flow Like reference: matching composition and geometry, using ALF content. */
-:root {
-  --alf-sidebar: clamp(210px, 17vw, 280px);
-  --alf-font-body: 14px;
-  --alf-font-sm: 13px;
-  --alf-font-xs: 12px;
-  --alf-control: 34px;
-  --alf-control-lg: 38px;
-  --alf-icon: 18px;
-  --alf-reference-gutter: clamp(24px, 3.2vw, 52px);
-  --alf-reference-gap: clamp(18px, 1.6vw, 28px);
-  --alf-reference-inset: clamp(20px, 1.6vw, 28px);
-  --alf-reference-image: clamp(150px, 14.8vw, 250px);
-  --alf-radius-panel: 8px;
-  --alf-surface-base: #191919;
-  --alf-surface-nav: #171717;
-  --alf-surface-work: #1b1b1b;
-  --alf-surface-panel: #272727;
-  --alf-surface-control: #303030;
-  --alf-surface-hover: #373737;
-  --alf-border: #414141;
-  --alf-border-strong: #484848;
-  --alf-accent: #ddd;
-  --alf-accent-fill: #535353;
-}
+/* Flow Like reference: matching composition and geometry, using ALF content.
+   Its sizes and surfaces live in tokens.css. */
 .alf-ui {
   grid-template-columns: var(--alf-sidebar) minmax(0, 1fr);
 }

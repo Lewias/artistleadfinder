@@ -90,6 +90,8 @@ export function Dialogs() {
 
   return (
     <div className="dialogs-page">
+      {/* The two-pane layout has no room for a header; the page still has its title for readers. */}
+      <h1 className="sr-only">Диалоги iMessage</h1>
       <ErrorToast message={error || live.error} />
       {state && !available ? (
         <section className="panel">

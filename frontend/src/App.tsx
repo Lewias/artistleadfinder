@@ -29,15 +29,7 @@ import {
 } from 'lucide-react';
 import { channels, pages, type Channel, type PageId } from './navigation';
 import { useResource } from './hooks/useResource';
-import type {
-  AccountState,
-  CrmList,
-  IMessageState,
-  IMessageTemplate,
-  SearchJob,
-  InstagramWarmupHistoryRun,
-  ScoutAccountRow,
-} from './services/types';
+import type { AccountState } from './services/types';
 import { api } from './services/api';
 import { number } from './lib/format';
 import { Dashboard } from './pages/Dashboard';
@@ -106,28 +98,9 @@ const toolPages: PageId[] = [
   'email-warmup',
 ];
 
-function useNavCounts(): Partial<Record<PageId, number>> {
-  const sources = useResource<string[]>('scout.sources', {}, 15000);
-  const accounts = useResource<ScoutAccountRow[]>('scout.accounts', {}, 15000);
-  const leads = useResource<{ total: number }>('leads.list', { page_size: 1 }, 15000);
-  const jobs = useResource<SearchJob[]>('jobs.list', {}, 15000);
-  const warmups = useResource<InstagramWarmupHistoryRun[]>('instagram_warmup.history', {}, 15000);
-  const imessage = useResource<IMessageState>('imessage.state', {}, 15000);
-  const templates = useResource<IMessageTemplate[]>('imessage.templates', {}, 15000);
-  const crm = useResource<CrmList>('crm.list', { crm: 'instagram', page_size: 1 }, 15000);
-  const imessageCrm = useResource<CrmList>('crm.list', { crm: 'imessage', page_size: 1 }, 15000);
-  const emailCrm = useResource<CrmList>('crm.list', { crm: 'email', page_size: 1 }, 15000);
-  return {
-    crm: crm.data?.counts.all,
-    'imessage-crm': imessageCrm.data?.counts.all,
-    'email-crm': emailCrm.data?.counts.all,
-    imessage: imessage.data?.workspace.recipients.length,
-    'imessage-templates': templates.data?.length,
-    discovery: sources.data?.length,
-    profiles: accounts.data?.length,
-    leads: leads.data?.total,
-    history: (jobs.data?.length ?? 0) + (warmups.data?.length ?? 0),
-  };
+/** Sidebar badges of the open channel, fetched in one call instead of one per page. */
+function useNavCounts(channel: Channel): Partial<Record<PageId, number>> {
+  return useResource<Partial<Record<PageId, number>>>('nav.counts', { channel }, 15000).data ?? {};
 }
 
 /** The sign-in comes first when accounts are on; the workspace opens once it is ready. */
@@ -193,7 +166,7 @@ function Workspace({
     setActive(lastPage[next]);
   };
   const section = channels.find(item => item.id === channel)!;
-  const counts = useNavCounts();
+  const counts = useNavCounts(channel);
   const updater = useUpdater();
   const [version, setVersion] = useState<string>();
   useEffect(() => {
@@ -201,6 +174,7 @@ function Workspace({
       .then(setVersion)
       .catch(() => undefined);
   }, []);
+  const appVersion = version || core.data?.version;
   useTabIndicators();
   // Ctrl/Cmd+B folds the sidebar to an icon rail; the choice survives a restart.
   const [collapsed, setCollapsed] = useState(() => {
@@ -275,12 +249,16 @@ function Workspace({
       className={`app-shell alf-ui${active === 'leads' ? ' alf-database-shell' : ''}${collapsed ? ' sidebar-collapsed' : ''}`}
     >
       <aside className="sidebar">
-        <div className="brand" title={`Artist Lead Finder · v${version || core.data?.version || '0.1.0'}`}>
+        <div
+          className="brand"
+          title={appVersion ? `Artist Lead Finder · v${appVersion}` : 'Artist Lead Finder'}
+        >
           <span className="brand-logo">
             <AudioLines size={17} strokeWidth={2.4} />
           </span>
           <span className="brand-name">Artist Lead Finder</span>
-          <span className="version-pill">v{version || core.data?.version || '0.1.0'}</span>
+          {/* Nothing until the version is known: a placeholder number would be a wrong one. */}
+          {appVersion && <span className="version-pill">v{appVersion}</span>}
         </div>
         <Dropdown
           label="Канал"
@@ -289,7 +267,6 @@ function Workspace({
           options={channels.map(item => ({ value: item.id, label: item.label }))}
           onChange={value => switchChannel(value as Channel)}
         />
-        <div className="nav-section">Навигация</div>
         <NavGroup
           title="Рабочая область"
           icon={<LayoutGrid />}
@@ -350,6 +327,7 @@ function Workspace({
           </div>
           <UpdateNotice state={updater.state} install={updater.install} />
           <span
+            role="status"
             className={`core-status ${core.error ? 'offline' : core.data ? 'connected' : 'pending'}`}
             title={core.error || undefined}
           >

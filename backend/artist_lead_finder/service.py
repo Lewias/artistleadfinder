@@ -438,6 +438,7 @@ class ApplicationService:
             "providers.health": self._provider_health,
             "dashboard.get": lambda p: self.dashboard(),
             "leads.export": self.export,
+            "nav.counts": self._nav_counts,
         }
 
     def _outreach_next(self) -> dict | None:
@@ -668,6 +669,42 @@ class ApplicationService:
             return {"ok": True}
         self.manager.control(int(params["id"]), params["action"])
         return {"ok": True}
+
+    def _nav_counts(self, params: dict) -> dict[str, int]:
+        """Sidebar badges of one channel in a single call; each one counts what its page lists.
+
+        A failing source leaves its badge out instead of blanking the others."""
+        channel = params.get("channel", "instagram")
+
+        def crm(name: str) -> int:
+            return self.call("crm.list", {"crm": name, "page_size": 1})["counts"]["all"]
+
+        counts: dict[str, Callable[[], int]] = {}
+        if channel == "instagram":
+            counts = {
+                "crm": lambda: crm("instagram"),
+                "discovery": lambda: len(self.call("scout.sources", {})),
+                "profiles": lambda: len(self.call("scout.accounts", {})),
+                "leads": lambda: self.call("leads.list", {"page_size": 1})["total"],
+                "history": lambda: (
+                    len(self.call("jobs.list", {})) + len(self.call("instagram_warmup.history", {}))
+                ),
+            }
+        elif channel == "imessage":
+            counts = {
+                "imessage-crm": lambda: crm("imessage"),
+                "imessage": lambda: len(self.call("imessage.state", {})["workspace"]["recipients"]),
+                "imessage-templates": lambda: len(self.call("imessage.templates", {})),
+            }
+        elif channel == "email":
+            counts = {"email-crm": lambda: crm("email")}
+        result: dict[str, int] = {}
+        for page, count in counts.items():
+            try:
+                result[page] = count()
+            except Exception:  # noqa: BLE001 - one broken badge must not hide the rest
+                log.debug("nav count %s failed", page, exc_info=True)
+        return result
 
     def _list_jobs(self, params: dict) -> Any:
         with self.sessions() as session:

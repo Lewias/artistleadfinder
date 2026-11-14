@@ -16,7 +16,7 @@
   min-width: 0;
 }
 .ig-warmup-fields label > span {
-  font-size: 13px;
+  font-size: var(--alf-font-sm);
   font-weight: 500;
 }
 .ig-warmup-fields input,

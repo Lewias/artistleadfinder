@@ -48,6 +48,18 @@ function ToastItem({ item }: { item: Toast }) {
             )}
           </strong>
           <p>{item.message}</p>
+          {item.action && (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                item.action?.run();
+                dismiss(item.id);
+              }}
+            >
+              {item.action.label}
+            </button>
+          )}
           {item.code && (
             <span className="toast-code">
               Код {item.code}

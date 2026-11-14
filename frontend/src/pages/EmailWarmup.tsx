@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { api } from '../services/api';
+import { undoable } from '../lib/toast';
 import { Download, PlugZap, RefreshCw, Save, ScanSearch, Trash2 } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type { WarmupAccount, WarmupEvent, WarmupPartner, WarmupState } from '../services/types';
@@ -356,7 +358,20 @@ function NstPanel({ data, onChange }: { data?: WarmupState; onChange: () => void
 
 function PartnerRow({ partner, onChange }: { partner: WarmupPartner; onChange: () => void }) {
   const { call, error } = useCall(onChange);
+  // Hidden while its «Отменить» toast is up; the core forgets it only when the toast leaves.
+  const [removing, setRemoving] = useState(false);
   const [badge, label] = PARTNER_BADGES[partner.status];
+  if (removing) return null;
+  const remove = () => {
+    setRemoving(true);
+    undoable(`Партнёр ${partner.profile_name || partner.profile_id} убран из прогрева.`, {
+      commit: async () => {
+        await api.request('email.warmup_partner_remove', { id: partner.id });
+        onChange();
+      },
+      restore: () => setRemoving(false),
+    });
+  };
   return (
     <tr>
       <td>
@@ -394,12 +409,7 @@ function PartnerRow({ partner, onChange }: { partner: WarmupPartner; onChange: (
         />
       </td>
       <td className="email-actions">
-        <Button
-          variant="outline"
-          icon
-          aria-label="Убрать партнёра"
-          onClick={() => void call('email.warmup_partner_remove', { id: partner.id })}
-        >
+        <Button variant="outline" icon aria-label="Убрать партнёра" onClick={remove}>
           <Trash2 size={14} />
         </Button>
       </td>

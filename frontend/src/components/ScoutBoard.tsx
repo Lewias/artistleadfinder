@@ -1,5 +1,5 @@
 import { ErrorToast } from './Toaster';
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import {
   AtSign,
   BarChart3,
@@ -16,6 +16,7 @@ import {
 import { api } from '../services/api';
 import type { ScoutAccountRow, ScoutSourceRow } from '../services/types';
 import { number, relativeTime } from '../lib/format';
+import { undoable } from '../lib/toast';
 import { Button } from './ui/button';
 import { Menu } from './Menu';
 import { Modal } from './Modal';
@@ -79,7 +80,18 @@ export function ScoutBoard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const list = rows ?? [];
+  // Sources removed a moment ago stay hidden while their «Отменить» toast is up.
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const list = (rows ?? []).filter(row => !hidden.has(row.url));
+  // Once the core no longer lists a removed source, it needs no hiding (and may be added again).
+  useEffect(() => {
+    if (!rows) return;
+    setHidden(value => {
+      const present = new Set(rows.map(row => row.url));
+      const kept = [...value].filter(url => present.has(url));
+      return kept.length === value.size ? value : new Set(kept);
+    });
+  }, [rows]);
   const enabled = list.filter(row => row.enabled).length;
 
   const act = async (operation: () => Promise<unknown>) => {
@@ -96,6 +108,25 @@ export function ScoutBoard({
       setBusy(false);
       refresh();
     }
+  };
+
+  const hide = (url: string, on: boolean) =>
+    setHidden(value => {
+      const next = new Set(value);
+      if (on) next.add(url);
+      else next.delete(url);
+      return next;
+    });
+  const removeSource = (row: ScoutSourceRow) => {
+    hide(row.url, true);
+    undoable(`Источник ${row.username} убран из списка.`, {
+      // A failed removal shows its error on the board and brings the chip back.
+      commit: () =>
+        act(() => api.request('scout.source_remove', { url: row.url })).then(
+          ok => ok || hide(row.url, false),
+        ),
+      restore: () => hide(row.url, false),
+    });
   };
 
   const add = async (text: string) => {
@@ -196,7 +227,7 @@ export function ScoutBoard({
                 type="button"
                 aria-label={`Убрать ${row.username}`}
                 disabled={busy}
-                onClick={() => void act(() => api.request('scout.source_remove', { url: row.url }))}
+                onClick={() => removeSource(row)}
               >
                 <X size={13} />
               </button>
@@ -321,7 +352,7 @@ export function ScoutBoard({
           wide
           onClose={() => setDialog(null)}
         >
-          <SourceTable rows={list} busy={busy} act={act} />
+          <SourceTable rows={list} busy={busy} act={act} onRemove={removeSource} />
         </Modal>
       )}
       {dialog === 'clear' && (

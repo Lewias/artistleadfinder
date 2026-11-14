@@ -30,6 +30,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/button';
 import { StatusBadge } from '../components/DataState';
 import { ErrorToast } from '../components/Toaster';
+import { toast } from '../lib/toast';
 import { Modal } from '../components/Modal';
 import { time, useCall } from '../components/email/emailUi';
 
@@ -410,8 +411,18 @@ function Recipients({ state, onChange }: { state: EmailState; onChange: () => vo
     if (typeof path === 'string')
       added(await call<{ added: number; skipped: number }>('email.import_file', { path }));
   };
-  const remove = (email: string) =>
-    void call('email.workspace_update', { recipients: recipients.filter(item => item.email !== email) });
+  // Removing is instant; «Отменить» puts the previous list back as it was.
+  const remove = async (email: string) => {
+    const before = recipients;
+    const done = await call('email.workspace_update', {
+      recipients: recipients.filter(item => item.email !== email),
+    });
+    if (done === undefined) return;
+    toast.info(`${email} убран из получателей.`, {
+      title: 'Удалено',
+      action: { label: 'Отменить', run: () => void call('email.workspace_update', { recipients: before }) },
+    });
+  };
   return (
     <section className="panel board cloud-form">
       <div className="board-heading">
@@ -480,7 +491,7 @@ function Recipients({ state, onChange }: { state: EmailState; onChange: () => vo
                       variant="outline"
                       icon
                       aria-label={`Убрать ${item.email}`}
-                      onClick={() => remove(item.email)}
+                      onClick={() => void remove(item.email)}
                     >
                       <X size={13} />
                     </Button>
@@ -717,6 +728,8 @@ export function EmailCampaigns({ onAccounts }: { onAccounts: () => void }) {
 function AccountRow({ account, onChange }: { account: EmailAccount; onChange: () => void }) {
   const { call, error, notice, setNotice } = useCall(onChange);
   const [password, setPassword] = useState<string>();
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const control = (action: string) => call('email.account_control', { id: account.id, action });
   return (
     <tr>
@@ -778,17 +791,37 @@ function AccountRow({ account, onChange }: { account: EmailAccount; onChange: ()
         <Button variant="outline" icon aria-label="Новый пароль приложения" onClick={() => setPassword('')}>
           <KeyRound size={14} />
         </Button>
-        <Button
-          variant="outline"
-          icon
-          aria-label="Удалить ящик"
-          onClick={() => {
-            if (window.confirm(`Удалить ${account.address}? Фоллоу-апы его переписок отменятся.`))
-              void call('email.account_remove', { id: account.id });
-          }}
-        >
+        <Button variant="outline" icon aria-label="Удалить ящик" onClick={() => setConfirmRemove(true)}>
           <Trash2 size={14} />
         </Button>
+        {confirmRemove && (
+          <Modal
+            title={`Удалить ящик ${account.address}?`}
+            onClose={() => !removing && setConfirmRemove(false)}
+            narrow
+          >
+            <p className="helper">
+              Запланированные фоллоу-апы его переписок отменятся. Чтобы снова писать с этого ящика, его
+              придётся подключить заново.
+            </p>
+            {error && <p className="error-text">{error}</p>}
+            <div className="actions">
+              <Button
+                variant="danger"
+                disabled={removing}
+                onClick={() => {
+                  setRemoving(true);
+                  void call('email.account_remove', { id: account.id }).then(() => setRemoving(false));
+                }}
+              >
+                <Trash2 size={15} /> Удалить ящик
+              </Button>
+              <Button variant="outline" disabled={removing} onClick={() => setConfirmRemove(false)}>
+                Отмена
+              </Button>
+            </div>
+          </Modal>
+        )}
         {password !== undefined && (
           <Modal
             title={`Новый пароль приложения для ${account.address}`}

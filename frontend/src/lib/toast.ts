@@ -16,10 +16,20 @@ export interface Toast {
   leaving: boolean;
   /** When the last copy came in. */
   at: number;
+  /** A button in the toast, e.g. «Отменить»; pressing it also closes the toast. */
+  action?: ToastAction;
+  /** Runs once when the toast starts leaving, whatever closed it. */
+  onLeave?: () => void;
+}
+export interface ToastAction {
+  label: string;
+  run: () => void;
 }
 interface Options {
   title?: string;
   duration?: number;
+  action?: ToastAction;
+  onLeave?: () => void;
 }
 
 const MAX_VISIBLE = 4;
@@ -46,8 +56,10 @@ export function subscribe(listener: (items: Toast[]) => void) {
 }
 
 export function dismiss(id: number) {
-  if (!toasts.some(item => item.id === id && !item.leaving)) return;
-  toasts = toasts.map(item => (item.id === id ? { ...item, leaving: true } : item));
+  const item = toasts.find(entry => entry.id === id && !entry.leaving);
+  if (!item) return;
+  toasts = toasts.map(entry => (entry.id === id ? { ...entry, leaving: true } : entry));
+  item.onLeave?.();
   emit();
   setTimeout(() => {
     toasts = toasts.filter(item => item.id !== id);
@@ -59,9 +71,13 @@ function push(kind: ToastKind, message: string, options: Options = {}) {
   if (!message.trim()) return;
   const { text, code } = splitCode(message);
   const title = options.title ?? TITLE[kind];
-  const same = toasts.find(
-    item => !item.leaving && item.kind === kind && item.message === text && item.title === title,
-  );
+  // A toast with its own action or callback stands alone: merging two would drop one of them.
+  const merges = !options.action && !options.onLeave;
+  const same = merges
+    ? toasts.find(
+        item => !item.leaving && item.kind === kind && item.message === text && item.title === title,
+      )
+    : undefined;
   if (same) {
     if (Date.now() - same.at < ECHO_MS) return same.id;
     toasts = toasts.map(item =>
@@ -82,7 +98,20 @@ function push(kind: ToastKind, message: string, options: Options = {}) {
   const duration = options.duration ?? DURATION[kind];
   toasts = [
     ...toasts,
-    { id, kind, title, message: text, code, count: 1, revision: 0, duration, leaving: false, at: Date.now() },
+    {
+      id,
+      kind,
+      title,
+      message: text,
+      code,
+      count: 1,
+      revision: 0,
+      duration,
+      leaving: false,
+      at: Date.now(),
+      action: options.action,
+      onLeave: options.onLeave,
+    },
   ];
   emit();
   const visible = toasts.filter(item => !item.leaving);
@@ -95,6 +124,39 @@ export const toast = {
   success: (message: string, options?: Options) => push('success', message, options),
   info: (message: string, options?: Options) => push('info', message, options),
 };
+
+const UNDO_MS = 6000;
+
+/**
+ * A removal the user can take back: the caller hides the item at once, `commit` runs when the
+ * toast leaves unless «Отменить» was pressed, and then `restore` shows the item again.
+ */
+export function undoable(
+  message: string,
+  { commit, restore, title = 'Удалено' }: { commit: () => unknown; restore: () => void; title?: string },
+) {
+  let undone = false;
+  return push('info', message, {
+    title,
+    duration: UNDO_MS,
+    action: {
+      label: 'Отменить',
+      run: () => {
+        undone = true;
+        restore();
+      },
+    },
+    onLeave: () => {
+      if (undone) return;
+      Promise.resolve()
+        .then(commit)
+        .catch(error => {
+          restore();
+          reportError(error);
+        });
+    },
+  });
+}
 
 /** Any thrown value as an error notification. */
 export function reportError(error: unknown, title?: string) {

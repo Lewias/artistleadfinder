@@ -1,5 +1,7 @@
 import {
+  cloneElement,
   forwardRef,
+  isValidElement,
   useEffect,
   useId,
   useLayoutEffect,
@@ -31,20 +33,36 @@ export function IconButton({
   children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  // The label already names the button, so the tooltip only shows it to sighted users.
   return (
-    <Tooltip text={label}>
+    <Tooltip text={label} describes={false}>
       <Button {...props} icon variant="outline" aria-label={label}>
         {children}
       </Button>
     </Tooltip>
   );
 }
-export function Tooltip({ text, children }: { text: string; children: ReactNode }) {
+/** Hover/focus hint. The description is tied to the focusable child, where a reader looks for it. */
+export function Tooltip({
+  text,
+  children,
+  describes = true,
+}: {
+  text: string;
+  children: ReactNode;
+  describes?: boolean;
+}) {
   const id = useId();
+  const child =
+    describes && isValidElement<{ 'aria-describedby'?: string }>(children)
+      ? cloneElement(children, {
+          'aria-describedby': [children.props['aria-describedby'], id].filter(Boolean).join(' '),
+        })
+      : children;
   return (
-    <span className="alf-tooltip-host" aria-describedby={id}>
-      {children}
-      <span className="alf-tooltip" id={id} role="tooltip">
+    <span className="alf-tooltip-host">
+      {child}
+      <span className="alf-tooltip" id={id} role="tooltip" aria-hidden={describes ? undefined : true}>
         {text}
       </span>
     </span>

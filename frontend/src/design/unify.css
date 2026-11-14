@@ -392,8 +392,8 @@
     box-shadow var(--alf-motion-fast) var(--alf-ease);
 }
 .alf-ui .chip-input:focus-within {
-  border-color: #6a6a6a;
-  box-shadow: 0 0 0 3px var(--alf-tint);
+  border-color: var(--alf-focus);
+  box-shadow: 0 0 0 1px var(--alf-focus);
 }
 .alf-ui .chip-input input:focus {
   box-shadow: none;
