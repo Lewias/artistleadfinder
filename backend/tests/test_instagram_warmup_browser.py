@@ -4,19 +4,23 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from playwright.sync_api import sync_playwright
 
 from artist_lead_finder.errors import UserError
 from artist_lead_finder.instagram_warmup_browser import warmup_action
 
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+sync_api = pytest.importorskip("playwright.sync_api")
+
 
 @pytest.fixture(scope="module")
 def browser():
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
-    with sync_playwright() as playwright:
-        instance = playwright.chromium.launch(headless=True, channel="chromium")
-        yield instance
-        instance.close()
+    try:
+        with sync_api.sync_playwright() as playwright:
+            instance = playwright.chromium.launch(headless=True, channel="chromium")
+            yield instance
+            instance.close()
+    except Exception as error:  # Chromium is not installed in this environment.
+        pytest.skip(f"Chromium unavailable: {type(error).__name__}")
 
 
 @pytest.fixture
