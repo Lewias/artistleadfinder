@@ -62,6 +62,8 @@ function sourcesError(entries: string[]): string {
   return '';
 }
 
+const CHIPS_SHOWN = 30;
+
 /** SMM sources as chips (or one per line in bulk mode) and the start button for the chosen accounts. */
 export function ScoutBoard({
   rows,
@@ -82,6 +84,8 @@ export function ScoutBoard({
   const [notice, setNotice] = useState('');
   // Sources removed a moment ago stay hidden while their «Отменить» toast is up.
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  // A long list shows its first rows; «Показать все» opens the rest instead of a scroll box.
+  const [showAll, setShowAll] = useState(false);
   const list = (rows ?? []).filter(row => !hidden.has(row.url));
   // Once the core no longer lists a removed source, it needs no hiding (and may be added again).
   useEffect(() => {
@@ -210,7 +214,7 @@ export function ScoutBoard({
       </div>
       {bulk === null ? (
         <div className="chip-cloud board-chips" aria-label="SMM-источники">
-          {list.map(row => (
+          {(showAll ? list : list.slice(0, CHIPS_SHOWN)).map(row => (
             <span key={row.url} className={`chip board-chip ${tone(row)}`} title={chipTitle(row)}>
               <button
                 type="button"
@@ -233,6 +237,11 @@ export function ScoutBoard({
               </button>
             </span>
           ))}
+          {list.length > CHIPS_SHOWN && (
+            <button type="button" className="chip-more" onClick={() => setShowAll(value => !value)}>
+              {showAll ? 'Свернуть' : `Показать все · ${number(list.length)}`}
+            </button>
+          )}
           {rows && !list.length && (
             <p className="empty-copy">
               Источников пока нет. Добавьте аккаунты музыкальных медиа и пабликов ниже или вставьте список
@@ -335,7 +344,10 @@ export function ScoutBoard({
         )}
       </div>
       <ErrorToast message={error} />
-      <p className="board-status" role="status">
+      <p
+        className={`board-status ${active.length ? (attention ? 'is-warning' : 'is-running') : 'is-idle'}`}
+        role="status"
+      >
         {active.length ? (
           <span className={attention ? 'board-warning' : undefined}>
             Идёт парсинг · {scoutRunsLabel(active)}

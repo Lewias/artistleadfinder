@@ -1314,6 +1314,15 @@ tbody tr:hover td {
   display: grid;
   gap: 14px;
 }
+/* Forms read best at a limited width; a 1920px row of fields is hard to scan. */
+.settings-page {
+  display: grid;
+  gap: var(--alf-reference-gap);
+  max-width: 1280px;
+}
+.settings-layout input[type='number'] {
+  max-width: 220px;
+}
 .settings-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2193,6 +2202,41 @@ tbody tr:hover td {
   margin-top: -6px;
   font-size: var(--alf-font-xs);
 }
+/* The run state reads at a glance: a dot in the state's colour before the text. */
+.board > .board-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: var(--alf-font-sm);
+}
+.board > .board-status::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--alf-muted);
+}
+.board > .board-status.is-running::before {
+  background: var(--alf-positive);
+}
+.board > .board-status.is-warning::before {
+  background: var(--alf-warning);
+}
+.chip-more {
+  padding: 6px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--alf-radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--alf-font-sm);
+  cursor: pointer;
+}
+.chip-more:hover {
+  color: var(--ink);
+  border-color: var(--alf-focus);
+}
 .scout-footer .actions {
   flex-wrap: nowrap;
 }
@@ -2213,6 +2257,15 @@ tbody tr:hover td {
   border: 1px solid var(--line-strong);
   background: var(--sidebar);
   box-shadow: var(--shadow);
+}
+/* A labelled menu opens below its button, aligned to the right edge (toolbars sit on the right). */
+.menu-root-down .menu {
+  top: calc(100% + 6px);
+  bottom: auto;
+  right: 0;
+  left: auto;
+  min-width: 220px;
+  transform-origin: top right;
 }
 .menu-item {
   display: flex;
@@ -2264,7 +2317,8 @@ tbody tr:hover td {
   grid-auto-rows: 62px;
   align-content: start;
   gap: 9px;
-  height: clamp(130px, 22vh, 204px);
+  /* Grows with the cards up to its cap, so two messages leave no empty block above the input. */
+  max-height: clamp(130px, 22vh, 204px);
   overflow-y: auto;
   padding-right: 10px;
 }
@@ -2566,8 +2620,8 @@ tbody tr:hover td {
 .target-field {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 102px;
+  gap: 8px;
+  width: 148px;
   height: 38px;
   margin-right: 2px;
   padding: 0 10px 0 14px;
@@ -2575,6 +2629,10 @@ tbody tr:hover td {
   border: 1px solid var(--alf-surface-control);
   background: var(--alf-surface-work);
   color: var(--muted);
+}
+.target-label {
+  color: var(--muted);
+  font-size: var(--alf-font-sm);
 }
 .target-field input {
   min-width: 0;
@@ -3291,7 +3349,7 @@ button.channel-pill:hover:not(.active) {
   background: var(--panel);
 }
 .crm-table table {
-  min-width: 1180px;
+  min-width: 1080px;
 }
 .crm-table thead th {
   border-bottom: 1px solid var(--line);
@@ -3404,7 +3462,7 @@ button.channel-pill:hover:not(.active) {
   cursor: pointer;
 }
 .crm-person strong {
-  max-width: 200px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: var(--alf-font-body);
@@ -3486,7 +3544,7 @@ button.crm-chip.off {
   color: var(--muted);
 }
 .crm-channels b {
-  max-width: 220px;
+  max-width: 180px;
   overflow: hidden;
   color: var(--ink);
   font-size: var(--alf-font-sm);
@@ -3531,7 +3589,7 @@ button.crm-chip.off {
   color: var(--red);
 }
 .crm-notes {
-  max-width: 240px;
+  max-width: 180px;
   overflow: hidden;
   color: var(--muted) !important;
   font-size: var(--alf-font-sm);
@@ -4998,6 +5056,10 @@ button:active:not(:disabled) {
 }
 .cloud-user:hover {
   color: var(--green);
+}
+/* Only the cloud mark when a status already names the category (see CloudBadge). */
+.cloud-badge.icon-only {
+  padding: 2px 5px;
 }
 .cloud-badge {
   display: inline-flex;

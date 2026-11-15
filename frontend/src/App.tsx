@@ -84,7 +84,7 @@ const icons: Record<PageId, LucideIcon> = {
 };
 
 // Shown to admins and moderators only; a plain user does not see them at all.
-const staffPages: PageId[] = ['crm-users', 'imessage-crm-users', 'assistant'];
+const staffPages: PageId[] = ['crm-users', 'imessage-crm-users'];
 // Kept in the code but not offered in the sidebar.
 const hiddenPages: PageId[] = ['dashboard'];
 const toolPages: PageId[] = [
@@ -135,7 +135,7 @@ function Workspace({
 }) {
   const core = useResource<{ version: string }>('system.info');
   const admin = account?.role === 'admin' && account.configured;
-  // Admin and moderator see every user's CRM, signed with the owner, and the assistant.
+  // Admin and moderator see every user's CRM, signed with the owner.
   const staff = (account?.role === 'admin' || account?.role === 'moderator') && account.configured;
   const visible = (id: PageId) => !hiddenPages.includes(id) && (staff || !staffPages.includes(id));
   const [active, setActive] = useState<PageId>('discovery');
@@ -311,12 +311,13 @@ function Workspace({
             type="button"
             className="nav-item alf-sidebar-toggle"
             title={collapsed ? 'Развернуть панель (Ctrl+B)' : 'Свернуть панель (Ctrl+B)'}
-            aria-pressed={collapsed}
+            aria-keyshortcuts="Control+B"
             onClick={toggleSidebar}
           >
             {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            {/* The label says what a press does, so the button needs no pressed state on top. */}
             <span>{collapsed ? 'Развернуть панель' : 'Свернуть панель'}</span>
-            <kbd>Ctrl B</kbd>
+            <kbd aria-hidden="true">Ctrl B</kbd>
           </button>
         </nav>
         <header className="topbar alf-sidebar-state">
@@ -399,12 +400,12 @@ function Workspace({
                 <Crm key="crm-users" crm="instagram" others onWrite={writeTo} />
               ) : active === 'imessage-crm-users' && staff ? (
                 <Crm key="imessage-crm-users" crm="imessage" others onWrite={() => navigate('imessage')} />
-              ) : active === 'assistant' && staff ? (
+              ) : active === 'assistant' ? (
                 <Assistant />
               ) : active === 'admin' && admin ? (
                 <Admin />
               ) : (
-                <Settings updater={{ ...updater, version }} staff={staff} />
+                <Settings updater={{ ...updater, version }} />
               )}
             </ErrorBoundary>
           </SectionTransition>

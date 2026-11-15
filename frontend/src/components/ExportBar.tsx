@@ -6,7 +6,7 @@ import { api } from '../services/api';
 import type { LeadQuery } from '../services/types';
 import { Download } from 'lucide-react';
 import { Button } from './ui/button';
-import { Dropdown } from './ui/desktop';
+import { Menu } from './Menu';
 
 export function ExportBar({
   query,
@@ -46,20 +46,32 @@ export function ExportBar({
   return (
     <div className="export-bar">
       {compact ? (
-        <Dropdown
-          label="Экспорт CSV"
-          value=""
-          disabled={busy}
-          options={[
-            { value: '', label: busy ? 'Подготовка…' : 'Экспорт CSV' },
-            { value: 'filtered', label: 'Текущие результаты' },
-            ...(selected.length ? [{ value: 'selected', label: `Выбранные (${selected.length})` }] : []),
-            { value: 'all', label: 'Вся база' },
-          ]}
-          onChange={value => {
-            if (value) void exportLeads(value as 'filtered' | 'selected' | 'all');
-          }}
-        />
+        <Menu label="Экспорт CSV" text={busy ? 'Подготовка…' : 'Экспорт CSV'} disabled={busy}>
+          {close => (
+            <>
+              {(
+                [
+                  ['filtered', 'Текущие результаты'],
+                  ...(selected.length ? [['selected', `Выбранные (${selected.length})`]] : []),
+                  ['all', 'Вся база'],
+                ] as ['filtered' | 'selected' | 'all', string][]
+              ).map(([scope, title]) => (
+                <button
+                  key={scope}
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    close();
+                    void exportLeads(scope);
+                  }}
+                >
+                  <Download size={15} /> {title}
+                </button>
+              ))}
+            </>
+          )}
+        </Menu>
       ) : (
         <div className="actions">
           <Button

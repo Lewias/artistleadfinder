@@ -184,7 +184,7 @@ def test_new_chat_and_a_failed_run_are_reported(server, make):
     assert [item["text"] for item in items] == ["два"]
 
 
-def test_nothing_is_taken_without_a_link_or_for_a_plain_user(server, make):
+def test_nothing_is_taken_without_a_link(server, make):
     app = make(script=[reply(text("Ответ."), stop="end_turn")])
     request = server.tg_ask(app.user, "вопрос")
     assert app.bridge.run_once() == 0 and request["status"] == "new"
@@ -193,10 +193,12 @@ def test_nothing_is_taken_without_a_link_or_for_a_plain_user(server, make):
     app.link()
     assert app.bridge.run_once() == 1 and request["answer"] == "Ответ."
 
-    plain_user = make(email="b@example.com", role="user")
+    # A plain user has the assistant too.
+    answer = [reply(text("Да."), stop="end_turn")]
+    plain_user = make(email="b@example.com", role="user", script=answer)
     plain_user.link()
-    waiting = server.tg_ask(plain_user.user, "вопрос")
-    assert plain_user.bridge.run_once() == 0 and waiting["status"] == "new"
+    asked = server.tg_ask(plain_user.user, "вопрос")
+    assert plain_user.bridge.run_once() == 1 and asked["answer"] == "Да."
 
 
 def test_an_answer_the_server_missed_is_sent_when_it_is_back(server, make):

@@ -9,7 +9,6 @@ import {
   Send,
   SlidersHorizontal,
   Trash2,
-  UsersRound,
 } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type { DashboardData, Lead, LeadQuery } from '../services/types';
@@ -57,6 +56,10 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
   const active = items.find(lead => lead.id === detail)?.id ?? items[0]?.id;
   const allChecked = items.length > 0 && items.every(lead => selected.includes(lead.id));
   const pageCount = Math.max(1, Math.ceil((resource.data?.total || 0) / query.page_size));
+  // Anything but paging and sorting narrows the list; only then is there something to reset.
+  const filtered = (Object.keys(defaultQuery) as (keyof LeadQuery)[]).some(
+    key => !['page', 'page_size', 'sort', 'descending'].includes(key) && query[key] !== defaultQuery[key],
+  );
   const reset = () => {
     setQuery({ ...defaultQuery });
     setSelected([]);
@@ -90,13 +93,14 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
       }}
     >
       <header className="alf-workspace-header">
+        {/* Same title and description as the other pages' PageHeader; the totals follow the text. */}
         <div className="alf-workspace-title">
-          <span className="alf-module-icon">
-            <UsersRound />
-          </span>
           <div>
             <h1>База артистов</h1>
-            <p>Профили, контакты и оценка соответствия</p>
+            <p>
+              Профили, контакты и оценка соответствия
+              <LeadStats />
+            </p>
           </div>
         </div>
         <div className="alf-workspace-actions">
@@ -105,7 +109,6 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
               Вернуться к профилю
             </Button>
           )}
-          <LeadStats />
           <IconButton label="Обновить базу" onClick={resource.refresh}>
             <RefreshCw />
           </IconButton>
@@ -140,7 +143,7 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
           <SlidersHorizontal />
           Фильтры
         </Button>
-        <IconButton label="Сбросить фильтры" onClick={reset}>
+        <IconButton label="Сбросить фильтры" disabled={!filtered} onClick={reset}>
           <FilterX />
         </IconButton>
       </div>
@@ -177,26 +180,29 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
             />
             <span>{selected.length ? `Выбрано: ${number(selected.length)}` : 'Выбрать страницу'}</span>
             <span className="alf-flex" />
-            <IconButton
-              label="Добавить выбранных в рассылку"
-              disabled={!selected.length}
-              onClick={() => {
-                setOutreachError('');
-                void onCampaign(selected).catch(err => setOutreachError(errorText(err)));
-              }}
-            >
-              <Send />
-            </IconButton>
-            <IconButton
-              label="Удалить выбранных"
-              disabled={!selected.length}
-              onClick={() => {
-                setDeleteError('');
-                setConfirmDelete(true);
-              }}
-            >
-              <Trash2 />
-            </IconButton>
+            {/* Actions appear with a selection and say what they do, instead of two faint icons. */}
+            {selected.length > 0 && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setOutreachError('');
+                    void onCampaign(selected).catch(err => setOutreachError(errorText(err)));
+                  }}
+                >
+                  <Send /> В рассылку
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setDeleteError('');
+                    setConfirmDelete(true);
+                  }}
+                >
+                  <Trash2 /> Удалить
+                </Button>
+              </>
+            )}
           </div>
           <DataState {...resource} retry={resource.refresh} />
           <div className="alf-artist-list" role="list" aria-label="Найденные артисты">
@@ -213,7 +219,7 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
                 />
                 <button
                   className="alf-artist-open"
-                  aria-pressed={active === lead.id}
+                  aria-current={active === lead.id ? 'true' : undefined}
                   onClick={() => {
                     setDetail(lead.id);
                     setCollectionOpen(false);
@@ -243,7 +249,7 @@ export function ArtistDatabase({ onCampaign }: { onCampaign: (ids: number[]) => 
                     }
                   }}
                 >
-                  <span className="alf-artist-avatar">
+                  <span className="alf-artist-avatar" aria-hidden="true">
                     {lead.display_name?.slice(0, 1) || lead.username.slice(0, 1)}
                   </span>
                   <span className="alf-artist-copy">
@@ -481,12 +487,9 @@ function LeadStats() {
   const stats = useResource<DashboardData>('dashboard.get', {}, 15000);
   if (!stats.data) return null;
   return (
-    <details className="alf-summary">
-      <summary>Сводка</summary>
-      <div>
-        Всего: {number(stats.data.total)} · Подходят: {number(stats.data.qualified)} · Сегодня:{' '}
-        {number(stats.data.today)}
-      </div>
-    </details>
+    <span className="alf-lead-stats">
+      {' · '}всего {number(stats.data.total)} · подходят {number(stats.data.qualified)} · сегодня{' '}
+      {number(stats.data.today)}
+    </span>
   );
 }

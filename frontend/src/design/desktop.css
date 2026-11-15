@@ -596,41 +596,25 @@
   width: var(--alf-space-5);
   height: var(--alf-space-5);
 }
+/* Matches .page-header h1 / .page-description in unify.css. */
 .alf-workspace-title h1 {
-  font-size: var(--alf-font-title);
+  font-size: var(--alf-font-identity);
   font-weight: 600;
-  letter-spacing: 0;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
 }
 .alf-workspace-title p {
-  font-size: var(--alf-font-xs);
+  font-size: var(--alf-font-body);
   color: var(--alf-muted);
   margin-top: var(--alf-space-1);
+}
+.alf-lead-stats {
+  font-variant-numeric: tabular-nums;
 }
 .alf-workspace-actions {
   display: flex;
   align-items: center;
   gap: var(--alf-space-2);
-}
-.alf-summary {
-  position: relative;
-  color: var(--alf-secondary);
-  font-size: var(--alf-font-xs);
-}
-.alf-summary summary {
-  cursor: pointer;
-  padding: var(--alf-space-2);
-}
-.alf-summary > div {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  width: 260px;
-  z-index: 8;
-  background: var(--alf-surface-panel);
-  border: 1px solid var(--alf-border-strong);
-  border-radius: var(--alf-radius);
-  padding: var(--alf-space-3);
-  box-shadow: var(--alf-shadow);
 }
 .alf-lead-toolbar {
   display: flex;

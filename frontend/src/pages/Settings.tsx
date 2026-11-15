@@ -23,8 +23,7 @@ const weightNames: Record<string, string> = {
   genre: 'Целевой жанр',
   strong_activity: 'Высокая активность',
 };
-/** staff: admins and moderators, who have the assistant. */
-export function Settings({ updater, staff = false }: { updater: Updater; staff?: boolean }) {
+export function Settings({ updater }: { updater: Updater }) {
   const resource = useResource<SettingsData>('settings.get');
   if (!resource.data)
     return (
@@ -34,23 +33,14 @@ export function Settings({ updater, staff = false }: { updater: Updater; staff?:
         <DataState {...resource} retry={resource.refresh} />
       </>
     );
-  return (
-    <SettingsForm
-      updater={updater}
-      staff={staff}
-      initial={resource.data}
-      refresh={resource.refresh}
-    />
-  );
+  return <SettingsForm updater={updater} initial={resource.data} refresh={resource.refresh} />;
 }
 function SettingsForm({
   updater,
-  staff,
   initial,
   refresh,
 }: {
   updater: Updater;
-  staff: boolean;
   initial: SettingsData;
   refresh: () => void;
 }) {
@@ -77,10 +67,10 @@ function SettingsForm({
     }
   };
   return (
-    <>
+    <div className="settings-page">
       <PageHeader page="settings" />
       <UpdatesPanel {...updater} />
-      {staff && <AssistantSettings />}
+      <AssistantSettings />
       <form onSubmit={event => void submit(event)} className="settings-layout">
         <section className="panel">
           <h2>Поиск по умолчанию</h2>
@@ -266,6 +256,6 @@ function SettingsForm({
       )}
       <ErrorToast message={error} />
       <MemoryReset />
-    </>
+    </div>
   );
 }

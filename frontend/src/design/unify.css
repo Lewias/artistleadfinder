@@ -772,11 +772,11 @@
 }
 
 /* ---------- Assistant: model connection ---------- */
-.assistant-model {
+.assistant-model-form {
   display: grid;
   gap: var(--alf-space-4);
 }
-.assistant-model > .segmented {
+.assistant-model-form > .segmented {
   justify-self: start;
 }
 .assistant-model-grid {
@@ -796,9 +796,10 @@
   gap: var(--alf-space-3);
   margin: 0;
 }
+/* Label and value side by side: a value at the far edge of a wide card is hard to pair. */
 .assistant-model-summary > div {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
   gap: var(--alf-space-4);
 }
 .assistant-model-summary dt {
@@ -809,7 +810,6 @@
   color: var(--alf-text);
   font-weight: 500;
   overflow-wrap: anywhere;
-  text-align: right;
 }
 @media (max-width: 1150px) {
   .assistant-model-grid {

@@ -23,6 +23,7 @@ import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import type { BrowserProfile, OutreachWorkspace, ScoutAccountRow } from '../services/types';
 import { Button } from './ui/button';
+import { Menu } from './Menu';
 import { Modal } from './Modal';
 import { ProxyFields } from './ProxyFields';
 import { emptyForm, fromProfile, getProxy, type ProfileForm } from './profileForm';
@@ -237,7 +238,7 @@ export function BrowserProfiles() {
               onClick={outreachAll}
             >
               {workspace?.running ? <Square size={13} /> : <Play size={14} />}
-              {workspace?.running ? 'Стоп рассылки' : 'Рассылка'}
+              {workspace?.running ? 'Стоп рассылки' : `Рассылка (${selected.length})`}
             </Button>
             <Button
               variant={parsingAll ? 'danger' : 'green'}
@@ -250,7 +251,7 @@ export function BrowserProfiles() {
               onClick={parseAll}
             >
               {parsingAll ? <Square size={13} /> : <Radar size={15} />}
-              {parsingAll ? 'Стоп парсинга' : 'Парсинг'}
+              {parsingAll ? 'Стоп парсинга' : `Парсинг (${selected.length})`}
             </Button>
             <Button onClick={() => openDialog({ kind: 'create' })}>
               <Plus size={16} /> Новый профиль
@@ -316,6 +317,7 @@ export function BrowserProfiles() {
               <div className="account-actions">
                 <label className="target-field" title="Цель парсера: сколько подходящих лидов найти">
                   <ScanSearch size={15} aria-hidden="true" />
+                  <span className="target-label">Цель</span>
                   <input
                     aria-label={`Цель парсера для ${profile.name}`}
                     type="number"
@@ -334,7 +336,8 @@ export function BrowserProfiles() {
                   title={sending ? 'Остановить рассылку' : 'Запустить рассылку списка с этого аккаунта'}
                   onClick={() => outreach(profile)}
                 >
-                  {sending ? <Square size={13} /> : <Play size={14} />} {sending ? 'Стоп' : 'Рассылка'}
+                  {sending ? <Square size={13} /> : <Play size={14} />}{' '}
+                  {sending ? 'Стоп рассылки' : 'Рассылка'}
                 </Button>
                 <Button
                   variant={active && !needsResume ? 'danger' : 'green'}
@@ -349,12 +352,10 @@ export function BrowserProfiles() {
                   onClick={() => parse(profile, row)}
                 >
                   {active && !needsResume ? <Square size={13} /> : <Radar size={15} />}
-                  {active ? (needsResume ? 'Продолжить' : 'Стоп') : 'Парсинг'}
+                  {active ? (needsResume ? 'Продолжить' : 'Стоп парсинга') : 'Парсинг'}
                 </Button>
                 <Button
-                  icon
                   variant="outline"
-                  aria-label="Открыть окно браузера"
                   title="Открыть окно браузера (вход в Instagram)"
                   disabled={locked}
                   onClick={() =>
@@ -367,53 +368,62 @@ export function BrowserProfiles() {
                     })
                   }
                 >
-                  <LogIn size={16} />
+                  <LogIn size={16} /> Браузер
                 </Button>
-                <Button
-                  icon
-                  variant="outline"
-                  aria-label="Импорт cookies"
-                  title="Импорт cookies"
-                  disabled={locked}
-                  onClick={() => pickCookies(profile)}
-                >
-                  <Cookie size={16} />
-                </Button>
-                <Button
-                  icon
-                  variant="outline"
-                  aria-label="Настроить профиль"
-                  title="Название и прокси"
-                  disabled={locked}
-                  onClick={() => openDialog({ kind: 'edit', profile })}
-                >
-                  <Pencil size={16} />
-                </Button>
-                <Button
-                  icon
-                  variant="outline"
-                  aria-label="Сохранить сессию"
-                  title="Сохранить сессию из открытого окна сейчас"
-                  disabled={locked}
-                  onClick={() =>
-                    void run(profile, async () => {
-                      await api.browser('save', { id: profile.id });
-                      setMessage(`Сессия «${profile.name}» сохранена.`);
-                    })
-                  }
-                >
-                  <RefreshCw size={16} />
-                </Button>
-                <Button
-                  icon
-                  variant="danger"
-                  aria-label="Удалить профиль"
-                  title="Удалить профиль"
-                  disabled={locked}
-                  onClick={() => openDialog({ kind: 'delete', profile })}
-                >
-                  <Trash2 size={16} />
-                </Button>
+                {/* Rare actions live in one menu with words, instead of four unlabeled icons. */}
+                <Menu label={`Ещё для ${profile.name}`} down disabled={locked}>
+                  {close => (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="menu-item"
+                        onClick={() => {
+                          close();
+                          void run(profile, async () => {
+                            await api.browser('save', { id: profile.id });
+                            setMessage(`Сессия «${profile.name}» сохранена.`);
+                          });
+                        }}
+                      >
+                        <RefreshCw size={15} /> Сохранить сессию сейчас
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="menu-item"
+                        onClick={() => {
+                          close();
+                          pickCookies(profile);
+                        }}
+                      >
+                        <Cookie size={15} /> Импорт cookies…
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="menu-item"
+                        onClick={() => {
+                          close();
+                          openDialog({ kind: 'edit', profile });
+                        }}
+                      >
+                        <Pencil size={15} /> Название и прокси…
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="menu-item danger"
+                        onClick={() => {
+                          close();
+                          openDialog({ kind: 'delete', profile });
+                        }}
+                      >
+                        <Trash2 size={15} /> Удалить профиль…
+                      </button>
+                    </>
+                  )}
+                </Menu>
               </div>
             </section>
           );

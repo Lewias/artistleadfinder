@@ -36,6 +36,7 @@ import { number } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { Button } from '../components/ui/button';
+import { Menu } from '../components/Menu';
 import { EmailThreadModal } from '../components/email/EmailThreadModal';
 import { errorText } from '../components/accountRuns';
 import {
@@ -239,16 +240,44 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
           )}
           {!others && (
             <>
-              <Button variant="outline" disabled={busy} onClick={() => setDialog('import')}>
-                <DatabaseZap size={15} /> Импортировать
-              </Button>
-              <Button variant="outline" disabled={busy} onClick={() => void importFile()}>
-                <FileUp size={15} /> Импорт XLSX / CSV
-              </Button>
+              {/* One «Импорт» with both sources, named by where the contacts come from. */}
+              <Menu label="Импорт контактов" text="Импорт" disabled={busy}>
+                {close => (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="menu-item"
+                      onClick={() => {
+                        close();
+                        setDialog('import');
+                      }}
+                    >
+                      <DatabaseZap size={15} /> Из базы приложения…
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="menu-item"
+                      onClick={() => {
+                        close();
+                        void importFile();
+                      }}
+                    >
+                      <FileUp size={15} /> Из файла XLSX / CSV…
+                    </button>
+                  </>
+                )}
+              </Menu>
             </>
           )}
-          <Button variant="outline" disabled={busy || !counts.all} onClick={() => void exportFile()}>
-            <FileDown size={15} /> Экспорт XLSX / CSV
+          <Button
+            variant="outline"
+            disabled={busy || !counts.all}
+            title="Экспорт контактов в XLSX или CSV"
+            onClick={() => void exportFile()}
+          >
+            <FileDown size={15} /> Экспорт
           </Button>
           {!others && (
             <>
@@ -550,7 +579,7 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
                     <button type="button" className="crm-person" onClick={openContact}>
                       <span className="crm-avatar">{initials(contact.name)}</span>
                       <strong>{contact.name}</strong>
-                      {contact.cloud && <CloudBadge info={contact.cloud} />}
+                      {contact.cloud && <CloudBadge info={contact.cloud} statuses={contact.statuses} />}
                     </button>
                   </td>
                   <td>
@@ -598,7 +627,9 @@ export function Crm({ crm, onWrite, others = false }: { crm: CrmId; onWrite: () 
                         )}
                       </div>
                     ) : (
-                      <strong>Нет</strong>
+                      <span className="crm-muted" aria-label="Нет">
+                        —
+                      </span>
                     )}
                   </td>
                   <td className="crm-notes" title={contact.notes || undefined}>

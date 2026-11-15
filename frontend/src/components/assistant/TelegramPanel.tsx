@@ -55,10 +55,10 @@ export function TelegramPanel() {
       {linked ? (
         <p className="helper">
           Подключён{status.data?.username ? ` @${status.data.username}` : ''}
-          {status.data?.bot ? ` к боту @${status.data.bot}` : ''}. Напишите боту вопрос — он придёт
-          ассистенту в это приложение, а ответ вернётся в чат. Ассистент отвечает, пока приложение
-          запущено; иначе вопрос ждёт до суток. Сообщения артистам он только готовит: отправляете вы
-          кнопкой в разделе «Ассистент». /new в боте начинает новый чат.
+          {status.data?.bot ? ` к боту @${status.data.bot}` : ''}. Напишите боту вопрос — он придёт ассистенту
+          в это приложение, а ответ вернётся в чат. Ассистент отвечает, пока приложение запущено; иначе вопрос
+          ждёт до суток. Сообщения артистам он только готовит: отправляете вы кнопкой в разделе «Ассистент».
+          /new в боте начинает новый чат.
         </p>
       ) : link ? (
         <p className="helper">
@@ -67,11 +67,14 @@ export function TelegramPanel() {
         </p>
       ) : (
         <p className="helper">
-          Задавайте вопросы ассистенту с телефона и получайте ответы в Telegram, пока приложение
-          запущено на компьютере.
+          Задавайте вопросы ассистенту с телефона и получайте ответы в Telegram, пока приложение запущено на
+          компьютере.
         </p>
       )}
-      <ErrorToast message={error || status.error || ''} />
+      {/* The status poll repeats every minute: its failure (usually no server) stays in the panel
+          instead of popping a toast each time. Errors of a button press still toast. */}
+      {status.error && !status.data && <p className="helper">Статус недоступен: {status.error}</p>}
+      <ErrorToast message={error} />
     </div>
   );
 }

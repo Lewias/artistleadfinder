@@ -129,8 +129,8 @@ class TelegramBridge:
     def run_once(self) -> int:
         """Takes the waiting questions and answers them; how many were answered."""
         account = self.account
-        # The assistant is for admins and moderators, as in the interface.
-        if not account.ready or account.doubtful or not account.sees_all_crm:
+        # Every active account has the assistant, as in the interface.
+        if not account.ready or account.doubtful:
             return 0
         try:
             token = account.token()

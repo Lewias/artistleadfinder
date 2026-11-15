@@ -9,6 +9,8 @@ import { ErrorToast } from '../Toaster';
 import { errorText } from '../../lib/errors';
 import { TelegramPanel } from './TelegramPanel';
 
+const onMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+
 /** OpenAI-compatible endpoints people use most; «Свой адрес» takes any other. */
 const PRESETS = [
   { label: 'OpenRouter — любые модели', url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-5-mini' },
@@ -71,7 +73,7 @@ export function ModelForm({ provider, onSaved }: { provider?: AssistantProvider;
     }
   };
   return (
-    <div className="assistant-model">
+    <div className="assistant-model-form">
       <div className="segmented" role="radiogroup" aria-label="Провайдер модели">
         {(
           [
@@ -230,7 +232,8 @@ export function AssistantSettings() {
           </Button>
         </>
       )}
-      <p className={data.messages.available ? 'helper' : 'board-warning'}>
+      {/* Off a Mac the missing iMessage is expected, so it reads like the note below it. */}
+      <p className={data.messages.available || !onMac ? 'helper' : 'board-warning'}>
         {data.messages.available ? 'Переписка iMessage на этом Mac доступна.' : data.messages.reason}
       </p>
       <p className="helper">{data.mac_send.description}</p>
