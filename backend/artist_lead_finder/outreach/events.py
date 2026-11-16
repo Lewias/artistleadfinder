@@ -29,6 +29,10 @@ EVENT_FIELDS: dict[str, tuple[str, ...]] = {
     # Not part of the spec list: a reply marked on a campaign recipient's conversation.
     "recipient:replied": ("recipient_id", "username"),
     "sender:unavailable": ("sender_id", "reason"),
+    # Follow-up chains (schema 28).
+    "followup:sent": ("run_id", "username", "step"),
+    "followup:review": ("run_id", "username", "step"),
+    "followup:stopped": ("run_id", "username", "reason"),
 }
 RETENTION_DAYS = 90
 # Recipient-level events are audit-logged too; campaign events always are.

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from ..errors import UserError
 from ..models import (
     CampaignRecipient,
+    FollowUpSequence,
     Lead,
     OutreachCampaign,
     OutreachTemplate,
@@ -131,6 +132,7 @@ class WorkspaceService:
                 ],
                 "messages": row.messages,
                 "sender_ids": row.sender_ids,
+                "followup_sequence_id": row.followup_sequence_id,
                 "campaign": row_dict(campaign) if campaign else None,
                 "running": bool(campaign and campaign.status in UNFINISHED),
             }
@@ -145,6 +147,15 @@ class WorkspaceService:
             )
         with self.sessions.begin() as session:
             row = self._row(session)
+            if "followup_sequence_id" in params:
+                wanted = params["followup_sequence_id"]
+                if wanted:
+                    sequence = session.get(FollowUpSequence, int(wanted))
+                    if sequence is None or not sequence.enabled:
+                        raise UserError("Цепочка follow-up не найдена.")
+                    row.followup_sequence_id = sequence.id
+                else:
+                    row.followup_sequence_id = None
             if usernames is not None:
                 row.usernames = usernames
             if messages is not None:
@@ -217,6 +228,7 @@ class WorkspaceService:
                 sender_strategy="single" if len(row.sender_ids) == 1 else "round_robin",
                 sender_ids=list(row.sender_ids),
                 message_variants=list(row.messages),
+                followup_sequence_id=row.followup_sequence_id,
                 created_at=now,
             )
             session.add(campaign)

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { Inbox, ListChecks, Rocket } from 'lucide-react';
+import { Inbox, ListChecks, Repeat, Rocket } from 'lucide-react';
 import { useResource } from '../hooks/useResource';
 import type {
+  FollowUpRuns,
   InboxState,
   OutreachSender,
   OutreachWorkspace,
@@ -17,8 +18,9 @@ import { MessagesBoard } from './outreach/MessagesBoard';
 import { AutopilotBar } from './outreach/AutopilotBar';
 import { OutreachListTab } from './outreach/OutreachListTab';
 import { InboxPanel } from './outreach/InboxPanel';
+import { FollowUpPanel } from './outreach/FollowUps';
 
-export type WorkTab = 'auto' | 'list' | 'replies';
+export type WorkTab = 'auto' | 'list' | 'followups' | 'replies';
 
 /** «Парсер и рассылка»: sources, messages and one button; the hand-made list and the replies beside. */
 export function ScoutDiscovery({
@@ -37,6 +39,9 @@ export function ScoutDiscovery({
   const workspace = useResource<OutreachWorkspace>('outreach.workspace', {}, 5000);
   const senders = useResource<OutreachSender[]>('outreach.senders', {}, 5000);
   const inbox = useResource<InboxState>('inbox.state', {}, 10000);
+  const followups = useResource<FollowUpRuns>('outreach.followups', { group: 'open', page_size: 1 }, 15000);
+  const review = followups.data?.counts.review ?? 0;
+  const active = followups.data?.counts.active ?? 0;
   const refreshRuns = () => {
     accounts.refresh();
     sources.refresh();
@@ -54,6 +59,20 @@ export function ScoutDiscovery({
         <ListChecks size={14} /> Рассылка по списку
         {!!workspace.data?.usernames.length && (
           <span className="crm-tab-count">{number(workspace.data.usernames.length)}</span>
+        )}
+      </>,
+    ],
+    [
+      'followups',
+      <>
+        <Repeat size={14} /> Follow-up
+        {!!(review || active) && (
+          <span
+            className={`crm-tab-count${review ? ' attention' : ''}`}
+            title={review ? 'Проверьте отправку' : undefined}
+          >
+            {number(review || active)}
+          </span>
         )}
       </>,
     ],
@@ -103,6 +122,7 @@ export function ScoutDiscovery({
           </>
         )}
         {tab === 'list' && <OutreachListTab />}
+        {tab === 'followups' && <FollowUpPanel />}
         {tab === 'replies' && <InboxPanel senders={senders.data} />}
       </div>
       {tab === 'auto' && (

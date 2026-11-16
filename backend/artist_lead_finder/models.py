@@ -426,14 +426,19 @@ class OutreachTemplate(Base):
 
 
 class FollowUpSequence(Base):
-    """Follow-up steps after an initial message: [{delay_days, template_id}]."""
+    """A saved follow-up chain: [{delay_days, text}], 1–5 steps. Saving it sends nothing;
+    a campaign takes a copy when it starts (schema 28), so later edits change only
+    campaigns started after them."""
 
     __tablename__ = "outreach_followup_sequences"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     steps: Mapped[list[dict]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(default=True)
+    # Schema 28: bumped on every edit; a run keeps the version it was started from.
+    version: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class OutreachCampaign(Base):
@@ -460,8 +465,11 @@ class OutreachCampaign(Base):
     sender_strategy: Mapped[str] = mapped_column(String(20), default="single")
     # Browser profile ids chosen as senders.
     sender_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
-    # Schema 11: message variants given in turn to queued recipients (else the template).
+    # Schema 11: message variants for queued recipients (else the template).
     message_variants: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Schema 28: the follow-up sequence as it was when the campaign started
+    # ({sequence_id, version, name, steps}); empty without one.
+    followup_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     total_recipients: Mapped[int] = mapped_column(default=0)
     queued_count: Mapped[int] = mapped_column(default=0)
     sent_count: Mapped[int] = mapped_column(default=0)
@@ -529,6 +537,10 @@ class OutboundMessageJob(Base):
     claimed_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     sent_at: Mapped[datetime | None]
+    # Schema 28: the variant chosen for this job and its text for the recipient, fixed
+    # when queued, so a retry sends exactly the same message.
+    variant: Mapped[str | None] = mapped_column(String(4000))
+    body: Mapped[str | None] = mapped_column(String(4000))
 
 
 class Conversation(Base):
@@ -548,6 +560,8 @@ class Conversation(Base):
     last_outbound_at: Mapped[datetime | None]
     last_inbound_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Schema 28: when the thread was last read for a reply while a follow-up waited.
+    reply_checked_at: Mapped[datetime | None]
 
 
 class Message(Base):
@@ -571,22 +585,85 @@ class Message(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
 
 
-class FollowUpJob(Base):
-    """Planned follow-ups; sending them is the follow-up module's job."""
+class FollowUpRun(Base):
+    """One started follow-up chain of one conversation (schema 28).
 
-    __tablename__ = "outreach_followup_jobs"
+    Starts only from a confirmed initial message (`origin_message_id`, unique: one chain
+    per message). The step texts are rendered for the lead and fixed here at the start;
+    editing the sequence later does not change them. Steps go out one after another, each
+    `delay_days` after the confirmed send of the one before it.
+
+    status: active (waits for the next step), paused (by the user or after the upgrade),
+    review (a step's send is unconfirmed: nothing moves until the user resolves it),
+    completed, stopped (reply, stop, do-not-contact, by hand) or failed.
+    """
+
+    __tablename__ = "outreach_followup_runs"
     __table_args__ = (
-        UniqueConstraint("conversation_id", "sequence_id", "step_index", name="uq_followup_step"),
-        CheckConstraint("status IN ('pending','sent','cancelled','failed')"),
-        Index("ix_followup_jobs_due", "status", "scheduled_at"),
+        CheckConstraint("status IN ('active','paused','review','completed','stopped','failed')"),
+        Index("ix_followup_runs_status", "status"),
+        Index("ix_followup_runs_conversation", "conversation_id"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
-    sequence_id: Mapped[int] = mapped_column(ForeignKey("outreach_followup_sequences.id"))
+    origin_message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), unique=True
+    )
+    sender_account_id: Mapped[str] = mapped_column(String(32))
+    campaign_id: Mapped[int | None] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="SET NULL")
+    )
+    sequence_id: Mapped[int | None] = mapped_column(
+        ForeignKey("outreach_followup_sequences.id", ondelete="SET NULL")
+    )
+    sequence_version: Mapped[int] = mapped_column(default=1)
+    sequence_name: Mapped[str] = mapped_column(String(120), default="")
+    # [{delay_days, text}]: the rendered texts, fixed at the start.
+    steps: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    stop_reason: Mapped[str | None] = mapped_column(String(40))
+    reason_details: Mapped[str | None] = mapped_column(String(300))
+    # Index of the step to send next; len(steps) once every step went out.
+    next_step: Mapped[int] = mapped_column(default=0)
+    # Confirmed send time of the last message of the chain (the initial one at first).
+    last_sent_at: Mapped[datetime]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    finished_at: Mapped[datetime | None]
+
+
+class FollowUpJob(Base):
+    """One step of a follow-up run, sent through the outreach queue like an initial message
+    (schema 28; the planned-only jobs of schema 10 were converted by the migration).
+
+    Created only when the step before it is confirmed. `followup:<run>:<step>` is unique
+    here and in `messages`, so one step of one run goes out at most once.
+    """
+
+    __tablename__ = "outreach_followup_steps"
+    __table_args__ = (
+        UniqueConstraint("run_id", "step_index", name="uq_followup_run_step"),
+        CheckConstraint(
+            "status IN ('pending','sending','sent','unconfirmed','failed','cancelled')"
+        ),
+        Index("ix_followup_steps_due", "status", "scheduled_at"),
+        Index("ix_followup_steps_sender", "sender_account_id", "status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("outreach_followup_runs.id", ondelete="CASCADE"))
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"))
     step_index: Mapped[int]
-    template_id: Mapped[int] = mapped_column(ForeignKey("outreach_templates.id"))
+    idempotency_key: Mapped[str] = mapped_column(String(120), unique=True)
+    sender_account_id: Mapped[str] = mapped_column(String(32))
+    body: Mapped[str] = mapped_column(String(4000))
     scheduled_at: Mapped[datetime]
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    claim_token: Mapped[str | None] = mapped_column(String(40))
+    claimed_at: Mapped[datetime | None]
+    sent_at: Mapped[datetime | None]
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
     cancel_reason: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
@@ -632,6 +709,10 @@ class OutreachWorkspace(Base):
     usernames: Mapped[list[str]] = mapped_column(JSON, default=list)
     messages: Mapped[list[str]] = mapped_column(JSON, default=list)
     sender_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Schema 28: the follow-up sequence the next «Рассылка» starts with (none: no follow-up).
+    followup_sequence_id: Mapped[int | None] = mapped_column(
+        ForeignKey("outreach_followup_sequences.id", ondelete="SET NULL")
+    )
     # The campaign started from the list last.
     campaign_id: Mapped[int | None] = mapped_column(
         ForeignKey("outreach_campaigns.id", ondelete="SET NULL")

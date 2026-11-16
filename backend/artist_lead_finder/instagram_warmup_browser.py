@@ -3,16 +3,15 @@
 import re
 from urllib.parse import urlparse
 
-from .direct_message import DISMISS_BUTTON, FOLLOW_BUTTON, LOGIN_BUTTON
+from .direct_message import DISMISS_BUTTON, FOLLOW_BUTTON
 from .errors import UserError
+from .instagram_state import LOGIN_BUTTON
 from .lead_scout.profiles.normalize import profile_from_fields
 
 # Instagram exposes both the icon's label and the adjacent text in the link name,
 # e.g. "Поиск Поиск". Match the navigation word rather than the entire combined name.
 SEARCH = re.compile(r"\bsearch\b|поиск", re.I)
-FOLLOWING = re.compile(
-    r"\bfollowing\b|\brequested\b|вы подписаны|подписки|запрос отправлен", re.I
-)
+FOLLOWING = re.compile(r"\bfollowing\b|\brequested\b|вы подписаны|подписки|запрос отправлен", re.I)
 LIKE = 'svg[aria-label="Like"], svg[aria-label="Нравится"]'
 UNLIKE = 'svg[aria-label="Unlike"], svg[aria-label="Не нравится"]'
 SEARCH_INPUT = (

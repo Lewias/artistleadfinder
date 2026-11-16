@@ -12,6 +12,8 @@ class InboxSettings(BaseModel):
     # Pause between two threads, seconds: a load limit like the parser's page pauses.
     inbox_delay_min_seconds: int = Field(default=6, ge=3, le=300)
     inbox_delay_max_seconds: int = Field(default=15, ge=3, le=600)
+    # A thread waiting for a follow-up is read for a reply at least this often, hours.
+    inbox_watch_hours: int = Field(default=6, ge=1, le=72)
 
 
 def inbox_settings(settings: dict) -> InboxSettings:

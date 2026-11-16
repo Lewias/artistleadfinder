@@ -14,6 +14,7 @@ from .models import (
     Conversation,
     CrmContact,
     FollowUpJob,
+    FollowUpRun,
     Lead,
     LeadAnalysis,
     LeadScoreBreakdown,
@@ -52,6 +53,7 @@ def delete_leads(session, ids: list[int]) -> dict:
     )
     session.execute(delete(CampaignRecipient).where(CampaignRecipient.lead_id.in_(ids)))
     session.execute(delete(FollowUpJob).where(FollowUpJob.conversation_id.in_(conversations)))
+    session.execute(delete(FollowUpRun).where(FollowUpRun.conversation_id.in_(conversations)))
     session.execute(delete(Message).where(Message.conversation_id.in_(conversations)))
     for model in (
         Conversation,

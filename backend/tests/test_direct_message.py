@@ -22,13 +22,20 @@ const button = [...document.querySelectorAll('main [role=button]')]
 if (button) button.onclick = () => setTimeout(() => {{
   history.pushState(null, '', '/direct/t/340282366/');
   document.querySelector('main').innerHTML =
-    '<div id="log"></div>' + {history} +
+    '<div id="log"></div><div style="height:100px"></div>' + {history} +
+    '<div id="thread" style="display:flex;flex-direction:column"></div>' +
     '<div role="textbox" contenteditable="true" aria-label="Сообщение"></div>';
   const box = document.querySelector('[role=textbox]');
   box.addEventListener('keydown', event => {{
     if (event.key !== 'Enter' || event.shiftKey) return;
     event.preventDefault();
     window.sent = (window.sent || []).concat(box.innerText);
+    // Instagram shows the sent message as a new bubble on our side.
+    const bubble = document.createElement('div');
+    bubble.style.alignSelf = 'flex-end';
+    bubble.innerHTML = '<div dir="auto"></div>';
+    bubble.firstChild.innerText = box.innerText;
+    document.querySelector('#thread').appendChild(bubble);
     box.innerHTML = '';
     if ({fail_send}) document.querySelector('#log').textContent = 'Не удалось отправить';
   }});
@@ -52,7 +59,11 @@ def browser():
 @pytest.fixture(autouse=True)
 def quick(monkeypatch):
     monkeypatch.setattr(direct_message, "PROFILE_WAIT", 3.0)
-    monkeypatch.setattr(direct_message, "SETTLE", 0.5)
+    monkeypatch.setattr(direct_message, "PROFILE_RETRY_WAIT", 1.0)
+    monkeypatch.setattr(direct_message, "PICKER_WAIT", 1.5)
+    monkeypatch.setattr(direct_message, "DIALOG_WAIT", 3.0)
+    monkeypatch.setattr(direct_message, "CONFIRM_WAIT", 2.5)
+    monkeypatch.setattr(direct_message, "SETTLE", 0.4)
     monkeypatch.setattr(direct_message, "HISTORY_WAIT", 0.6)
 
 
@@ -82,7 +93,7 @@ def profile_page(browser, username, buttons, fail_send=False, history=False):
 def test_sends_through_the_message_button(browser):
     page = profile_page(browser, "jaycarter", FOLLOW + MESSAGE)
     result = send_direct(page, "jaycarter", "Yo Jay\nlets work")
-    assert result == {"outcome": "sent", "thread_id": "340282366"}
+    assert result == {"outcome": "sent", "thread_id": "340282366", "confirmed": "interface"}
     assert page.evaluate("window.sent") == ["Yo Jay\nlets work"]
     page.close()
 
@@ -121,6 +132,11 @@ document.querySelector('main [role=button]').onclick = () => setTimeout(() => {{
     if (event.key !== 'Enter' || event.shiftKey) return;
     event.preventDefault();
     window.sent = (window.sent || []).concat(box.innerText);
+    const bubble = document.createElement('div');
+    bubble.style.alignSelf = 'flex-end';
+    bubble.innerHTML = '<div dir="auto"></div>';
+    bubble.firstChild.innerText = box.innerText;
+    chat.children[1].appendChild(bubble);
     box.innerHTML = '';
   }});
 }}, 300);
@@ -139,7 +155,11 @@ def popup_page(browser, username, history=False):
 def test_a_chat_window_over_the_profile_is_read_on_its_own(browser):
     """The profile's texts around the window are not taken for an earlier conversation."""
     page = popup_page(browser, "jaycarter")
-    assert send_direct(page, "jaycarter", "Yo Jay") == {"outcome": "sent", "thread_id": ""}
+    assert send_direct(page, "jaycarter", "Yo Jay") == {
+        "outcome": "sent",
+        "thread_id": "",
+        "confirmed": "interface",
+    }
     assert page.evaluate("window.sent") == ["Yo Jay"]
     page.close()
     page = popup_page(browser, "jaycarter", history=True)
@@ -149,8 +169,10 @@ def test_a_chat_window_over_the_profile_is_read_on_its_own(browser):
 
 
 def test_follow_only_profile_is_not_written_to(browser):
+    """Only «Подписаться» and no Direct route either: nothing is sent, and a slow page
+    is not taken for closed messages (Direct has to refuse the recipient for that)."""
     page = profile_page(browser, "followonly", FOLLOW)
-    assert send_direct(page, "followonly", "hi")["error"] == "messages_closed"
+    assert send_direct(page, "followonly", "hi")["error"] == "dialog"
     assert page.evaluate("window.sent") is None
     page.close()
 

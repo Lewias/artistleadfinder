@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 27 for version in versions):
+        if any(version > 28 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -67,7 +67,20 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "last_contacted_at": "DATETIME",
         },
         "outreach_templates": {"hidden": "BOOLEAN NOT NULL DEFAULT 0"},
-        "outreach_campaigns": {"message_variants": "JSON NOT NULL DEFAULT '[]'"},
+        "outreach_campaigns": {
+            "message_variants": "JSON NOT NULL DEFAULT '[]'",
+            "followup_snapshot": "JSON NOT NULL DEFAULT '{}'",
+        },
+        "outreach_followup_sequences": {
+            "version": "INTEGER NOT NULL DEFAULT 1",
+            "updated_at": "DATETIME",
+        },
+        "outbound_message_jobs": {"variant": "VARCHAR(4000)", "body": "VARCHAR(4000)"},
+        "conversations": {"reply_checked_at": "DATETIME"},
+        "outreach_workspace": {
+            "followup_sequence_id": "INTEGER REFERENCES outreach_followup_sequences (id)"
+            " ON DELETE SET NULL",
+        },
         "scout_runs": {
             "backlog": "JSON NOT NULL DEFAULT '[]'",
             "found": "INTEGER NOT NULL DEFAULT 0",
@@ -281,6 +294,16 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # and the warm-up (email_accounts warm columns, email_warmup_* tables).
         if session.get(SchemaMigration, 27) is None:
             session.add(SchemaMigration(version=27))
+        # Schema 28: follow-ups that are really sent (outreach_followup_runs,
+        # outreach_followup_steps), sequences with their own texts and a version, the
+        # campaign's copy of its sequence, the job's chosen variant and text, the reply
+        # check time of a conversation. Follow-ups planned by schema 10 were never sent:
+        # they become paused runs the user starts by hand, nothing goes out by itself.
+        if session.get(SchemaMigration, 28) is None:
+            from .outreach.followups import migrate_schema_28
+
+            migrate_schema_28(session)
+            session.add(SchemaMigration(version=28))
     return engine, factory
 
 

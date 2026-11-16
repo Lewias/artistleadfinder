@@ -1,4 +1,5 @@
-import type { OutreachEvent } from '../../services/types';
+import type { FollowUpRun, OutreachEvent } from '../../services/types';
+import { plural } from '../../lib/format';
 
 export const campaignStatusLabels: Record<string, string> = {
   draft: 'Черновик',
@@ -39,11 +40,39 @@ export const outreachReasons: Record<string, string> = {
   CHECKPOINT: 'Checkpoint',
   RATE_LIMITED: 'Ограничение Instagram',
   MESSAGE_REJECTED: 'Сообщение отклонено',
-  MESSAGES_CLOSED: 'Нельзя написать — только подписаться',
+  MESSAGES_CLOSED: 'Instagram не даёт написать',
   ALREADY_IN_DIRECT: 'Уже есть переписка в Директе',
   NETWORK_ERROR: 'Сеть',
   SEND_ERROR: 'Ошибка отправки',
   CAMPAIGN_CANCELLED: 'Кампания отменена',
+  REPLY_RECEIVED: 'Получен ответ',
+  CONVERSATION_STOPPED: 'Общение остановлено',
+  USER_STOPPED: 'Остановлено вручную',
+  USER_PAUSED: 'Пауза',
+  LEGACY: 'Ждёт запуска после обновления',
+  THREAD_MISMATCH: 'Диалог не совпал',
+  ORIGIN_MISSING: 'Нет подтверждённого сообщения',
+  UNCONFIRMED: 'Отправка не подтверждена',
+  SENDER_MISMATCH: 'Диалог ведёт другой аккаунт',
+};
+
+export const runStatusLabels: Record<string, string> = {
+  active: 'Ждёт шага',
+  paused: 'На паузе',
+  review: 'Проверьте отправку',
+  completed: 'Завершена',
+  stopped: 'Остановлена',
+  failed: 'Ошибка',
+};
+
+/** Badge colour of a chain: the shared status-badge classes. */
+export const runStatusTone: Record<string, string> = {
+  active: 'running',
+  paused: 'paused',
+  review: 'failed',
+  completed: 'completed',
+  stopped: 'cancelled',
+  failed: 'failed',
 };
 
 export const conversationLabels: Record<string, string> = {
@@ -106,6 +135,22 @@ export function outreachActivity(event: OutreachEvent): OutreachActivity | null 
       return { id: event.id, username: 'Кампания', outcome: 'Отменена', tone: 'bad' };
     case 'campaign:completed':
       return { id: event.id, username: 'Кампания', outcome: 'Завершена', tone: 'good' };
+    case 'followup:sent':
+      return { id: event.id, username, outcome: `Follow-up ${String(p.step)} отправлен`, tone: 'good' };
+    case 'followup:review':
+      return {
+        id: event.id,
+        username,
+        outcome: `Follow-up ${String(p.step)} не подтверждён · проверьте диалог`,
+        tone: 'bad',
+      };
+    case 'followup:stopped':
+      return {
+        id: event.id,
+        username,
+        outcome: `Follow-up остановлен — ${reasonLabel(p.reason)}`,
+        tone: 'muted',
+      };
     default:
       return null;
   }
@@ -130,3 +175,18 @@ export const templateVariables = [
   'source',
   'profileType',
 ] as const;
+
+/** Where a chain is («Следующий шаг 2 из 3 · 18.11.2026, 14:00»), or why it ended. */
+export function runLine(run: FollowUpRun) {
+  const step = `шаг ${Math.min(run.step + 1, run.total)} из ${run.total}`;
+  if (run.status === 'active')
+    return run.sending
+      ? `Отправляется ${step}`
+      : `Следующий ${step}${run.next_at ? ` · ${dateTime(run.next_at)}` : ''}`;
+  if (run.status === 'review')
+    return `Шаг ${(run.review_step ?? run.step) + 1}: Instagram не показал сообщение отправленным`;
+  if (run.status === 'paused')
+    return `На паузе перед: ${step}${run.reason ? ` · ${reasonLabel(run.reason)}` : ''}`;
+  if (run.status === 'completed') return `Отправлены все ${plural(run.total, ['шаг', 'шага', 'шагов'])}`;
+  return `${reasonLabel(run.reason) || runStatusLabels[run.status]} · отправлено ${run.step} из ${run.total}`;
+}

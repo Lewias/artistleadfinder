@@ -4859,6 +4859,122 @@ button:active:not(:disabled) {
   font-size: var(--alf-font-sm);
 }
 
+/* ---------- Outreach: follow-up chains ---------- */
+.followup-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--alf-font-sm);
+}
+.followup-pick span {
+  white-space: nowrap;
+}
+.followup-pick select {
+  min-width: 170px;
+}
+/* «Рассылка по списку»: the chain picker sits between the status and the button. */
+.messages-board .board-footer:has(.followup-pick) {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+@media (max-width: 720px) {
+  .messages-board .board-footer:has(.followup-pick) {
+    grid-template-columns: 1fr;
+  }
+}
+.followup-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.followup-step {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.followup-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.followup-step-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--alf-font-sm);
+}
+.followup-step-head input {
+  width: 64px;
+}
+.followup-step-head .button {
+  margin-left: auto;
+}
+.followup-step textarea {
+  width: 100%;
+  resize: vertical;
+}
+.followup-preview {
+  padding: 8px 10px;
+  border-radius: var(--alf-radius);
+  background: var(--input);
+}
+.followup-preview p,
+.followup-history p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+}
+.followup-history {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: var(--alf-font-sm);
+}
+.followup-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.followup-card .helper {
+  margin: 2px 0 0;
+}
+.followup-next {
+  min-width: 260px;
+  max-width: 460px;
+  color: var(--muted);
+  font-size: var(--alf-font-sm);
+}
+.followup-next > span,
+.followup-next > small {
+  display: block;
+}
+.followup-next > small {
+  margin-top: 3px;
+}
+.followup-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.followup-actions:empty {
+  display: none;
+}
+.crm-tab-count.attention,
+.alf-ui .crm-tab-count.attention {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
 /* ---------- Outreach: «Найти и написать» ---------- */
 .autopilot {
   display: grid;

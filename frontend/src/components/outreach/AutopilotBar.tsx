@@ -12,6 +12,7 @@ import { number } from '../../lib/format';
 import { Button } from '../ui/button';
 import { ErrorToast } from '../Toaster';
 import { controlScout, errorText, scoutActive } from '../accountRuns';
+import { FollowUpPick } from './FollowUps';
 
 const ACTIVE = ['starting', 'scouting', 'sending'];
 const TARGET_KEY = 'autopilot-target';
@@ -137,6 +138,7 @@ export function AutopilotBar({ accounts }: { accounts: ScoutAccountRow[] }) {
             onChange={event => setTarget(Number(event.target.value))}
           />
         </label>
+        <FollowUpPick disabled={active || busy} />
         <span className="autopilot-spacer" />
         {active ? (
           <Button variant="outline" disabled={busy} onClick={() => void stop()}>

@@ -741,9 +741,9 @@ def test_followups_are_planned_after_send_and_cancelled_on_reply(app):
     with sessions() as session:
         jobs = session.scalars(select(FollowUpJob).order_by(FollowUpJob.step_index)).all()
         sent_at = session.scalar(select(Message.sent_at))
-    assert [job.status for job in jobs] == ["pending", "pending"]
+    # Only the next step is planned; the one after it waits for this one to be sent.
+    assert [job.status for job in jobs] == ["pending"]
     assert jobs[0].scheduled_at == sent_at + timedelta(days=3)
-    assert jobs[1].scheduled_at == sent_at + timedelta(days=7)
     result = service.call("outreach.mark_replied", {"lead_id": lead, "body": "yo, send it"})
     assert result["followups_cancelled"] == 2
     with sessions() as session:
@@ -808,7 +808,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
     # Back to schema 9: no outreach tables, no lead outreach columns.
     raw = sqlite3.connect(path)
     for table in (
-        "outreach_followup_jobs",
+        "outreach_followup_steps",
+        "outreach_followup_runs",
         "outbound_message_jobs",
         "campaign_recipients",
         "messages",
@@ -834,8 +835,8 @@ def test_schema_9_database_migrates_to_11(tmp_path):
         assert session.scalar(select(func.count()).select_from(OutreachCampaign)) == 0
     engine.dispose()
     raw = sqlite3.connect(path)
-    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 27
-    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (28, '2030-01-01')")
+    assert raw.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 28
+    raw.execute("INSERT INTO schema_migrations (version, applied_at) VALUES (29, '2030-01-01')")
     raw.commit()
     raw.close()
     with pytest.raises(RuntimeError):
@@ -878,9 +879,11 @@ def test_workspace_list_sends_variants_and_skips_done(app):
     assert not state["running"]
     assert {item["status"] for item in state["usernames"]} == {"sent"}
     rows = recipients(sessions, state["campaign"]["id"])
-    assert rows["known_artist"].rendered_message == "Yo Jay, got beats for u"
-    assert rows["newface"].rendered_message == "Second variant"
-    assert rows["third"].rendered_message.startswith("Yo there")
+    # Two variants: never the one used last, so they alternate (which one first is random).
+    texts = [rows[name].rendered_message for name in ("known_artist", "newface", "third")]
+    first_is_greeting = texts[0] == "Yo Jay, got beats for u"
+    assert texts[1] == ("Second variant" if first_is_greeting else "Yo there, got beats for u")
+    assert texts[2] == ("Yo there, got beats for u" if first_is_greeting else "Second variant")
     with sessions() as session:
         assert session.get(Lead, known).status == "contacted"
         assert session.scalar(select(func.count()).select_from(Lead)) == 3

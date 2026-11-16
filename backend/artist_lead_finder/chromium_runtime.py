@@ -496,13 +496,33 @@ class ChromiumRuntime:
         return warmup_action(self, window, identifier, action, value)
 
     @_on_browser_thread
-    def send_message(self, identifier: str, username: str, text: str) -> dict:
-        """One outreach message through Instagram's interface in the open profile page."""
+    def send_message(
+        self,
+        identifier: str,
+        username: str,
+        text: str,
+        *,
+        mode: str = "initial",
+        previous: list[str] | None = None,
+        known_inbound: list[str] | None = None,
+        guard=None,
+    ) -> dict:
+        """One outreach message through Instagram's interface in the open profile page (or
+        a follow-up's thread). An HTTP 429 since the page was opened counts: it is not
+        cleared here."""
         window = self._window(identifier)
         if not window:
             raise ValueError("Browser window is closed")
-        window.rate_limited = False
-        return send_direct(window.page, username, text, rate_limited=lambda: window.rate_limited)
+        return send_direct(
+            window.page,
+            username,
+            text,
+            mode=mode,
+            previous=previous,
+            known_inbound=known_inbound,
+            guard=guard or (lambda: None),
+            rate_limited=lambda: window.rate_limited,
+        )
 
     @_on_browser_thread
     def read_thread(self, identifier: str, username: str, outbound: list[str]) -> dict:

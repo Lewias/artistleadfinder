@@ -363,11 +363,57 @@ export interface OutreachTemplate {
   created_at: string;
   updated_at: string;
 }
+export interface FollowUpStep {
+  delay_days: number;
+  text: string;
+}
+/** A saved chain: a template of follow-ups. Saving it sends nothing. */
 export interface FollowUpSequence {
   id: number;
   name: string;
-  steps: { delay_days: number; template_id: number }[];
+  steps: FollowUpStep[];
   enabled: boolean;
+  version: number;
+  /** Chains started from it that are still going (active, paused, review). */
+  open_runs: number;
+}
+export interface SequencePreview {
+  steps: (FollowUpStep & { day: number; valid: boolean; errors: string[]; fallbacks: string[] })[];
+}
+export type FollowUpRunStatus = 'active' | 'paused' | 'review' | 'completed' | 'stopped' | 'failed';
+/** A started chain of one conversation. */
+export interface FollowUpRun {
+  id: number;
+  lead_id: number;
+  username: string;
+  display_name: string;
+  sender_id: string;
+  sender_name: string;
+  sequence_name: string;
+  status: FollowUpRunStatus;
+  reason: string | null;
+  details: string | null;
+  /** Index of the next step; equals `total` once every step went out. */
+  step: number;
+  total: number;
+  last_sent_at: string | null;
+  next_at: string | null;
+  sending: boolean;
+  review_job_id: number | null;
+  review_step: number | null;
+  conversation_status: 'waiting_reply' | 'replied' | 'stopped';
+  steps: {
+    delay_days: number;
+    text: string;
+    status: 'pending' | 'sending' | 'sent' | 'unconfirmed' | 'failed' | 'cancelled' | null;
+    sent_at: string | null;
+    error: string | null;
+  }[];
+}
+export interface FollowUpRuns {
+  total: number;
+  counts: Partial<Record<FollowUpRunStatus, number>>;
+  items: FollowUpRun[];
 }
 export interface RenderedTemplate {
   text: string;
@@ -548,7 +594,10 @@ export type OutreachEventType =
   | 'recipient:skipped'
   | 'recipient:failed'
   | 'recipient:replied'
-  | 'sender:unavailable';
+  | 'sender:unavailable'
+  | 'followup:sent'
+  | 'followup:review'
+  | 'followup:stopped';
 export interface OutreachEvent {
   id: number;
   campaign_id: number | null;
@@ -571,6 +620,7 @@ export interface LeadOutreach {
     needs_review: boolean;
   } | null;
   pending_followups: number;
+  followup: FollowUpRun | null;
   messages: { direction: 'outbound' | 'inbound'; type: string; body: string; sent_at: string }[];
 }
 export type WorkspaceStatus = 'new' | 'contacted' | 'review' | RecipientStatus;
@@ -584,6 +634,8 @@ export interface OutreachWorkspace {
   usernames: WorkspaceUsername[];
   messages: string[];
   sender_ids: string[];
+  /** The chain the next «Рассылка» starts after each confirmed message; null: none. */
+  followup_sequence_id: number | null;
   campaign: OutreachCampaign | null;
   running: boolean;
 }

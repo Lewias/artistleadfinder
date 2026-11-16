@@ -20,7 +20,15 @@ import { DataState } from './DataState';
 import { Button } from './ui/button';
 import { Dropdown, Panel, Tabs, StatusIndicator } from './ui/desktop';
 import { categoryLabels, methodLabel } from './scoutStatus';
-import { conversationLabels, dateTime, reasonLabel, recipientStatusLabels } from './outreach/outreachText';
+import {
+  conversationLabels,
+  dateTime,
+  reasonLabel,
+  recipientStatusLabels,
+  runLine,
+  runStatusLabels,
+} from './outreach/outreachText';
+import { RunActions } from './outreach/FollowUps';
 
 const decidedByLabels = { local: 'локально', ai: 'AI', 'local+ai': 'локально + AI' };
 
@@ -361,8 +369,24 @@ export function LeadDetail({
                         <strong>{conversationLabels[outreach.conversation_status]}</strong>
                       </div>
                     )}
-                    {outreach.pending_followups > 0 && (
-                      <p className="helper">Запланировано follow-up: {outreach.pending_followups}</p>
+                    {outreach.followup && (
+                      <>
+                        <div className="source-line">
+                          <span>Follow-up</span>
+                          <strong>
+                            {outreach.followup.sequence_name || 'Цепочка'} ·{' '}
+                            {runStatusLabels[outreach.followup.status]}
+                          </strong>
+                        </div>
+                        <p className="helper">{runLine(outreach.followup)}</p>
+                        <RunActions
+                          run={outreach.followup}
+                          onChanged={() => {
+                            resource.refresh();
+                            refresh();
+                          }}
+                        />
+                      </>
                     )}
                     {outreach.campaign?.needs_review && (
                       <>
@@ -433,7 +457,7 @@ export function LeadDetail({
                         <Button
                           variant="outline"
                           disabled={busy}
-                          title="Лид ответил в Instagram: follow-up отменятся"
+                          title="Лид ответил в Instagram: follow-up остановится"
                           onClick={() => void outreachAction('outreach.mark_replied', { lead_id: lead.id })}
                         >
                           Получен ответ

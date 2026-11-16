@@ -52,6 +52,7 @@ from .models import (
 from .normalization import normalize
 from .outreach import events as outreach_events
 from .outreach.campaigns import CampaignService, iso
+from .outreach.followups import FollowUpScheduler
 from .outreach.senders import current_status, sent_counts, set_status
 from .outreach.settings import OutreachSettings, outreach_settings
 from .outreach.worker import OutreachWorker
@@ -172,7 +173,7 @@ DEFAULTS = {
 
 def system_info(data_dir: Path, log_dir: Path) -> dict:
     return {
-        "version": "0.12.1",
+        "version": "0.12.2",
         "data_dir": str(data_dir),
         "log_dir": str(log_dir),
         "transport": "stdio",
@@ -218,8 +219,14 @@ class ApplicationService:
         # The job manager marked runs cut off by a crash as interrupted; finish that here.
         self.scout.recover_interrupted()
         # Outreach: campaigns and the send queue worked through the sender's browser.
-        self.campaigns = CampaignService(sessions, self.settings, self._sender_names)
-        self.outreach = OutreachWorker(sessions, self.settings, self.chromium.is_open)
+        # One scheduler of follow-up chains for the campaigns, the queue and the replies.
+        self.followups = FollowUpScheduler()
+        self.campaigns = CampaignService(
+            sessions, self.settings, self._sender_names, followups=self.followups
+        )
+        self.outreach = OutreachWorker(
+            sessions, self.settings, self.chromium.is_open, followups=self.followups
+        )
         self.workspace = WorkspaceService(sessions, self.campaigns)
         # Sends cut off by a crash are checked against the message records, never resent.
         self.outreach.recover()
@@ -233,7 +240,12 @@ class ApplicationService:
         self.crm = CrmService(sessions, self.workspace.add_usernames, self.imessage.add_recipients)
         # «Ответы»: phones and emails from the outreach threads, read in the sender window.
         self.inbox = InboxService(
-            sessions, self.settings, self.chromium.is_open, self._sender_names, self.crm.merge
+            sessions,
+            self.settings,
+            self.chromium.is_open,
+            self._sender_names,
+            self.crm.merge,
+            followups=self.followups,
         )
         self.inbox.recover()
         # «Ассистент»: Claude over the CRM, the Mac's iMessage history and the iMessage queue.
@@ -312,9 +324,7 @@ class ApplicationService:
             "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
-            "browser.runtime.send_message": lambda p: chromium.send_message(
-                p["id"], str(p["username"]), str(p["text"])
-            ),
+            "browser.runtime.send_message": self._send_message,
             "browser.runtime.read_thread": lambda p: chromium.read_thread(
                 p["id"], str(p["username"]), [str(text) for text in p.get("outbound") or []]
             ),
@@ -358,6 +368,10 @@ class ApplicationService:
             "outreach.template_render": self.campaigns.render_template,
             "outreach.sequences": self.campaigns.sequences,
             "outreach.sequence_save": self.campaigns.save_sequence,
+            "outreach.sequence_preview": self.campaigns.sequence_preview,
+            "outreach.followups": self.campaigns.followup_runs,
+            "outreach.followup_control": self.campaigns.followup_control,
+            "outreach.followup_resolve": self.outreach.resolve_followup,
             "outreach.audience": self.campaigns.audience,
             "outreach.preview": self.campaigns.preview,
             "outreach.campaigns": self.campaigns.campaigns,
@@ -440,6 +454,32 @@ class ApplicationService:
             "leads.export": self.export,
             "nav.counts": self._nav_counts,
         }
+
+    def _send_message(self, params: dict) -> dict:
+        """One queued message in the sender window. The job's claim goes with it, so the
+        browser can ask right before Enter whether it may still be sent."""
+        job = params.get("job") if isinstance(params.get("job"), dict) else {}
+        args = params.get("args") if isinstance(params.get("args"), dict) else {}
+        guard = None
+        if job.get("job_id") is not None:
+            kind, job_id, token = (
+                str(job.get("kind") or "initial"),
+                int(job["job_id"]),
+                str(job.get("token") or ""),
+            )
+
+            def guard() -> str | None:
+                return self.outreach.guard(kind, job_id, token)
+
+        return self.chromium.send_message(
+            params["id"],
+            str(params.get("username") or args.get("username") or ""),
+            str(params.get("text") or args.get("text") or ""),
+            mode=str(args.get("mode") or "initial"),
+            previous=[str(text) for text in args.get("previous") or []],
+            known_inbound=[str(text) for text in args.get("known_inbound") or []],
+            guard=guard,
+        )
 
     def _outreach_next(self) -> dict | None:
         """The shell's send queue; the autopilot looks at its parser run first, so the

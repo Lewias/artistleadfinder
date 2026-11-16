@@ -42,6 +42,17 @@ class LeadVariables:
     profile_type: str | None = None
 
 
+def lead_variables(lead, profile) -> LeadVariables:
+    """Variables of a lead row and its scout profile (either may lack details)."""
+    return LeadVariables(
+        username=lead.username,
+        display_name=lead.display_name,
+        followers=lead.followers or None,
+        source_username=profile.source_username if profile else None,
+        profile_type=profile.profile_type if profile else None,
+    )
+
+
 @dataclass
 class RenderResult:
     text: str

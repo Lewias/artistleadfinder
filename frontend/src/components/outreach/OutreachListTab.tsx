@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useResource } from '../../hooks/useResource';
-import type { OutreachSender, OutreachWorkspace } from '../../services/types';
+import type { FollowUpSequence, OutreachSender, OutreachWorkspace } from '../../services/types';
 import { number } from '../../lib/format';
 import { Button } from '../ui/button';
 import { Modal } from '../Modal';
@@ -23,11 +23,13 @@ import { errorText } from '../accountRuns';
 import { chipTitle, chipTone, parseUsernames } from './outreachList';
 import { CrmModal } from './OutreachModals';
 import { MessagesBoard } from './MessagesBoard';
+import { FollowUpPick } from './FollowUps';
 
 /** «Рассылка по списку»: usernames typed in, pasted or taken from the CRM, written to by hand. */
 export function OutreachListTab() {
   const workspace = useResource<OutreachWorkspace>('outreach.workspace', {}, 4000);
   const senders = useResource<OutreachSender[]>('outreach.senders', {}, 5000);
+  const sequences = useResource<FollowUpSequence[]>('outreach.sequences');
   const [state, setState] = useState<OutreachWorkspace>();
   const [draft, setDraft] = useState('');
   const [bulk, setBulk] = useState<string | null>(null);
@@ -132,6 +134,8 @@ export function OutreachListTab() {
       .catch(err => setError(`Не удалось открыть браузер: ${errorText(err)}`))
       .finally(() => setBusy(false));
   };
+  // The chain this run started with (it keeps going after the run ends, see «Follow-up»).
+  const chain = (sequences.data ?? []).find(item => item.id === campaign?.followup_sequence_id);
   let status: ReactNode = 'Остановлен';
   if (running && campaign) {
     const done = campaign.sent_count + campaign.failed_count + campaign.skipped_count;
@@ -141,6 +145,7 @@ export function OutreachListTab() {
       ) : (
         <>
           Идёт рассылка · отправлено {number(campaign.sent_count)} из {number(campaign.total_recipients)}
+          {chain && ` · follow-up «${chain.name}»`}
           {done < campaign.total_recipients && !ready && (
             <span className="board-warning">
               {' '}
@@ -252,6 +257,7 @@ export function OutreachListTab() {
         <span className="board-status" role="status">
           {status}
         </span>
+        <FollowUpPick disabled={busy} />
         {running ? (
           <Button variant="outline" disabled={busy} onClick={() => void call('outreach.workspace_stop')}>
             <Square size={14} /> Остановить

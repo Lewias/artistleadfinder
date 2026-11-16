@@ -25,14 +25,16 @@ from ..direct_message import (
     FOLLOW_BUTTON,
     HEADER,
     MESSAGE_BUTTON,
+    PANES,
     THREAD,
     UNAVAILABLE,
     USERNAME,
+    header_match,
 )
+from ..instagram_state import account_problem
 
 # Seconds; the whole read stays inside the shell's call limit.
 PROFILE_WAIT = 8.0
-FOLLOW_GRACE = 1.2
 DIALOG_WAIT = 12.0
 SETTLE = 2.0
 SCROLL_ROUNDS = 3
@@ -42,8 +44,9 @@ MAX_MESSAGES = 300
 MAX_TEXT = 2000
 
 # Up one screen in the message list; True when it moved (older messages may load).
-SCROLL_UP = """() => {
-  const box = [...document.querySelectorAll('[role="textbox"][contenteditable="true"]')].pop();
+SCROLL_UP = """(index) => {
+  const boxes = [...document.querySelectorAll('[role="textbox"][contenteditable="true"]')];
+  const box = index === undefined || index === null ? boxes[boxes.length - 1] : boxes[index];
   if (!box) return false;
   let pane = box;
   while (pane.parentElement && pane.getBoundingClientRect().height < innerHeight * 0.6)
@@ -75,14 +78,11 @@ def read_thread(
     parsed = urlparse(page.url)
     if (parsed.hostname or "").lower() not in {"instagram.com", "www.instagram.com"}:
         return fail("no_instagram_tab")
-    if parsed.path.startswith("/accounts/login"):
-        return fail("login")
-    if parsed.path.startswith("/challenge"):
-        return fail("checkpoint")
     if not USERNAME.match(username):
         return fail("bad_request")
-    if rate_limited():
-        return fail("rate_limited")
+    problem = account_problem(page, rate_limited)
+    if problem:
+        return fail(problem)
     in_thread = bool(THREAD.match(parsed.path))
     if not in_thread and parsed.path.rstrip("/").lower() != f"/{username}":
         return fail("no_instagram_tab")
@@ -103,7 +103,10 @@ def read_thread(
                 return fail("rate_limited" if rate_limited() else "dialog")
             page.wait_for_timeout(POLL_MS)
         page.wait_for_timeout(int(SETTLE * 1000))
-        messages = collect(page, outbound or [])
+        index = this_chat(page, username)
+        if index is None:
+            return fail("dialog")
+        messages = collect(page, outbound or [], index)
     except Exception:
         return fail("rate_limited" if rate_limited() else "dialog")
     thread = THREAD.match(urlparse(page.url).path)
@@ -115,26 +118,37 @@ def read_thread(
 
 
 def open_from_profile(page, clock) -> str | None:
-    """«Отправить сообщение» on the profile; an error kind when there is no thread."""
+    """«Отправить сообщение» on the profile; an error kind when there is no thread. A
+    profile that still shows only «Подписаться» after the whole wait has no thread with
+    this account; a slow button is waited for."""
     main = page.locator("main")
     message = main.get_by_role("button", name=MESSAGE_BUTTON)
     follow = main.get_by_role("button", name=FOLLOW_BUTTON)
-    deadline, follow_seen = clock() + PROFILE_WAIT, None
+    deadline = clock() + PROFILE_WAIT
     while not message.count():
         if page.get_by_text(UNAVAILABLE).count():
             return "not_found"
-        if follow.count():
-            follow_seen = follow_seen or clock()
-            if clock() - follow_seen > FOLLOW_GRACE:
-                return "no_thread"
         if clock() > deadline:
-            return "dialog"
+            return "no_thread" if follow.count() else "dialog"
         page.wait_for_timeout(POLL_MS)
     message.first.click(timeout=5000)
     return None
 
 
-def collect(page, outbound: list[str]) -> list[dict]:
+def this_chat(page, username: str) -> int | None:
+    """The message box of this person's chat: the one whose header names them, or the
+    only chat open. Several chats and none of them theirs: None, nothing is read."""
+    panes = [pane for pane in page.evaluate(PANES, [HEADER]) or [] if pane.get("visible")]
+    verdicts = [(pane, header_match(pane, username)) for pane in panes]
+    matched = [pane for pane, verdict in verdicts if verdict == "match"]
+    if matched:
+        return int(matched[-1]["index"])
+    if len(panes) == 1 and verdicts[0][1] == "unknown":
+        return int(panes[0]["index"])
+    return None
+
+
+def collect(page, outbound: list[str], index: int | None = None) -> list[dict]:
     """The visible messages, then up to SCROLL_ROUNDS screens back until our own first
     message is in view: replies come after it."""
     ours = {" ".join(text.split()) for text in outbound if text.strip()}
@@ -142,7 +156,8 @@ def collect(page, outbound: list[str]) -> list[dict]:
     seen: set[tuple[str, str]] = set()
     for round_ in range(SCROLL_ROUNDS + 1):
         reached = False
-        for item in (page.evaluate(COLLECT, [HEADER, CENTER]) or {}).get("messages") or []:
+        thread = page.evaluate(COLLECT, [HEADER, CENTER, index]) or {}
+        for item in thread.get("messages") or []:
             text = str(item.get("text") or "")[:MAX_TEXT]
             side = item.get("side")
             flat = " ".join(text.split())
@@ -152,7 +167,7 @@ def collect(page, outbound: list[str]) -> list[dict]:
                 continue
             seen.add((flat, side))
             found.append({"text": text, "side": side})
-        if reached or round_ == SCROLL_ROUNDS or not page.evaluate(SCROLL_UP):
+        if reached or round_ == SCROLL_ROUNDS or not page.evaluate(SCROLL_UP, index):
             break
         page.wait_for_timeout(SCROLL_PAUSE_MS)
     return found[:MAX_MESSAGES]

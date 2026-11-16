@@ -696,7 +696,7 @@ fn read_inbox_thread(request: &impl Fn(&str, Value) -> Result<Value, String>) {
     };
     let _ = request(
         "inbox.commit_internal",
-        json!({"item_id": item_id, "result": result}),
+        json!({"item_id": item_id, "kind": job["kind"], "result": result}),
     );
 }
 
@@ -746,10 +746,22 @@ fn start_requested_parsers(app: &tauri::AppHandle, core: &Core, closing: &Browse
     }
 }
 
-/// Outreach send queue. The core picks a due job whose sender window is open and idle
-/// and claims it; the send script runs once in that window and the result goes back to
-/// the core. A failed script call is reported as a browser failure (never resent by the
-/// core); a lost result leaves the claim, which the core settles for manual review.
+/// Page a queued job is sent from: the recipient's profile, or for a follow-up its own
+/// thread when the core knows it. None for anything else the core might name.
+fn send_url(job: &Value) -> Option<String> {
+    if job["kind"] == "followup" {
+        inbox_url(&job["args"])
+    } else {
+        recipient_url(&job["args"])
+    }
+}
+
+/// Outreach send queue (initial messages and follow-up steps). The core picks a due job
+/// whose sender window is open and idle and claims it; the send script runs once in that
+/// window and the result goes back to the core. A failed script call is reported as a
+/// browser failure (never resent by the core); a lost result leaves the claim, which the
+/// core settles for manual review. Reply reads take turns with sends in the same loop, so
+/// one window is never driven by both at once and a busy queue never starves them.
 fn run_outreach_driver(core: Core, closing: BrowserClosing) {
     let request = |method: &str, params: Value| {
         tauri::async_runtime::block_on(backend_request(core.clone(), method.into(), params))
@@ -769,10 +781,11 @@ fn run_outreach_driver(core: Core, closing: BrowserClosing) {
             read_inbox_thread(&request);
             continue;
         };
-        // Open the recipient's profile in the sender window first, the way the parser opens
-        // its pages. Nothing has been sent yet, so a failed page load is a plain retry and
-        // a 429 on the page stops the sender for its rate-limit break.
-        let opened = recipient_url(&job["args"]).map(|url| {
+        let kind = job["kind"].as_str().unwrap_or("initial");
+        // Open the recipient's profile (or the follow-up's thread) in the sender window
+        // first, the way the parser opens its pages. Nothing has been sent yet, so a failed
+        // page load is a plain retry and a 429 on the page stops the sender for its break.
+        let opened = send_url(&job).map(|url| {
             request(
                 "browser.runtime.navigate",
                 json!({"id":profile_id,"url":url}),
@@ -784,17 +797,26 @@ fn run_outreach_driver(core: Core, closing: BrowserClosing) {
             Some(Ok(page)) if page["rate_limited"] == true => {
                 json!({"outcome": "error", "error": "rate_limited"})
             }
-            // «Отправить сообщение», the text, Enter: the way it is sent by hand.
+            // «Отправить сообщение», the text, Enter: the way it is sent by hand. The claim
+            // goes along so the core can still stop it right before Enter.
             Some(Ok(_)) => request(
                 "browser.runtime.send_message",
-                json!({"id":profile_id,"username":job["args"]["username"],"text":job["args"]["text"]}),
+                json!({
+                    "id": profile_id,
+                    "username": job["args"]["username"],
+                    "text": job["args"]["text"],
+                    "args": job["args"],
+                    "job": {"kind": kind, "job_id": job_id, "token": job["token"]},
+                }),
             )
             .unwrap_or_else(|_| json!({"outcome": "error", "error": "browser"})),
         };
         let _ = request(
             "outreach.commit_internal",
-            json!({"job_id": job_id, "token": job["token"], "result": result}),
+            json!({"job_id": job_id, "token": job["token"], "kind": kind, "result": result}),
         );
+        // A reply read may follow before the next send (the core paces both).
+        read_inbox_thread(&request);
     }
 }
 
@@ -904,10 +926,38 @@ mod tests {
         assert_eq!(inbox_url(&job(thread)).as_deref(), Some(thread));
         let profile = "https://www.instagram.com/shot.by_jae1/";
         assert_eq!(inbox_url(&job(profile)).as_deref(), Some(profile));
-        assert_eq!(inbox_url(&job("https://www.instagram.com/someone_else/")), None);
-        assert_eq!(inbox_url(&job("https://www.instagram.com/direct/t/../../x/")), None);
+        assert_eq!(
+            inbox_url(&job("https://www.instagram.com/someone_else/")),
+            None
+        );
+        assert_eq!(
+            inbox_url(&job("https://www.instagram.com/direct/t/../../x/")),
+            None
+        );
         assert_eq!(inbox_url(&job("https://evil.example/direct/t/1/")), None);
         assert_eq!(inbox_url(&json!({})), None);
+    }
+
+    #[test]
+    fn followups_open_their_own_thread_initial_messages_only_the_profile() {
+        let thread = "https://www.instagram.com/direct/t/340282366/";
+        let job = |kind: &str, url: &str| json!({"kind": kind, "args": {"username": "shot.by_jae1", "url": url}});
+        assert_eq!(send_url(&job("followup", thread)).as_deref(), Some(thread));
+        let profile = "https://www.instagram.com/shot.by_jae1/";
+        assert_eq!(
+            send_url(&job("followup", profile)).as_deref(),
+            Some(profile)
+        );
+        assert_eq!(
+            send_url(&job("followup", "https://www.instagram.com/other/")),
+            None
+        );
+        // An initial message never goes to a thread the core names: only to the profile.
+        assert_eq!(send_url(&job("initial", thread)).as_deref(), Some(profile));
+        assert_eq!(
+            send_url(&json!({"args": {"username": "shot.by_jae1"}})).as_deref(),
+            Some(profile)
+        );
     }
 
     #[test]

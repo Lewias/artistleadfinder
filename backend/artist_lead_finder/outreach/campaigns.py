@@ -4,6 +4,7 @@ Campaign lifecycle: draft → (Start) → scheduled → running ⇄ paused → c
 or cancelled from any unfinished state. Creating a campaign never sends anything.
 """
 
+import random
 from collections import Counter
 from collections.abc import Callable
 from datetime import date, datetime, time, timedelta, timezone
@@ -17,6 +18,7 @@ from ..models import (
     CampaignRecipient,
     Conversation,
     FollowUpJob,
+    FollowUpRun,
     FollowUpSequence,
     Lead,
     LeadScoutProfile,
@@ -29,8 +31,9 @@ from ..models import (
 )
 from . import events, reasons
 from .eligibility import can_send_initial_outreach, initial_key
-from .followups import FollowUpScheduler, validate_steps
-from .renderer import LeadVariables, MessageTemplateRenderer, template_errors
+from .followups import OPEN as RUN_OPEN
+from .followups import FollowUpScheduler, sequence_snapshot, validate_steps
+from .renderer import LeadVariables, MessageTemplateRenderer, lead_variables, template_errors
 from .senders import SenderAllocator, as_utc, current_status, sent_counts
 from .settings import outreach_settings
 
@@ -144,16 +147,6 @@ def audience_statement(query: AudienceQuery):
     return stmt.order_by(Lead.created_at.desc(), Lead.id.desc())
 
 
-def lead_variables(lead: Lead, profile: LeadScoutProfile | None) -> LeadVariables:
-    return LeadVariables(
-        username=lead.username,
-        display_name=lead.display_name,
-        followers=lead.followers or None,
-        source_username=profile.source_username if profile else None,
-        profile_type=profile.profile_type if profile else None,
-    )
-
-
 def refresh_counts(session, campaign: OutreachCampaign) -> None:
     """Campaign metrics from the recipient rows, in the caller's transaction."""
     session.flush()
@@ -204,6 +197,114 @@ def skip_recipient(session, recipient: CampaignRecipient, reason: str, details: 
     )
 
 
+def record_reply(
+    session,
+    conversation: Conversation,
+    bodies: list[str],
+    now: datetime,
+    followups: FollowUpScheduler,
+) -> int:
+    """The person answered: the thread is replied, their words are kept, every chain of
+    this lead stops and the campaign counts the reply. Returns the follow-up steps that
+    will not go out."""
+    conversation.status, conversation.last_inbound_at = "replied", now
+    for body in bodies or [""]:
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                direction="inbound",
+                type="reply",
+                body=body[:4000],
+                sent_at=now,
+            )
+        )
+    conversations = session.scalars(
+        select(Conversation).where(Conversation.lead_id == conversation.lead_id)
+    ).all()
+    cancelled = sum(
+        followups.cancel(session, row.id, reasons.REPLY_RECEIVED) for row in conversations
+    )
+    recipients = session.scalars(
+        select(CampaignRecipient).where(
+            CampaignRecipient.lead_id == conversation.lead_id,
+            CampaignRecipient.status == "sent",
+            CampaignRecipient.replied_at.is_(None),
+        )
+    ).all()
+    for recipient in recipients:
+        recipient.replied_at = now
+        events.emit(
+            session,
+            recipient.campaign_id,
+            "recipient:replied",
+            recipient_id=recipient.id,
+            username=recipient.username,
+        )
+        refresh_counts(session, session.get(OutreachCampaign, recipient.campaign_id))
+    return cancelled
+
+
+class VariantPicker:
+    """Message variants at random, never one of the last two used (only the last one
+    when there are two; any when there is one). Empty variants and exact duplicates are
+    dropped."""
+
+    def __init__(self, variants: list[str], rng: random.Random):
+        self.variants = list(dict.fromkeys(item for item in variants if item and item.strip()))
+        self.rng = rng
+        self.recent: list[str] = []
+
+    def pick(self) -> str:
+        if len(self.variants) <= 1:
+            return self.variants[0] if self.variants else ""
+        avoid = self.recent[-2:] if len(self.variants) > 2 else self.recent[-1:]
+        return self.rng.choice([item for item in self.variants if item not in avoid])
+
+    def used(self, variant: str) -> None:
+        self.recent = [*self.recent, variant][-2:]
+
+
+def run_dict(session, run: FollowUpRun, conversation: Conversation, lead: Lead, names) -> dict:
+    """A started chain as the interface shows it: where it is and what comes next."""
+    jobs = {
+        job.step_index: job
+        for job in session.scalars(select(FollowUpJob).where(FollowUpJob.run_id == run.id))
+    }
+    current = jobs.get(run.next_step)
+    review = next((job for job in jobs.values() if job.status == "unconfirmed"), None)
+    waiting = current is not None and current.status in ("pending", "sending")
+    return {
+        "id": run.id,
+        "lead_id": lead.id,
+        "username": lead.username,
+        "display_name": lead.display_name,
+        "sender_id": run.sender_account_id,
+        "sender_name": names.get(run.sender_account_id, "Удалённый профиль"),
+        "sequence_name": run.sequence_name,
+        "status": run.status,
+        "reason": run.stop_reason,
+        "details": run.reason_details,
+        "step": run.next_step,
+        "total": len(run.steps),
+        "last_sent_at": iso(run.last_sent_at),
+        "next_at": iso(current.scheduled_at) if waiting and run.status == "active" else None,
+        "sending": current is not None and current.status == "sending",
+        "review_job_id": review.id if review else None,
+        "review_step": review.step_index if review else None,
+        "conversation_status": conversation.status,
+        "steps": [
+            {
+                "delay_days": step["delay_days"],
+                "text": step["text"],
+                "status": jobs[index].status if index in jobs else None,
+                "sent_at": iso(jobs[index].sent_at) if index in jobs else None,
+                "error": jobs[index].last_error if index in jobs else None,
+            }
+            for index, step in enumerate(run.steps)
+        ],
+    }
+
+
 class CampaignService:
     def __init__(
         self,
@@ -211,12 +312,15 @@ class CampaignService:
         settings: Callable[[], dict],
         sender_names: Callable[[], dict[str, str]],
         followups: FollowUpScheduler | None = None,
+        rng: random.Random | None = None,
     ):
         self.sessions = sessions
         self.settings = settings
         self.sender_names = sender_names
         self.followups = followups or FollowUpScheduler()
         self.renderer = MessageTemplateRenderer()
+        self.rng = rng or random.Random()
+        self.now = utcnow
 
     # ---------- Templates and follow-up sequences ----------
 
@@ -271,27 +375,145 @@ class CampaignService:
         }
 
     def sequences(self, params: dict) -> list[dict]:
+        """Saved sequences (templates of chains) and how many chains run from each."""
         with self.sessions() as session:
-            rows = session.scalars(select(FollowUpSequence).order_by(FollowUpSequence.id.desc()))
-            return [row_dict(row) for row in rows]
+            running = dict(
+                session.execute(
+                    select(FollowUpRun.sequence_id, func.count())
+                    .where(FollowUpRun.status.in_(RUN_OPEN))
+                    .group_by(FollowUpRun.sequence_id)
+                ).all()
+            )
+            stmt = select(FollowUpSequence).order_by(FollowUpSequence.id.desc())
+            if not params.get("all"):
+                stmt = stmt.where(FollowUpSequence.enabled.is_(True))
+            return [
+                {**row_dict(row), "open_runs": running.get(row.id, 0)}
+                for row in session.scalars(stmt)
+            ]
 
     def save_sequence(self, params: dict) -> dict:
+        """Saving sends nothing. An edit is a new version: chains already started keep
+        the texts they started with."""
         name = str(params.get("name", "")).strip()
         if not name or len(name) > 120:
             raise UserError("Укажите название цепочки (до 120 символов).")
+        enabled = bool(params.get("enabled", True))
         with self.sessions.begin() as session:
-            steps = validate_steps(session, params.get("steps"))
+            steps = validate_steps(session, params.get("steps")) if enabled else None
             if params.get("id"):
                 sequence = session.get(FollowUpSequence, int(params["id"]))
                 if sequence is None:
                     raise UserError("Цепочка не найдена.")
+                if steps is not None and (sequence.steps != steps or sequence.name != name):
+                    sequence.version = (sequence.version or 1) + 1
             else:
-                sequence = FollowUpSequence()
+                if steps is None:
+                    raise UserError("Новая цепочка должна быть включена.")
+                sequence = FollowUpSequence(version=1)
                 session.add(sequence)
-            sequence.name, sequence.steps = name, steps
-            sequence.enabled = bool(params.get("enabled", True))
+            sequence.name = name
+            if steps is not None:
+                sequence.steps = steps
+            sequence.enabled = enabled
             session.flush()
-            return row_dict(sequence)
+            return {**row_dict(sequence), "open_runs": 0}
+
+    def sequence_preview(self, params: dict) -> dict:
+        """Each step's text for one lead (or a sample lead), and on which day after a
+        confirmed first message it would go out at the earliest."""
+        with self.sessions() as session:
+            if params.get("id"):
+                sequence = session.get(FollowUpSequence, int(params["id"]))
+                if sequence is None:
+                    raise UserError("Цепочка не найдена.")
+                steps = sequence.steps
+            else:
+                steps = validate_steps(session, params.get("steps"))
+            if params.get("lead_id"):
+                lead = session.get(Lead, int(params["lead_id"]))
+                if lead is None:
+                    raise UserError("Лид не найден.")
+                variables = lead_variables(lead, session.get(LeadScoutProfile, lead.id))
+            else:
+                variables = LeadVariables("jaycarter", "Jay Carter", 12500, "rapdaily", "artist")
+        day, items = 0, []
+        for step in steps:
+            day += int(step["delay_days"])
+            result = self.renderer.render(step["text"], variables)
+            items.append(
+                {
+                    "delay_days": step["delay_days"],
+                    "day": day,
+                    "text": result.text,
+                    "valid": result.valid,
+                    "errors": result.errors,
+                    "fallbacks": result.fallbacks,
+                }
+            )
+        return {"steps": items}
+
+    # ---------- Follow-up chains ----------
+
+    def followup_runs(self, params: dict) -> dict:
+        """Started chains, newest first: where each one is and what comes next."""
+        names = self.sender_names()
+        group = params.get("group") or "open"
+        page = max(int(params.get("page", 1)), 1)
+        size = min(max(int(params.get("page_size", 50)), 1), 200)
+        with self.sessions() as session:
+            stmt = (
+                select(FollowUpRun, Conversation, Lead)
+                .join(Conversation, Conversation.id == FollowUpRun.conversation_id)
+                .join(Lead, Lead.id == Conversation.lead_id)
+            )
+            if group == "open":
+                stmt = stmt.where(FollowUpRun.status.in_(RUN_OPEN))
+            elif group == "finished":
+                stmt = stmt.where(FollowUpRun.status.not_in(RUN_OPEN))
+            total = session.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
+            rows = session.execute(
+                stmt.order_by(FollowUpRun.id.desc()).offset((page - 1) * size).limit(size)
+            ).all()
+            counts = dict(
+                session.execute(
+                    select(FollowUpRun.status, func.count()).group_by(FollowUpRun.status)
+                ).all()
+            )
+            return {
+                "total": total,
+                "counts": counts,
+                "items": [
+                    run_dict(session, run, conversation, lead, names)
+                    for run, conversation, lead in rows
+                ],
+            }
+
+    def followup_control(self, params: dict) -> dict:
+        """Pause, resume or stop one chain (`run_id`) or every open one (`all`)."""
+        action = params.get("action")
+        if action not in {"pause", "resume", "stop"}:
+            raise UserError("Неизвестное действие.")
+        now = self.now()
+        with self.sessions.begin() as session:
+            if params.get("all"):
+                wanted = {"pause": ["active"], "resume": ["paused"], "stop": list(RUN_OPEN)}
+                runs = session.scalars(
+                    select(FollowUpRun).where(FollowUpRun.status.in_(wanted[action]))
+                ).all()
+            else:
+                run = session.get(FollowUpRun, int(params.get("run_id") or 0))
+                if run is None:
+                    raise UserError("Цепочка не найдена.")
+                runs = [run]
+            for run in runs:
+                if action == "pause":
+                    self.followups.pause(session, run)
+                elif action == "resume":
+                    self.followups.resume(session, run, now)
+                else:
+                    self.followups.stop(session, run, reasons.USER_STOPPED, now=now)
+            return {"ok": True, "changed": len(runs)}
 
     # ---------- Audience and preview ----------
 
@@ -485,8 +707,17 @@ class CampaignService:
             later = campaign.scheduled_at is not None and as_utc(campaign.scheduled_at) > now
             start_at = as_utc(campaign.scheduled_at) if later else now
             allocator = SenderAllocator(active)
-            # Variants go to queued recipients in turn; otherwise every lead gets the template.
-            bodies = campaign.message_variants or [template.body]
+            # The chain as it is now: editing the sequence later changes only campaigns
+            # started after the edit.
+            campaign.followup_snapshot = {}
+            if campaign.followup_sequence_id:
+                sequence = session.get(FollowUpSequence, campaign.followup_sequence_id)
+                if sequence is None or not sequence.enabled or not sequence.steps:
+                    raise UserError("Цепочка follow-up выключена или удалена.")
+                campaign.followup_snapshot = sequence_snapshot(sequence)
+            # A random variant for each queued recipient, never one of the last two used;
+            # otherwise every lead gets the template.
+            picker = VariantPicker(campaign.message_variants or [template.body], self.rng)
             queued = skipped = 0
             recipients = session.scalars(
                 select(CampaignRecipient)
@@ -508,9 +739,9 @@ class CampaignService:
                     skipped += 1
                     continue
                 lead = session.get(Lead, recipient.lead_id)
+                variant = picker.pick()
                 rendered = self.renderer.render(
-                    bodies[queued % len(bodies)],
-                    lead_variables(lead, session.get(LeadScoutProfile, lead.id)),
+                    variant, lead_variables(lead, session.get(LeadScoutProfile, lead.id))
                 )
                 if not rendered.valid:
                     skip_recipient(
@@ -518,6 +749,7 @@ class CampaignService:
                     )
                     skipped += 1
                     continue
+                picker.used(variant)
                 sender = allocator.allocate(session, lead.id, campaign.sender_ids)
                 recipient.status, recipient.queued_at = "queued", now
                 recipient.sender_account_id = sender
@@ -530,6 +762,8 @@ class CampaignService:
                         sender_account_id=sender,
                         scheduled_at=start_at,
                         status="pending" if later else "ready",
+                        variant=variant,
+                        body=rendered.text,
                     )
                 )
                 events.emit(
@@ -717,49 +951,19 @@ class CampaignService:
     # ---------- CRM: replies, stop, do-not-contact ----------
 
     def mark_replied(self, params: dict) -> dict:
-        """A reply received on a lead's conversation (marked by hand until inbox reading
-        exists): conversation → replied, inbound message saved, campaign reply counted,
-        pending follow-ups cancelled."""
+        """A reply marked by hand on a lead's conversation: conversation → replied,
+        inbound message saved, campaign reply counted, the chains stopped."""
         lead_id = int(params["lead_id"])
         body = str(params.get("body", ""))[:4000]
-        now = utcnow()
         with self.sessions.begin() as session:
-            conversations = session.scalars(
+            conversation = session.scalars(
                 select(Conversation)
                 .where(Conversation.lead_id == lead_id)
                 .order_by(Conversation.last_outbound_at.desc())
-            ).all()
-            if not conversations:
+            ).first()
+            if conversation is None:
                 raise UserError("Этому лиду ещё не писали.")
-            conversation = conversations[0]
-            conversation.status, conversation.last_inbound_at = "replied", now
-            session.add(
-                Message(
-                    conversation_id=conversation.id,
-                    direction="inbound",
-                    type="reply",
-                    body=body,
-                    sent_at=now,
-                )
-            )
-            cancelled = sum(self.followups.cancel(session, row.id) for row in conversations)
-            recipients = session.scalars(
-                select(CampaignRecipient).where(
-                    CampaignRecipient.lead_id == lead_id,
-                    CampaignRecipient.status == "sent",
-                    CampaignRecipient.replied_at.is_(None),
-                )
-            ).all()
-            for recipient in recipients:
-                recipient.replied_at = now
-                events.emit(
-                    session,
-                    recipient.campaign_id,
-                    "recipient:replied",
-                    recipient_id=recipient.id,
-                    username=recipient.username,
-                )
-                refresh_counts(session, session.get(OutreachCampaign, recipient.campaign_id))
+            cancelled = record_reply(session, conversation, [body], utcnow(), self.followups)
             return {"ok": True, "followups_cancelled": cancelled}
 
     def stop_conversation(self, params: dict) -> dict:
@@ -773,7 +977,7 @@ class CampaignService:
                 raise UserError("С этим лидом нет диалога.")
             for row in rows:
                 row.status = "stopped"
-                self.followups.cancel(session, row.id, "CONVERSATION_STOPPED")
+                self.followups.cancel(session, row.id, reasons.CONVERSATION_STOPPED)
         return {"ok": True}
 
     def set_do_not_contact(self, params: dict) -> dict:
@@ -823,11 +1027,18 @@ class CampaignService:
                     .limit(20)
                 )
             ]
-        followups = session.scalar(
-            select(func.count())
-            .select_from(FollowUpJob)
-            .join(Conversation, Conversation.id == FollowUpJob.conversation_id)
-            .where(Conversation.lead_id == lead.id, FollowUpJob.status == "pending")
+        chain = session.execute(
+            select(FollowUpRun, Conversation)
+            .join(Conversation, Conversation.id == FollowUpRun.conversation_id)
+            .where(Conversation.lead_id == lead.id)
+            .order_by(FollowUpRun.id.desc())
+            .limit(1)
+        ).first()
+        followup = run_dict(session, chain[0], chain[1], lead, names) if chain else None
+        followups = (
+            max(followup["total"] - followup["step"], 0)
+            if followup and followup["status"] in RUN_OPEN
+            else 0
         )
         return {
             "do_not_contact": lead.do_not_contact,
@@ -848,6 +1059,7 @@ class CampaignService:
                 else None
             ),
             "pending_followups": followups,
+            "followup": followup,
             "messages": history,
         }
 
