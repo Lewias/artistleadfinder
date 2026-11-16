@@ -1,6 +1,6 @@
 """«Автоведение»: the app keeps «Рассылка» and the parser going by itself.
 
-Turned on through the assistant (a proposal the user confirms). Every five minutes, with
+Turned on by the assistant at the user's request. Every five minutes, with
 the shell's round: the outreach limits are kept as configured; «Рассылка» starts when the
 list has new usernames and nothing is being sent (senders with the fewest messages in the
 last 24 hours go first); the parser starts on its account, at most once an hour, while the

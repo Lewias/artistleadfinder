@@ -98,6 +98,45 @@ def test_sends_through_the_message_button(browser):
     page.close()
 
 
+@pytest.mark.parametrize("text", ["Привет, подскажите\nесть ли доставка? 🔥", "hey"])
+def test_editor_focus_loss_does_not_drop_text_or_type_into_another_field(browser, text):
+    page = profile_page(browser, "jaycarter", FOLLOW + MESSAGE)
+    page.evaluate("""() => {
+      const other = document.createElement('input');
+      other.id = 'distraction';
+      document.body.appendChild(other);
+      document.addEventListener('input', event => {
+        if (event.target.matches('[contenteditable]') && event.target.innerText.length === 3) {
+          window.focusLosses = (window.focusLosses || 0) + 1;
+          other.focus();
+        }
+      });
+    }""")
+    result = send_direct(page, "jaycarter", text)
+    assert result["outcome"] == "sent"
+    assert page.evaluate("window.focusLosses") == 1
+    assert page.evaluate("window.sent") == [text]
+    assert page.locator('#distraction').input_value() == ""
+    page.close()
+
+
+def test_persistent_editor_mismatch_sends_nothing_and_clears_draft(browser):
+    page = profile_page(browser, "jaycarter", FOLLOW + MESSAGE)
+    page.evaluate("""() => {
+      document.addEventListener('beforeinput', event => {
+        if (event.target.matches('[contenteditable]') && event.data === 'x')
+          event.preventDefault();
+      });
+    }""")
+    result = send_direct(page, "jaycarter", "text")
+    assert result == {
+        "outcome": "error", "error": "typing_mismatch", "expected_length": 4, "actual_length": 3
+    }
+    assert page.evaluate("window.sent") is None
+    assert page.locator('[role=textbox]').inner_text().strip() == ""
+    page.close()
+
+
 def test_someone_already_in_direct_is_not_written_to(browser):
     page = profile_page(browser, "jaycarter", MESSAGE, history=True)
     assert send_direct(page, "jaycarter", "Yo Jay")["error"] == "existing_thread"

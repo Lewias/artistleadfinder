@@ -180,12 +180,31 @@ export const pages = [
     channel: 'email',
   },
   {
+    id: 'threads',
+    label: 'Публикации',
+    eyebrow: 'THREADS',
+    title: 'Публикации Threads',
+    description:
+      'Текстовые посты, черновики, очередь и расписание. Посты выходят, пока программа запущена — в том числе свёрнутая в трей.',
+    placement: 'main',
+    channel: 'threads',
+  },
+  {
+    id: 'threads-accounts',
+    label: 'Аккаунты',
+    eyebrow: 'THREADS',
+    title: 'Аккаунты Threads',
+    description: 'Браузерные профили, сессии и прокси.',
+    placement: 'main',
+    channel: 'threads',
+  },
+  {
     id: 'assistant',
     label: 'Ассистент',
     eyebrow: 'ИИ',
     title: 'Ассистент',
     description:
-      'Ассистент видит CRM, переписку iMessage и данные приложения, ведёт статусы, готовит ответы и предлагает действия. Отправляете и выполняете вы — своей кнопкой.',
+      'Ассистент видит CRM, переписку iMessage и данные приложения, выполняет ваши команды и готовит ответы. Действия iMessage требуют вашего подтверждения.',
     placement: 'footer',
     channel: 'instagram',
   },
@@ -214,4 +233,5 @@ export const channels: { id: Channel; label: string; section: string }[] = [
   { id: 'instagram', label: 'Instagram', section: 'INSTAGRAM' },
   { id: 'imessage', label: 'iMessage', section: 'IMESSAGE' },
   { id: 'email', label: 'Email', section: 'EMAIL' },
+  { id: 'threads', label: 'Threads', section: 'THREADS' },
 ];

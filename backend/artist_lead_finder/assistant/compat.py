@@ -12,6 +12,7 @@ import json
 import ssl
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Callable
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -201,10 +202,18 @@ def http_post(url: str, headers: dict, body: bytes, timeout: float) -> str:
 class CompatClient:
     """The slice of the Anthropic client the assistant uses, over chat completions."""
 
-    def __init__(self, base_url: str, key: str, transport: Transport | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        key: str,
+        transport: Transport | None = None,
+        *,
+        session_id: str | None = None,
+    ):
         self.url = endpoint(base_url)
         self.key = key
         self.transport = transport or http_post
+        self.session_id = session_id or f"ses_alf_{uuid.uuid4().hex}"
         self.messages = SimpleNamespace(create=self.create)
         self.beta = SimpleNamespace(messages=SimpleNamespace(create=self.create))
 
@@ -225,9 +234,14 @@ class CompatClient:
         }
         if tools:
             request["tools"] = to_functions(tools)
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "ArtistLeadFinder/0.12.3",
+        }
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
+        if host_name(self.url).lower() == "opencode.ai":
+            headers["x-opencode-session"] = self.session_id
         if "openrouter.ai" in self.url:
             headers["X-Title"] = "Artist Lead Finder"
         body = json.dumps(request, ensure_ascii=False).encode("utf-8")

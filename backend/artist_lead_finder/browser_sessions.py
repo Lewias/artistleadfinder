@@ -9,7 +9,9 @@ from pathlib import Path
 from .secret_box import protect
 
 
-def parse_cookies(text: str) -> list[dict]:
+def parse_cookies(
+    text: str, *, domains: tuple[str, ...] = ("instagram.com",), allow_empty: bool = False
+) -> list[dict]:
     if len(text.encode("utf-8")) > 1_000_000:
         raise ValueError("Cookie file too large")
     if text.lstrip().startswith(("[", "{")):
@@ -46,7 +48,7 @@ def parse_cookies(text: str) -> list[dict]:
             raise ValueError("Invalid cookie entry")
         domain = str(row.get("domain", "")).lower()
         host = domain.lstrip(".")
-        if host != "instagram.com" and not host.endswith(".instagram.com"):
+        if not any(host == allowed or host.endswith("." + allowed) for allowed in domains):
             continue
         name, value = row.get("name"), row.get("value")
         path = row.get("path", "/")
@@ -77,7 +79,7 @@ def parse_cookies(text: str) -> list[dict]:
             sameSite=row.get("sameSite", "Lax"),
             expires=expires,
         )
-    if not result:
+    if not result and not allow_empty:
         raise ValueError("No unexpired Instagram cookies")
     return list(result.values())
 
@@ -202,7 +204,15 @@ class BrowserSessions:
             return self.read(identifier)
         if method == "browser.save_internal":
             record = self.read(identifier)
-            record["cookies"] = parse_cookies(json.dumps(params["cookies"]))
+            record["cookies"] = parse_cookies(
+                json.dumps(params["cookies"]), allow_empty="threads_cookies" in params
+            )
+            if "threads_cookies" in params:
+                record["threads_cookies"] = parse_cookies(
+                    json.dumps(params["threads_cookies"]),
+                    domains=("threads.com", "threads.net"),
+                    allow_empty=True,
+                )
             self.write(identifier, record)
             return {"ok": True}
         if method == "browser.delete":

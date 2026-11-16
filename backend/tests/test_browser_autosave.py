@@ -2,6 +2,7 @@ from artist_lead_finder.chromium_runtime import GUEST_ID, ChromiumRuntime, Windo
 
 PROFILE = "a" * 32
 COOKIES = [{"name": "sessionid", "value": "x", "domain": ".instagram.com", "path": "/"}]
+THREADS_COOKIES = [{"name": "sessionid", "value": "t", "domain": ".threads.com", "path": "/"}]
 
 
 class FakeBrowser:
@@ -23,7 +24,7 @@ class FakeContext:
     def cookies(self, url):
         if self.fail:
             raise RuntimeError("Target closed")
-        return COOKIES
+        return THREADS_COOKIES if isinstance(url, list) else COOKIES
 
 
 class FakePage:
@@ -57,7 +58,9 @@ def runtime_with(identifier, **window):
 def test_closed_window_saves_session_then_closes_browser():
     runtime, sessions, browser = runtime_with(PROFILE)
     assert runtime.is_open(PROFILE) is False
-    assert sessions.saved == [{"id": PROFILE, "cookies": COOKIES}]
+    assert sessions.saved == [
+        {"id": PROFILE, "cookies": COOKIES, "threads_cookies": THREADS_COOKIES}
+    ]
     assert browser.closed and PROFILE not in runtime.windows
 
 
@@ -66,7 +69,10 @@ def test_open_window_is_not_saved_and_app_exit_saves():
     assert runtime.is_open(PROFILE) is True
     assert sessions.saved == []
     runtime.shutdown()
-    assert sessions.saved == [{"id": PROFILE, "cookies": COOKIES}] and browser.closed
+    assert (
+        sessions.saved == [{"id": PROFILE, "cookies": COOKIES, "threads_cookies": THREADS_COOKIES}]
+        and browser.closed
+    )
 
 
 def test_guest_disconnected_and_failures_do_not_save():

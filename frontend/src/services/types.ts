@@ -862,6 +862,7 @@ export interface AssistantProvider {
   strong: string;
   anthropic_key: boolean;
   compatible_key: boolean;
+  shared_key_available?: boolean;
 }
 export interface AssistantState {
   configured: boolean;
@@ -1212,4 +1213,56 @@ export interface WarmupState {
   detect: { running: boolean; done: number; total: number; found: number };
   hours: { zone: string; start: number; end: number; open_now: boolean };
   limits: { start: number; step: number; max: number };
+}
+
+export type ThreadsPostStatus =
+  'draft' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'review' | 'cancelled' | 'missed';
+export interface ThreadsAccount {
+  id: number;
+  username: string;
+  name: string;
+  status: 'active' | 'reauth' | 'disconnected';
+  status_label: string;
+  reason: string;
+  paused: boolean;
+  /** Daily posting times on the computer's clock, "HH:MM". */
+  slots: string[];
+  expires_at: string | null;
+  expiring: boolean;
+  connected_at: string;
+  auth_mode: 'api' | 'browser';
+  browser_profile_id: string | null;
+}
+export interface ThreadsPost {
+  id: number;
+  account_id: number | null;
+  text: string;
+  status: ThreadsPostStatus;
+  status_label: string;
+  scheduled_at: string | null;
+  slot: boolean;
+  attempts: number;
+  next_attempt_at: string | null;
+  permalink: string | null;
+  published_at: string | null;
+  error: string;
+  updated_at: string;
+  manual: boolean;
+}
+export interface ThreadsState {
+  accounts: ThreadsAccount[];
+  browser_profiles: BrowserProfile[];
+  browser_auth: { profile_id: string; status: 'waiting' | 'done' | 'error'; message: string } | null;
+  posts: ThreadsPost[];
+  paused: boolean;
+  zone: { name: string; offset_minutes: number };
+  today: string;
+}
+export interface BackgroundSettings {
+  close_to_tray: boolean;
+  start_in_tray: boolean;
+  notifications: boolean;
+  keep_awake: boolean;
+  autostart: boolean;
+  autostart_supported: boolean;
 }

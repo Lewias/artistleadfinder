@@ -10,12 +10,15 @@ lengths are logged, never the message text.
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 log = logging.getLogger("artist_lead_finder.outreach")
 
 READ_INPUT = """el => (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')
   ? el.value : (el.innerText ?? el.textContent ?? '')"""
+HAS_FOCUS = "el => el === document.activeElement || el.contains(document.activeElement)"
+VERIFY_INTERVAL_MS = 100
+VERIFY_READS = 4
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,14 @@ def read_message_input_text(input) -> str:
     return str(input.evaluate(READ_INPUT) or "")
 
 
+def focus_message_input(input) -> None:
+    # The editor can lose focus during a React update. Keep appending to this box,
+    # rather than sending the remaining keystrokes to the page or another control.
+    if not input.evaluate(HAS_FOCUS):
+        input.focus(timeout=5000)
+        input.press("ControlOrMeta+End", timeout=5000)
+
+
 def verify_typed_message(expected: str, actual: str) -> None:
     if comparable(actual) != comparable(expected):
         raise MessageTypingMismatch(len(expected), len(normalize_message_text(actual)))
@@ -104,15 +115,20 @@ class MessageTyper:
         for attempt in range(options.retries + 1):
             clear_input(page, input)
             log.debug("message_typer_started", extra={"characters": len(message)})
-            self._type(page, input, message, options, cancelled)
+            typing = replace(options, delay_ms=max(options.delay_ms, 30)) if attempt else options
+            self._type(page, input, message, typing, cancelled)
             try:
-                verify_typed_message(message, read_message_input_text(input))
+                self._verify(page, input, message, cancelled)
             except MessageTypingMismatch as error:
                 log.info(
                     "message_typer_mismatch",
                     extra={
                         "expected_length": error.expected_length,
                         "actual_length": error.actual_length,
+                        "detail": (
+                            f"attempt={attempt + 1} expected={error.expected_length} "
+                            f"actual={error.actual_length}"
+                        ),
                     },
                 )
                 clear_input(page, input)
@@ -122,12 +138,28 @@ class MessageTyper:
             log.debug("message_typer_verified", extra={"characters": len(message)})
             return
 
+    def _verify(self, page, input, message, cancelled) -> None:
+        # Read again before clearing/retyping: controlled editors may commit the
+        # final input on a later browser turn. A persistent mismatch still fails.
+        for read in range(VERIFY_READS):
+            if cancelled():
+                clear_input(page, input)
+                raise MessageTypingCancelled()
+            try:
+                verify_typed_message(message, read_message_input_text(input))
+                return
+            except MessageTypingMismatch:
+                if read == VERIFY_READS - 1:
+                    raise
+                self.sleep(page, VERIFY_INTERVAL_MS)
+
     def _type(self, page, input, message, options, cancelled) -> None:
         # Array.from-like: one code point at a time, so emoji are never split in half.
         for char in message:
             if cancelled():
                 clear_input(page, input)
                 raise MessageTypingCancelled()
+            focus_message_input(input)
             if char == "\n":
                 type_newline(page)
             else:

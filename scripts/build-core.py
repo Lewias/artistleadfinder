@@ -53,6 +53,13 @@ def main() -> None:
     # Codex's Python loads this file when constructing every SSLContext, before
     # certifi is used. PyInstaller does not discover it as a dependency of ssl.py.
     ssl_support = Path(ssl.__file__).with_name("codex-rejected-cas.pem")
+    # Private packaging input, ignored by Git. Never print its contents.
+    private = ROOT / "build/private"
+    bundled = private / "alf_bundled_provider.py"
+    shared_key = os.environ.get("ALF_BUNDLED_OPENCODE_KEY", "").strip()
+    if shared_key:
+        private.mkdir(parents=True, exist_ok=True)
+        bundled.write_text("OPENCODE_KEY = " + repr(shared_key) + "\n", encoding="utf-8")
     subprocess.run(
         [
             sys.executable,
@@ -65,6 +72,8 @@ def main() -> None:
             name,
             "--paths",
             "backend",
+            *(["--paths", str(private), "--hidden-import", "alf_bundled_provider"]
+              if bundled.is_file() else []),
             *(
                 ["--add-data", str(ssl_support) + os.pathsep + "."]
                 if ssl_support.is_file()

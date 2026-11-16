@@ -247,6 +247,23 @@ def test_uncertain_sends_and_restrictions_stop_without_retry(context, outcome):
     assert sum(name == "shop0" for _, name, _ in browser.sent) == 1
 
 
+def test_typing_failure_keeps_counts_in_history_and_never_resends(context):
+    service, browser, _, _ = context
+    browser.outcomes["shop0"] = {
+        "outcome": "error", "error": "typing_mismatch", "expected_length": 66, "actual_length": 12
+    }
+    service.start({"profile_id": ACCOUNT})
+    run = finish(context)
+    assert run["status"] == "failed" and run["sent"] == 0
+    assert "набрано 12 из 66 символов" in run["events"][-1]["text"]
+    assert "сообщение не отправлено" in run["events"][-1]["text"]
+    detail = service.detail({"id": run["id"]})
+    assert detail["events"][-1] == run["events"][-1]
+    service.start({"profile_id": ACCOUNT})
+    finish(context)
+    assert sum(name == "shop0" for _, name, _ in browser.sent) == 1
+
+
 def test_filters_and_exhausted_search_report_partial_results(context):
     service, browser, _, _ = context
     browser.candidates = ["big", "private", "english", "good"]

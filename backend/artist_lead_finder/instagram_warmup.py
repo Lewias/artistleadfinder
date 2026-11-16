@@ -395,6 +395,17 @@ class InstagramWarmup:
                     self._event(run, "Сообщение отправлено", run["current"], "done")
                 else:
                     error = result.get("error", "unconfirmed")
+                    if error == "typing_mismatch":
+                        counts = ""
+                        expected = result.get("expected_length")
+                        actual = result.get("actual_length")
+                        if type(expected) is int and type(actual) is int:
+                            counts = f" (набрано {actual} из {expected} символов)"
+                        raise UserError(
+                            "Текст в поле сообщения не совпал с подготовленным"
+                            + counts
+                            + ". Прогрев остановлен, сообщение не отправлено."
+                        )
                     self._event(
                         run, "Сообщение пропущено: " + str(error), run["current"], "skipped"
                     )

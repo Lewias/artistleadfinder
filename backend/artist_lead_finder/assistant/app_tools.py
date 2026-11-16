@@ -1,12 +1,11 @@
 """The assistant's tools over the rest of the app.
 
-Reading (the artist base, statistics, search history, iMessage campaigns, accounts)
-runs at once. Actions (adding to a mailing list, a new CRM contact) are only proposed:
-each waits in the interface until the user presses «Выполнить», and runs with the app's
-own checks then. Nothing here touches keys or proxies. Running Instagram (Direct,
-«Рассылка», the parser, settings) is in `operator_tools`, proposed the same way.
+Actions run immediately through the app's own checks. iMessage workflows keep their
+confirmation in the interface. Every attempt is recorded with its result. Tool names
+retain the propose_ prefix for compatibility with stored conversations.
 """
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +15,7 @@ from ..errors import UserError
 from ..models import AssistantAction, utcnow
 
 MAX_RESULT = 30_000
+log = logging.getLogger(__name__)
 LEAD_STATUSES = ["", "new", "reviewed", "qualified", "rejected", "contacted"]
 
 
@@ -95,8 +95,8 @@ APP_TOOLS = [
     },
     {
         "name": "propose_instagram_list_add",
-        "description": "Предложить добавить usernames Instagram в список «Рассылки» приложения "
-        "(ничего не отправляет). Выполнится после «Выполнить».",
+        "description": "Сразу добавить usernames Instagram в список «Рассылки» приложения "
+        "(само добавление ничего не отправляет). Подтверждение не требуется.",
         "strict": True,
         "input_schema": _schema(
             {
@@ -119,9 +119,8 @@ APP_TOOLS = [
     },
     {
         "name": "propose_crm_contact",
-        "description": "Предложить новый контакт в CRM (instagram или imessage) с каналами: "
-        "kind instagram (username), phone (с + и кодом страны), email. Создастся после "
-        "«Выполнить».",
+        "description": "Сразу создать контакт в CRM (instagram или imessage) с каналами: "
+        "kind instagram (username), phone (с + и кодом страны), email. Ничего не отправляет.",
         "strict": True,
         "input_schema": _schema(
             {
@@ -147,9 +146,9 @@ APP_LABELS = {
     "search_history": "Смотрю историю поисков",
     "imessage_campaigns": "Смотрю рассылки iMessage",
     "accounts": "Смотрю аккаунты",
-    "propose_instagram_list_add": "Предлагаю пополнить список рассылки",
+    "propose_instagram_list_add": "Пополняю список рассылки",
     "propose_imessage_list_add": "Предлагаю пополнить список iMessage",
-    "propose_crm_contact": "Предлагаю новый контакт",
+    "propose_crm_contact": "Создаю контакт",
 }
 
 
@@ -200,19 +199,43 @@ class AppTools:
             {key: value for key, value in item.items() if key != "id"} for item in self._profiles()
         ]
 
-    # ---------- proposals ----------
+    # ---------- actions and iMessage confirmations ----------
+
+    @staticmethod
+    def _requires_confirmation(kind: str, params: dict) -> bool:
+        if kind.startswith("imessage_"):
+            return True
+        if kind == "app_call":
+            method = str(params.get("method") or "")
+            return method.startswith("imessage.") or (
+                method == "crm.write" and params.get("params", {}).get("crm") == "imessage"
+            )
+        return False
+
+    def _discard_legacy_actions(self) -> None:
+        # Old proposals were never executed. Do not run stale commands on upgrade.
+        with self.sessions.begin() as session:
+            for action in session.scalars(
+                select(AssistantAction).where(AssistantAction.status == "pending")
+            ):
+                if not self._requires_confirmation(action.kind, action.params):
+                    action.status, action.done_at = "rejected", utcnow()
+                    action.result = "Старый запрос не выполнялся; повторите команду в чате."
 
     def _propose(self, kind: str, params: dict, summary: str) -> dict:
-        with self.sessions.begin() as session:
-            action = AssistantAction(kind=kind, params=params, summary=summary[:500])
-            session.add(action)
-            session.flush()
-            action_id = action.id
-        return {
-            "action_id": action_id,
-            "status": "ждёт, пока пользователь нажмёт «Выполнить»",
-            "summary": summary,
-        }
+        with self.action_lock:
+            with self.sessions.begin() as session:
+                action = AssistantAction(kind=kind, params=params, summary=summary[:500])
+                session.add(action)
+                session.flush()
+                action_id = action.id
+            if self._requires_confirmation(kind, params):
+                return {
+                    "action_id": action_id,
+                    "status": "ждёт, пока пользователь нажмёт «Выполнить»",
+                    "summary": summary,
+                }
+            return self._run_action(action_id)
 
     def tool_propose_instagram_list_add(self, params: dict) -> dict:
         from ..outreach.workspace import normalize_username
@@ -292,22 +315,33 @@ class AppTools:
             return f"Контакт «{contact['name']}» создан в CRM."
         raise UserError("Неизвестное действие.")
 
-    def action_run(self, params: dict) -> dict:
+    def _run_action(self, action_id: int) -> dict:
         with self.sessions() as session:
-            action = session.get(AssistantAction, int(params.get("id") or 0))
+            action = session.get(AssistantAction, action_id)
         if action is None or action.status != "pending":
             raise UserError("Это действие уже выполнено или отклонено.")
         try:
             result, status = self._execute(action), "done"
         except (UserError, ToolError) as error:
             result, status = str(error), "failed"
+        except Exception as error:
+            log.warning("assistant_action_failed", extra={"error_type": type(error).__name__})
+            result, status = "Действие не выполнено из-за внутренней ошибки.", "failed"
         with self.sessions.begin() as session:
             row = session.get(AssistantAction, action.id)
             row.status, row.result, row.done_at = status, result[:500], utcnow()
+        return {
+            "action_id": action.id, "status": status, "summary": action.summary,
+            "result": result[:500],
+        }
+
+    def action_run(self, params: dict) -> dict:
+        with self.action_lock:
+            self._run_action(int(params.get("id") or 0))
         return self.state({})
 
     def action_reject(self, params: dict) -> dict:
-        with self.sessions.begin() as session:
+        with self.action_lock, self.sessions.begin() as session:
             action = session.get(AssistantAction, int(params.get("id") or 0))
             if action is None or action.status != "pending":
                 raise UserError("Это действие уже выполнено или отклонено.")

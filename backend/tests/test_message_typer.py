@@ -1,6 +1,7 @@
 import pytest
 
 from artist_lead_finder.message_typer import (
+    HAS_FOCUS,
     MessageTyper,
     MessageTypingCancelled,
     MessageTypingMismatch,
@@ -55,6 +56,8 @@ class Box:
         pass
 
     def evaluate(self, script):
+        if script == HAS_FOCUS:
+            return True
         return self.text
 
 
@@ -159,3 +162,31 @@ def test_the_pause_between_characters_is_fixed():
         Page(box), box, "a, b.", MessageTypingOptions(delay_ms=12)
     )
     assert pauses == [12] * 5
+
+
+def test_editor_commit_is_awaited_without_retyping():
+    class DelayedBox(Box):
+        reads = 0
+
+        def evaluate(self, script):
+            if script == HAS_FOCUS:
+                return True
+            self.reads += 1
+            return "" if self.reads < 3 else self.text
+
+    box, pauses = DelayedBox(), []
+    page = Page(box)
+    MessageTyper(sleep=lambda page, ms: pauses.append(ms)).type_message(page, box, "hello")
+    assert box.text == "hello" and not box.sent
+    assert page.keyboard.calls.count(("press", "Delete")) == 1
+    assert pauses[-2:] == [100, 100]
+
+
+def test_retyping_is_slower_and_still_does_not_send():
+    box, pauses = Box(), []
+    with pytest.raises(MessageTypingMismatch):
+        MessageTyper(sleep=lambda page, ms: pauses.append(ms)).type_message(
+            Page(box, drop="y"), box, "hey"
+        )
+    assert pauses == [10] * 3 + [100] * 3 + [30] * 3 + [100] * 3
+    assert box.text == "" and not box.sent

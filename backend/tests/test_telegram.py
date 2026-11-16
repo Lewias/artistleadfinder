@@ -136,7 +136,7 @@ def test_a_question_from_telegram_is_answered_by_the_assistant(server, make):
     assert app.bridge.run_once() == 0
 
 
-def test_drafts_and_proposals_wait_for_the_button_in_the_app(server, make):
+def test_imessage_drafts_wait_but_crm_actions_run_without_the_button(server, make):
     app = make(
         script=[
             reply(
@@ -149,24 +149,24 @@ def test_drafts_and_proposals_wait_for_the_button_in_the_app(server, make):
                     notes="",
                 ),
             ),
-            reply(text("Подготовил ответ Jay и предложил контакт."), stop="end_turn"),
+            reply(text("Подготовил ответ Jay и создал контакт Lil Test."), stop="end_turn"),
         ]
     )
     app.link()
     request = server.tg_ask(app.user, "ответь Jay и заведи Lil Test")
     app.bridge.run_once()
     answer = request["answer"]
-    assert answer.startswith("Подготовил ответ Jay и предложил контакт.")
+    assert answer.startswith("Подготовил ответ Jay и создал контакт Lil Test.")
     assert f"✉️ Черновик для Jay ({JAY}):\nyo want the pack" in answer
     assert "Черновики не отправлены" in answer
-    assert "«Выполнить»" in answer and "Lil Test" in answer
-    # Nothing went out and nothing was created: both wait in the app.
+    assert "«Выполнить»" not in answer and "Lil Test" in answer
+    # The contact is created at once; the iMessage draft remains unsent.
     state = app.runtime.call("assistant.state", {})
     assert [draft["text"] for draft in state["drafts"]] == ["yo want the pack"]
-    assert [action["status"] for action in state["actions"]] == ["pending"]
+    assert [action["status"] for action in state["actions"]] == ["done"]
     service = app.runtime.service
     assert not service.imessage.state()["workspace"]["recipients"]
-    assert not service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
+    assert service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
 
 
 def test_new_chat_and_a_failed_run_are_reported(server, make):

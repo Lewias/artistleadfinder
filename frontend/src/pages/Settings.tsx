@@ -10,6 +10,7 @@ import { PageHeader } from '../components/PageHeader';
 import { UpdatesPanel } from '../components/UpdateNotice';
 import { MemoryReset } from '../components/MemoryReset';
 import { AssistantSettings } from '../components/assistant/AssistantSettings';
+import { BackgroundSettings } from '../components/BackgroundSettings';
 import type { useUpdater } from '../hooks/useUpdater';
 
 type Updater = ReturnType<typeof useUpdater> & { version?: string };
@@ -30,6 +31,7 @@ export function Settings({ updater }: { updater: Updater }) {
       <>
         <PageHeader page="settings" />
         <UpdatesPanel {...updater} />
+        <BackgroundSettings />
         <DataState {...resource} retry={resource.refresh} />
       </>
     );
@@ -70,6 +72,7 @@ function SettingsForm({
     <div className="settings-page">
       <PageHeader page="settings" />
       <UpdatesPanel {...updater} />
+      <BackgroundSettings />
       <AssistantSettings />
       <form onSubmit={event => void submit(event)} className="settings-layout">
         <section className="panel">

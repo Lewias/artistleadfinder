@@ -10,10 +10,17 @@ import { errorText } from '../../lib/errors';
 import { TelegramPanel } from './TelegramPanel';
 
 const onMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+const OPENCODE_GO_URL = 'https://opencode.ai/inference/go/openai/v1';
 
 /** OpenAI-compatible endpoints people use most; «Свой адрес» takes any other. */
 const PRESETS = [
+  { label: 'OpenCode Go — подписка', url: OPENCODE_GO_URL, model: 'claude-haiku-5-5' },
   { label: 'OpenRouter — любые модели', url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-5-mini' },
+  {
+    label: 'OpenCode — оплата за использование',
+    url: 'https://opencode.ai/inference/openai/v1',
+    model: 'claude-haiku-5-5',
+  },
   { label: 'OpenAI', url: 'https://api.openai.com/v1', model: 'gpt-5-mini' },
   { label: 'DeepSeek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
   {
@@ -32,14 +39,18 @@ const ANTHROPIC_STRONG = 'claude-sonnet-5-5';
 /** Provider, address, key and the two models. A saved key is never shown back; an empty
  * key field keeps it. */
 export function ModelForm({ provider, onSaved }: { provider?: AssistantProvider; onSaved: () => void }) {
-  const [kind, setKind] = useState<AssistantProvider['provider']>(provider?.provider || 'anthropic');
+  const [kind, setKind] = useState<AssistantProvider['provider']>(provider?.provider || 'compatible');
   const [baseUrl, setBaseUrl] = useState(provider?.base_url || PRESETS[0].url);
   const [main, setMain] = useState(provider?.main || ANTHROPIC_MAIN);
-  const [strong, setStrong] = useState(provider?.strong ?? ANTHROPIC_STRONG);
+  const [strong, setStrong] = useState(provider?.strong ?? '');
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const preset = PRESETS.find(item => item.url === baseUrl);
+  const shared =
+    kind === 'compatible' &&
+    baseUrl.replace(/\/+$/, '') === OPENCODE_GO_URL &&
+    provider?.shared_key_available;
   const hasKey = kind === 'anthropic' ? provider?.anthropic_key : provider?.compatible_key;
   const switchKind = (next: AssistantProvider['provider']) => {
     setKind(next);
@@ -96,7 +107,9 @@ export function ModelForm({ provider, onSaved }: { provider?: AssistantProvider;
       <p className="helper">
         {kind === 'anthropic'
           ? 'Ключ с console.anthropic.com (раздел API Keys). Модель можно вписать любую из Claude.'
-          : 'OpenRouter даёт доступ почти ко всем моделям по одному ключу. Подойдёт любой сервис с API в формате OpenAI, в том числе локальная модель — ей ключ не нужен. Модель должна уметь вызывать инструменты (tool calling).'}
+          : baseUrl === OPENCODE_GO_URL
+            ? 'Ключ OpenCode из пространства с активной подпиской Go. Модель должна входить в подписку; дополнительную модель можно оставить пустой.'
+            : 'OpenRouter даёт доступ почти ко всем моделям по одному ключу. Подойдёт любой сервис с API в формате OpenAI, в том числе локальная модель — ей ключ не нужен. Модель должна уметь вызывать инструменты (tool calling).'}
       </p>
       <div className="assistant-model-grid">
         {kind === 'compatible' && (
@@ -118,6 +131,7 @@ export function ModelForm({ provider, onSaved }: { provider?: AssistantProvider;
                   }
                   setBaseUrl(next.url);
                   if (next.model) setMain(next.model);
+                  if (next.url === OPENCODE_GO_URL) setStrong('');
                 }}
               />
             </label>
@@ -145,22 +159,28 @@ export function ModelForm({ provider, onSaved }: { provider?: AssistantProvider;
             onChange={event => setStrong(event.target.value)}
           />
         </label>
-        <label className="assistant-model-key">
-          Ключ API
-          <input
-            type="password"
-            value={key}
-            autoComplete="off"
-            placeholder={
-              hasKey
-                ? 'Сохранён — оставьте пустым, чтобы не менять'
-                : kind === 'anthropic'
-                  ? 'sk-ant-…'
-                  : 'Ключ сервиса (локальной модели не нужен)'
-            }
-            onChange={event => setKey(event.target.value)}
-          />
-        </label>
+        {shared ? (
+          <p className="helper assistant-model-key">
+            Общее подключение OpenCode Go. Ключ уже встроен — вводить его не нужно.
+          </p>
+        ) : (
+          <label className="assistant-model-key">
+            Ключ API
+            <input
+              type="password"
+              value={key}
+              autoComplete="off"
+              placeholder={
+                hasKey
+                  ? 'Сохранён — оставьте пустым, чтобы не менять'
+                  : kind === 'anthropic'
+                    ? 'sk-ant-…'
+                    : 'Ключ сервиса (локальной модели не нужен)'
+              }
+              onChange={event => setKey(event.target.value)}
+            />
+          </label>
+        )}
       </div>
       <div className="actions">
         <Button disabled={busy || !main.trim()} onClick={() => void save()}>

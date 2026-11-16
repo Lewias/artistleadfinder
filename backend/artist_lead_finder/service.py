@@ -65,6 +65,7 @@ from .scoring import ScoringWeights
 from .scouting import ScoutService
 from .spotify.client import SpotifyWeb
 from .spotify.service import SpotifyService
+from .threads.service import ThreadsService
 
 log = logging.getLogger(__name__)
 
@@ -173,7 +174,7 @@ DEFAULTS = {
 
 def system_info(data_dir: Path, log_dir: Path) -> dict:
     return {
-        "version": "0.12.2",
+        "version": "0.12.3",
         "data_dir": str(data_dir),
         "log_dir": str(log_dir),
         "transport": "stdio",
@@ -275,6 +276,13 @@ class ApplicationService:
         self.email = EmailService(sessions, self.crm.merge)
         self.crm.add_emails = self.email.add_values
         self.email.restore()
+        # «Threads → Публикации»: the publishing queue runs here, whatever the window does.
+        self.threads = ThreadsService(
+            sessions,
+            browser=self.chromium,
+            browser_profiles=lambda: self.browser_sessions.call("browser.list", {}),
+        )
+        self.threads.restore()
         self.imessage.prune()
         self.imessage.remove_orphan_files()
         self.imessage.restore()
@@ -298,6 +306,8 @@ class ApplicationService:
             return self.spotify.call(method, params)
         if method.startswith("email."):
             return self.email.call(method, params)
+        if method.startswith("threads."):
+            return self.threads.call(method, params)
         handler = self.handlers.get(method)
         if handler is None:
             if method.startswith("browser.runtime."):
@@ -322,6 +332,7 @@ class ApplicationService:
             "browser.runtime.close_idle": self.idle_closer.tick,
             "browser.runtime.close": lambda p: chromium.close(p["id"]),
             "browser.runtime.open": lambda p: chromium.open(p["id"], p.get("proxy_override")),
+            "browser.runtime.threads_open": lambda p: chromium.threads_open(p["id"]),
             "browser.runtime.save": lambda p: chromium.save(p["id"]),
             "browser.runtime.navigate": lambda p: chromium.navigate(p["id"], p["url"]),
             "browser.runtime.send_message": self._send_message,
@@ -738,6 +749,8 @@ class ApplicationService:
             }
         elif channel == "email":
             counts = {"email-crm": lambda: crm("email")}
+        elif channel == "threads":
+            counts = {"threads": self.threads.open_count}
         result: dict[str, int] = {}
         for page, count in counts.items():
             try:
@@ -1062,6 +1075,7 @@ class ApplicationService:
         self.assistant.stopping.set()
         self.spotify.shutdown()
         self.email.shutdown()
+        self.threads.shutdown()
         self.imessage.shutdown()
         self.chromium.shutdown()
         self.manager.shutdown()

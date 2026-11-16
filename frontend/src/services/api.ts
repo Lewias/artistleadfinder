@@ -1,10 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { BackgroundSettings } from './types';
 
 export interface ApplicationService {
   request<T>(method: string, params?: object): Promise<T>;
   browser<T>(action: BrowserAction, params?: object): Promise<T>;
   openProfile(address: string): Promise<void>;
   openLogs(): Promise<void>;
+  /** Sending paused from the tray: reads it, or pauses and resumes. */
+  automation(paused?: boolean): Promise<boolean>;
+  /** «Фоновая работа»: reads the settings, or changes the given ones. */
+  background(values?: Partial<BackgroundSettings>): Promise<BackgroundSettings>;
 }
 export type BrowserAction =
   | 'list'
@@ -13,6 +18,7 @@ export type BrowserAction =
   | 'import'
   | 'import_cookies'
   | 'open'
+  | 'threads_open'
   | 'save'
   | 'delete'
   | 'capture'
@@ -23,4 +29,7 @@ export const api: ApplicationService = {
   browser: <T>(action: BrowserAction, params: object = {}) => invoke<T>('browser_action', { action, params }),
   openProfile: (address: string) => invoke('open_profile', { address }),
   openLogs: () => invoke('open_logs'),
+  automation: (paused?: boolean) => invoke<boolean>('automation', paused === undefined ? {} : { paused }),
+  background: (values?: Partial<BackgroundSettings>) =>
+    invoke<BackgroundSettings>('background_settings', values ? { values } : {}),
 };

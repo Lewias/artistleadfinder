@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 28 for version in versions):
+        if any(version > 30 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -61,6 +61,10 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     Base.metadata.create_all(engine)
     # Schemas 4 and 5 add columns to existing tables, which create_all does not do.
     added = {
+        "threads_accounts": {
+            "auth_mode": "VARCHAR(10) NOT NULL DEFAULT 'api'",
+            "browser_profile_id": "VARCHAR(32)",
+        },
         "search_jobs": {"hidden": "BOOLEAN NOT NULL DEFAULT 0"},
         "leads": {
             "do_not_contact": "BOOLEAN NOT NULL DEFAULT 0",
@@ -304,6 +308,11 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
 
             migrate_schema_28(session)
             session.add(SchemaMigration(version=28))
+        # Schema 29: Threads publishing (threads_accounts, threads_posts); new tables only.
+        if session.get(SchemaMigration, 29) is None:
+            session.add(SchemaMigration(version=29))
+        if session.get(SchemaMigration, 30) is None:
+            session.add(SchemaMigration(version=30))
     return engine, factory
 
 

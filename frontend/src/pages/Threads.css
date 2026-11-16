@@ -1,0 +1,173 @@
+.threads-toolbar,
+.threads-filters,
+.threads-slot-form {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.threads-toolbar h2 {
+  margin-bottom: 4px;
+}
+.threads-filters {
+  justify-content: flex-start;
+  margin: 20px 0 14px;
+}
+.threads-filters label {
+  min-width: 190px;
+}
+.threads-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.threads-page .crm-table table {
+  min-width: 900px;
+}
+.threads-page .crm-table td small {
+  display: block;
+  margin-top: 5px;
+  white-space: normal;
+}
+.threads-post-text {
+  width: 34%;
+  min-width: 220px;
+  max-width: 460px;
+}
+.threads-post-text p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.threads-empty {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 48px 20px;
+}
+.threads-empty h3,
+.threads-empty p {
+  margin: 0;
+}
+.threads-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.threads-composer fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.threads-composer select {
+  height: 44px;
+}
+.threads-composer textarea {
+  min-height: 190px;
+  resize: vertical;
+}
+.threads-validation {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.threads-schedule {
+  display: grid;
+  gap: 12px;
+}
+.threads-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--alf-border);
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 0;
+}
+.threads-preview > svg {
+  flex-shrink: 0;
+}
+.threads-preview > div {
+  min-width: 0;
+}
+.threads-preview small {
+  display: block;
+  opacity: 0.65;
+}
+.threads-preview p,
+.threads-review-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.threads-preview p {
+  margin-bottom: 0;
+}
+.threads-editor-actions {
+  margin-top: 24px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.threads-publication-schedule summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.threads-publication-schedule[open] > summary {
+  margin-bottom: 14px;
+}
+.threads-schedule-list {
+  display: grid;
+  gap: 16px;
+}
+.threads-login-notice {
+  display: grid;
+  gap: 10px;
+}
+.threads-accounts-page .account-row {
+  flex-wrap: wrap;
+}
+.threads-accounts-page .account-title {
+  min-width: 230px;
+}
+.threads-accounts-page .account-title .row-error {
+  margin-top: 8px;
+  white-space: normal;
+}
+.threads-slot-form {
+  align-items: flex-end;
+  justify-content: flex-start;
+  margin: 8px 0 0;
+}
+.threads-slot-form label {
+  flex: 1;
+  max-width: 420px;
+  min-width: 200px;
+}
+.threads-review-text {
+  margin: 20px 0;
+  padding: 16px;
+  border-left: 2px solid var(--alf-border);
+}
+@media (max-width: 900px) {
+  .threads-composer {
+    grid-template-columns: 1fr;
+  }
+  .threads-preview {
+    padding: 16px;
+  }
+}

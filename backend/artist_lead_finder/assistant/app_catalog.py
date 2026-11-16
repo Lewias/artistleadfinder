@@ -5,9 +5,8 @@ interface can do — Email campaigns, mailboxes and warm-up, Spotify, iMessage c
 templates, the artist base, every CRM, the parser, «Ответы» in Direct, settings, health — and
 the application's log.
 
-Reading methods run at once. Every method that changes, starts or deletes something is
-only proposed: it waits for «Выполнить» and then runs through the very same handler the
-interface uses, with its checks. Left out on purpose: secrets (API keys, mailbox passwords,
+Methods run immediately through the interface's own handlers and checks. iMessage
+actions wait for «Выполнить». Left out on purpose: secrets (API keys, mailbox passwords,
 tokens), files on disk (import/export paths), user and key administration, the iPhone bridge
 network and the shell's internal methods.
 """
@@ -40,6 +39,24 @@ CATALOG: dict[str, tuple[str, str, str]] = {
     "leads.delete": ("base", "action", "Удалить артистов из базы навсегда. ids: [int]."),
     "dashboard.get": ("base", "read", "Сводка: артисты, новые, квалифицированные, жанры."),
     # ---------- CRM ----------
+    "instagram_warmup.state": (
+        "instagram_warmup", "read", "Прогрев Instagram: настройки, текущий запуск и профили с id."
+    ),
+    "instagram_warmup.history": ("instagram_warmup", "read", "История прогревов Instagram."),
+    "instagram_warmup.detail": (
+        "instagram_warmup", "read", "Подробности прогрева, события и ошибки. id из history."
+    ),
+    "instagram_warmup.settings": (
+        "instagram_warmup", "action",
+        "Изменить только указанные настройки прогрева: queries: [фразы], message: текст, "
+        "messages: 0–6, likes: 0–5, follows: 0–5, delay_seconds: 10–120."
+    ),
+    "instagram_warmup.start": (
+        "instagram_warmup", "action", "Запустить прогрев. profile_id из instagram_warmup.state."
+    ),
+    "instagram_warmup.stop": (
+        "instagram_warmup", "action", "Остановить текущий прогрев Instagram."
+    ),
     "crm.list": (
         "crm",
         "read",
@@ -287,9 +304,10 @@ CATALOG_TOOLS = [
     },
     {
         "name": "propose_app_action",
-        "description": "Предложить действие приложения (метод-действие из app_functions): "
+        "description": "Выполнить действие приложения (метод-действие из app_functions): "
         "запуск и остановка рассылок и парсера, изменения CRM, базы, шаблонов, настроек. "
-        "Выполнится после «Выполнить» с проверками приложения. summary — что и зачем, "
+        "Выполняется сразу с проверками приложения; только iMessage ждёт «Выполнить». "
+        "summary — что и зачем, "
         "одной фразой по-русски.",
         "strict": True,
         "input_schema": _schema(
@@ -318,7 +336,7 @@ CATALOG_TOOLS = [
 CATALOG_LABELS = {
     "app_functions": "Смотрю функции приложения",
     "app_read": "Читаю данные приложения",
-    "propose_app_action": "Предлагаю действие",
+    "propose_app_action": "Выполняю действие",
     "app_logs": "Читаю журнал",
 }
 SEVERITY = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
@@ -401,6 +419,8 @@ class CatalogTools:
             raise UserError("Это действие больше недоступно.")
         if method == "settings.save":
             arguments = {**self.core("settings.get", {}), **arguments}
+        elif method == "instagram_warmup.settings":
+            arguments = {**self.core("instagram_warmup.state", {})["settings"], **arguments}
         result = self.core(method, arguments)
         brief = ""
         if isinstance(result, dict):

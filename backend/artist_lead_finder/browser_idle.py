@@ -12,6 +12,7 @@ or look around) is left alone.
 import logging
 import time
 from collections.abc import Callable
+from datetime import timedelta
 
 from sqlalchemy import select
 
@@ -27,6 +28,9 @@ from .models import (
     ScoutRun,
     SearchJob,
     Setting,
+    ThreadsAccount,
+    ThreadsPost,
+    utcnow,
 )
 from .outreach.campaigns import UNFINISHED
 
@@ -43,6 +47,20 @@ def window_work(session, profile_id: str) -> tuple[bool, bool]:
     is of the kind that makes the window the app's (a parser run, a send, Direct reading;
     a one-off capture of the page open in the window is not)."""
     if warmup_profile(session) == profile_id:
+        return True, True
+    threads = session.scalar(
+        select(ThreadsPost.id)
+        .join(ThreadsAccount)
+        .where(
+            ThreadsAccount.browser_profile_id == profile_id,
+            ThreadsAccount.auth_mode == "browser",
+            ThreadsAccount.status != "disconnected",
+            ThreadsPost.status.in_(("scheduled", "publishing")),
+            ThreadsPost.scheduled_at <= utcnow() + timedelta(minutes=1),
+        )
+        .limit(1)
+    )
+    if threads:
         return True, True
     jobs = session.execute(
         select(SearchJob.id, ScoutRun.job_id)

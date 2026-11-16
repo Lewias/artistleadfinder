@@ -783,7 +783,7 @@ class DirectSender:
 
         # Send. From here on a doubt is "unconfirmed" and never resent.
         try:
-            page.keyboard.press("Enter")
+            box.press("Enter", timeout=3000)
         except Exception:
             return fail("unconfirmed", evidence="enter_failed")
         try:

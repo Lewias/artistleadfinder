@@ -22,7 +22,7 @@ from artist_lead_finder.assistant.service import (
 )
 from artist_lead_finder.database import open_database
 from artist_lead_finder.errors import UserError
-from artist_lead_finder.models import AssistantUsage, IMessageJob
+from artist_lead_finder.models import AssistantAction, AssistantUsage, IMessageJob
 from artist_lead_finder.service import ApplicationService
 
 JAY = "+79991234567"
@@ -450,7 +450,7 @@ def results_of(claude) -> list[dict]:
     ]
 
 
-def test_haiku_reads_the_app_and_proposes_actions_the_user_runs(app):
+def test_haiku_runs_app_actions_and_keeps_imessage_confirmation(app):
     service, _, _ = app
     main, _ = accounts(service)
     calls = [
@@ -476,28 +476,27 @@ def test_haiku_reads_the_app_and_proposes_actions_the_user_runs(app):
     texts = [item["content"] for item in results]
     assert '"proxy": true' in texts[0] and '"name": "Bare"' in texts[0] and main not in texts[0]
     assert '"total": 0' in texts[1]
-    # Nothing ran yet: every action waits for «Выполнить».
-    assert not service.workspace.state()["usernames"]
     actions = {action["kind"]: action for action in state["actions"]}
     assert set(actions) == {
         "instagram_list_add",
         "imessage_list_add",
         "crm_contact",
     }
-    assert all(action["status"] == "pending" for action in actions.values())
-    helper.action_run({"id": actions["instagram_list_add"]["id"]})
+    assert actions["instagram_list_add"]["status"] == "done"
+    assert actions["crm_contact"]["status"] == "done"
+    assert actions["imessage_list_add"]["status"] == "pending"
+    assert service.imessage.state()["workspace"]["recipients"] == []
     assert [item["username"] for item in service.workspace.state()["usernames"]] == ["jay.carter"]
     helper.action_run({"id": actions["imessage_list_add"]["id"]})
     phones = [item["phone"] for item in service.imessage.state()["workspace"]["recipients"]]
     assert phones == ["+79991112233"]
-    helper.action_reject({"id": actions["crm_contact"]["id"]})
     with pytest.raises(UserError, match="уже выполнено или отклонено"):
         helper.action_run({"id": actions["crm_contact"]["id"]})
-    assert not service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
+    assert service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
     done = {action["kind"]: action for action in helper.state({})["actions"]}
     assert done["instagram_list_add"]["status"] == "done"
     assert "Добавлено" in done["instagram_list_add"]["result"]
-    assert "crm_contact" not in done  # rejected ones leave the list
+    assert done["crm_contact"]["status"] == "done"
 
 
 def test_a_contact_proposal_creates_it(app):
@@ -520,7 +519,7 @@ def test_a_contact_proposal_creates_it(app):
     )
     state = run(helper, "добавь контакт")
     [action] = state["actions"]
-    helper.action_run({"id": action["id"]})
+    assert action["status"] == "done"
     [contact] = service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
     assert contact["channels"] == [{"kind": "phone", "value": "+79994445566"}]
     # A second press does nothing more.
@@ -547,6 +546,37 @@ def test_a_failed_action_says_why(app):
     state = helper.action_run({"id": action["id"]})
     [action] = state["actions"]
     assert action["status"] == "failed" and action["result"] == "Список получателей заполнен."
+
+
+def test_unexpected_automatic_action_failure_is_recorded_without_leaking_details(app):
+    helper, _ = assistant(app, [])
+
+    def broken(values):
+        raise RuntimeError("secret details")
+
+    helper.add_usernames = broken
+    result = helper.tool_propose_instagram_list_add({"usernames": ["jay.carter"], "reason": ""})
+    assert result["status"] == "failed" and "secret" not in result["result"]
+    [action] = helper.state({})["actions"]
+    assert action["status"] == "failed"
+    with pytest.raises(UserError):
+        helper.action_run({"id": result["action_id"]})
+
+
+def test_old_pending_app_actions_are_not_executed_when_upgrading(app):
+    service, sessions, _ = app
+    with sessions.begin() as session:
+        session.add_all([
+            AssistantAction(kind="instagram_list_add", params={"usernames": ["stale"]},
+                            summary="Old action"),
+            AssistantAction(kind="imessage_list_add", params={"handles": [JAY]},
+                            summary="Pending iMessage"),
+        ])
+    helper, _ = assistant(app, [])
+    assert service.workspace.state()["usernames"] == []
+    assert service.imessage.state()["workspace"]["recipients"] == []
+    [action] = helper.state({})["actions"]
+    assert action["kind"] == "imessage_list_add" and action["status"] == "pending"
 
 
 def test_an_empty_anthropic_balance_is_named_instead_of_a_bare_400():

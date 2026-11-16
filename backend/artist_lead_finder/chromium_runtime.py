@@ -49,6 +49,7 @@ class Window:
     browser: Browser
     context: BrowserContext
     page: Page
+    threads_page: Page | None = None
     # Set when Instagram answered HTTP 429 since the last navigation.
     rate_limited: bool = False
     # Instagram data answers since the last navigation (a grid's posts arrive this way).
@@ -361,8 +362,12 @@ class ChromiumRuntime:
             return {"ok": False}
         try:
             cookies = window.context.cookies(INSTAGRAM)
+            threads_cookies = window.context.cookies(
+                ["https://www.threads.com/", "https://www.threads.net/"]
+            )
             return self.sessions.call(
-                "browser.save_internal", {"id": identifier, "cookies": cookies}
+                "browser.save_internal",
+                {"id": identifier, "cookies": cookies, "threads_cookies": threads_cookies},
             )
         except Exception as error:
             log.warning("session_autosave_failed", extra={"error_type": type(error).__name__})
@@ -410,7 +415,7 @@ class ChromiumRuntime:
         try:
             context = browser.new_context(no_viewport=True)
             cookies = []
-            for row in record["cookies"]:
+            for row in [*record["cookies"], *record.get("threads_cookies", [])]:
                 cookie = {key: row[key] for key in ("name", "value", "domain", "path")}
                 cookie["secure"] = row.get("secure", True)
                 cookie["httpOnly"] = row.get("httpOnly", False)
@@ -464,10 +469,77 @@ class ChromiumRuntime:
         window = self._window(identifier)
         if not window:
             raise ValueError("Open profile first")
-        return self.sessions.call(
-            "browser.save_internal",
-            {"id": identifier, "cookies": window.context.cookies("https://www.instagram.com/")},
-        )
+        return self._persist(identifier, window)
+
+    def _threads_tab(self, identifier: str):
+        window = self._window(identifier)
+        if not window:
+            raise BrowserLaunchError("Откройте браузерный профиль в Threads и войдите в аккаунт.")
+        if (
+            window.threads_page is None
+            or window.threads_page.is_closed()
+            or window.threads_page is window.page
+        ):
+            window.threads_page = window.context.new_page()
+        return window, window.threads_page
+
+    @_on_browser_thread
+    def threads_open(self, identifier: str) -> dict:
+        window, page = self._threads_tab(identifier)
+        from .threads.browser import HOME
+
+        page.bring_to_front()
+        try:
+            page.goto(HOME, wait_until="domcontentloaded", timeout=15000)
+        except Exception:
+            return {"ok": True, "warning": "Threads загружается. Проверьте окно браузера."}
+        self._persist(identifier, window)
+        return {"ok": True}
+
+    @_on_browser_thread
+    def threads_identity(self, identifier: str) -> dict:
+        from .threads.browser import HOSTS, identity, login_diagnostic
+
+        window = self._window(identifier)
+        if not window:
+            return {"message": "Окно профиля закрыто. Откройте Threads снова для проверки входа."}
+        # Instagram login can finish in a popup/new tab. Follow the authenticated
+        # Threads page in this context, rather than keeping the original login tab.
+        pages = [
+            page
+            for page in reversed(window.context.pages)
+            if not page.is_closed() and urlparse(page.url).hostname in HOSTS
+        ]
+        for page in pages:
+            found = identity(page)
+            if found:
+                window.threads_page = page
+                self._persist(identifier, window)
+                return found
+        # Keep session changes even before the site exposes its own-profile link.
+        # Otherwise closing a just-authenticated window could lose the new login.
+        self._persist(identifier, window)
+        return {"diagnostic": [login_diagnostic(page) for page in pages]}
+
+    @_on_browser_thread
+    def threads_recent(self, identifier: str, username: str) -> list[dict]:
+        from .threads.browser import recent
+
+        window, page = self._threads_tab(identifier)
+        try:
+            return recent(page, username)
+        finally:
+            self._persist(identifier, window)
+
+    @_on_browser_thread
+    def threads_publish(self, identifier: str, username: str, text: str) -> dict:
+        from .threads.browser import publish
+
+        window, page = self._threads_tab(identifier)
+        try:
+            return publish(page, username, text)
+        finally:
+            self._persist(identifier, window)
 
     @_on_browser_thread
     def navigate(self, identifier: str, url: str) -> dict:

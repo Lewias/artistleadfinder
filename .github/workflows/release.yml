@@ -67,7 +67,14 @@ jobs:
 
       - name: Core sidecar (PyInstaller + smoke)
         shell: bash
-        run: '"$PY" scripts/build-core.py'
+        env:
+          ALF_BUNDLED_OPENCODE_KEY: ${{ secrets.ALF_BUNDLED_OPENCODE_KEY }}
+        run: |
+          if [ -z "$ALF_BUNDLED_OPENCODE_KEY" ]; then
+            echo "::error::Configure the ALF_BUNDLED_OPENCODE_KEY repository secret before releasing."
+            exit 1
+          fi
+          "$PY" scripts/build-core.py
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -79,6 +86,7 @@ jobs:
           releaseName: Artist Lead Finder ${{ github.ref_name }}
           releaseBody: |
             Windows: ArtistLeadFinder_*_x64-setup.exe. Если SmartScreen предупреждает — «Подробнее» → «Выполнить в любом случае».
+            Portable для Windows: распакуйте ArtistLeadFinder-Portable.zip и запустите artist-lead-finder.exe внутри папки.
             macOS (Apple Silicon): *.dmg → перетащите в «Программы». Сборка без подписи Apple: при первом запуске «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть», или в Терминале:
             xattr -dr com.apple.quarantine "/Applications/Artist Lead Finder.app"
             Установленные версии обновятся сами после публикации этого релиза.
@@ -86,6 +94,22 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: --config src-tauri/tauri.production.conf.json --features custom-protocol --bundles ${{ matrix.bundles }}
+
+      - name: Windows portable archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $portable = Join-Path $env:RUNNER_TEMP 'ArtistLeadFinder-Portable'
+          New-Item -ItemType Directory -Path $portable -Force | Out-Null
+          Copy-Item -LiteralPath 'src-tauri/target/release/artist-lead-finder.exe' -Destination $portable
+          Copy-Item -LiteralPath 'src-tauri/core/artist-core' -Destination (Join-Path $portable 'core') -Recurse
+          $archive = Join-Path $env:RUNNER_TEMP 'ArtistLeadFinder-Portable.zip'
+          Compress-Archive -LiteralPath $portable -DestinationPath $archive -CompressionLevel Optimal
+          gh release upload '${{ github.ref_name }}' $archive --repo '${{ github.repository }}' --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Portable upload failed' }
 
       - name: Core inside the macOS app
         if: runner.os == 'macOS'

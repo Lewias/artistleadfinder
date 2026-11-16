@@ -2,11 +2,14 @@
 answer translated back into the stored blocks, and the provider settings."""
 
 import json
+import sys
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
-from artist_lead_finder.assistant.compat import from_chat, to_chat, to_functions
+from artist_lead_finder.assistant.bundled_provider import GO_URL, key_for
+from artist_lead_finder.assistant.compat import CompatClient, from_chat, to_chat, to_functions
 from artist_lead_finder.assistant.service import AssistantService
 from artist_lead_finder.database import open_database
 from artist_lead_finder.errors import UserError
@@ -180,3 +183,71 @@ def test_blocks_translate_both_ways():
     assert back.content[0].type == "text" and back.usage.input_tokens == 900
     with pytest.raises(UserError, match="unexpected|неожиданный"):
         from_chat({"error": {"message": "bad"}}, "test")
+
+
+def test_opencode_session_survives_tools_turns_and_restart_but_changes_for_new_chat(app):
+    api = FakeApi([
+        answer(None, [("t1", "crm_search", {"query": "Jay", "crm": "imessage"})]),
+        answer("Found Jay"), answer("Second turn"), answer("After restart"), answer("New chat"),
+    ])
+    helper = helper_with(app, api)
+    helper.set_model({
+        "provider": "compatible", "base_url": "https://opencode.ai/inference/go/openai/v1",
+        "main": "claude-haiku-5-5", "key": "test-opencode-key",
+    })
+    for question in ["Find Jay", "Hello again"]:
+        assert run(helper, question)["error"] == ""
+    helper = helper_with(app, api)
+    assert run(helper, "Hello after restart")["error"] == ""
+    helper.new_chat({})
+    assert run(helper, "Hello in new chat")["error"] == ""
+    sessions = [r["headers"]["x-opencode-session"] for r in api.requests]
+    assert len(sessions) == 5 and len(set(sessions[:4])) == 1
+    assert sessions[4] != sessions[0]
+    assert all(r["headers"]["User-Agent"].startswith("ArtistLeadFinder/") for r in api.requests)
+    assert all(r["url"].endswith("/go/openai/v1/chat/completions") for r in api.requests)
+    assert all(r["body"]["model"] == "claude-haiku-5-5" for r in api.requests)
+
+
+def test_opencode_session_is_not_forwarded_to_other_services():
+    api = FakeApi([answer("OK"), answer("OK"), answer("OK")])
+    for url in [
+        "https://opencode.ai/inference/go/openai/v1",
+        "https://openrouter.ai/api/v1",
+        "https://opencode.ai.example.org/v1",
+    ]:
+        CompatClient(url, "key", api, session_id="ses_test").create(
+            model="test", max_tokens=16, messages=[{"role": "user", "content": "Hi"}],
+        )
+    assert api.requests[0]["headers"]["x-opencode-session"] == "ses_test"
+    assert all("x-opencode-session" not in r["headers"] for r in api.requests[1:])
+
+
+def test_new_user_can_use_bundled_go_without_a_key_and_state_never_exposes_it(app, monkeypatch):
+    secret = "test-shared-credential"
+    monkeypatch.setitem(sys.modules, "alf_bundled_provider", SimpleNamespace(OPENCODE_KEY=secret))
+    api = FakeApi([answer("OK")])
+    helper = helper_with(app, api)
+    state = helper.state({})
+    assert state["configured"] and state["provider"]["shared_key_available"]
+    assert state["provider"]["base_url"] == GO_URL
+    assert not state["provider"]["compatible_key"]
+    assert secret not in json.dumps(state)
+    assert run(helper, "Hello")["error"] == ""
+    assert api.requests[0]["headers"]["Authorization"] == "Bearer " + secret
+    # A user's key for a different provider still works, with no shared-key forwarding.
+    api.answers.append(answer("Other provider"))
+    helper.set_model({"provider": "compatible", "base_url": BASE, "main": "other", "key": "own"})
+    assert run(helper, "Hello again")["error"] == ""
+    assert api.requests[-1]["headers"]["Authorization"] == "Bearer own"
+
+
+@pytest.mark.parametrize("url", [
+    "https://opencode.ai.evil.example/inference/go/openai/v1",
+    "http://opencode.ai/inference/go/openai/v1",
+    "https://opencode.ai/inference/openai/v1",
+    GO_URL + "?redirect=other",
+])
+def test_bundled_key_is_restricted_to_the_exact_go_endpoint(monkeypatch, url):
+    monkeypatch.setitem(sys.modules, "alf_bundled_provider", SimpleNamespace(OPENCODE_KEY="secret"))
+    assert key_for({"provider": "compatible", "base_url": url}) == ""

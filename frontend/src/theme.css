@@ -5215,6 +5215,26 @@ button:active:not(:disabled) {
 }
 
 /* ---------- Assistant ---------- */
+.alf-ui .screen.assistant-screen {
+  height: calc(100dvh - var(--alf-space-8) * 2);
+  min-height: 0;
+}
+.assistant-screen > .assistant-layout {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.assistant-screen .assistant-chat {
+  position: static;
+  height: 100%;
+  min-height: 0;
+}
+.assistant-screen .assistant-feed {
+  min-height: 0;
+}
+.assistant-screen :is(.assistant-ask, .assistant-disclosure) {
+  flex-shrink: 0;
+}
 .assistant-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
@@ -5227,6 +5247,10 @@ button:active:not(:disabled) {
 @media (max-width: 1100px) {
   .assistant-layout {
     grid-template-columns: 1fr;
+  }
+  .assistant-screen > .assistant-layout:not(.single) {
+    grid-template-rows: minmax(300px, 1fr) auto;
+    overflow-y: auto;
   }
 }
 .assistant-key-row {

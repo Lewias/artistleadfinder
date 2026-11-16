@@ -211,7 +211,7 @@ class TelegramBridge:
         ]
         if proposed:
             parts.append(
-                "Предложенные действия ждут кнопки «Выполнить» в приложении:\n"
+                "Действия iMessage ждут кнопки «Выполнить» в приложении:\n"
                 + "\n".join(f"• {summary}" for summary in proposed)
             )
         if state["error"]:

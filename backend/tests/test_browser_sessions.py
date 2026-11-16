@@ -28,6 +28,35 @@ def test_cookie_formats_filter_domains_expiry_and_secrets():
         parse_cookies(json.dumps(rows[1:]))
 
 
+def test_shared_profile_keeps_threads_and_instagram_sessions_separate(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        browser_sessions, "protect", lambda data, decrypt=False: bytes(b ^ 0xAA for b in data)
+    )
+    store = BrowserSessions(tmp_path)
+    profile = store.call("browser.create", {"name": "Shared"})
+    instagram = dict(domain=".instagram.com", name="sessionid", value="instagram-secret")
+    threads = dict(domain=".threads.com", name="sessionid", value="threads-secret")
+    foreign = dict(domain="threads.com.evil.test", name="sessionid", value="foreign")
+    store.call(
+        "browser.save_internal",
+        {
+            "id": profile["id"],
+            "cookies": [instagram, threads],
+            "threads_cookies": [threads, instagram, foreign],
+        },
+    )
+    saved = store.read(profile["id"])
+    assert [c["value"] for c in saved["cookies"]] == ["instagram-secret"]
+    assert [c["value"] for c in saved["threads_cookies"]] == ["threads-secret"]
+    assert b"threads-secret" not in store.path(profile["id"]).read_bytes()
+    assert "threads-secret" not in json.dumps(store.call("browser.list", {}))
+    store.call(
+        "browser.save_internal", {"id": profile["id"], "cookies": [], "threads_cookies": [threads]}
+    )
+    assert store.read(profile["id"])["cookies"] == []
+    assert store.read(profile["id"])["threads_cookies"]
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI")
 def test_vault_roundtrip_no_plaintext_and_delete(tmp_path):
     try:

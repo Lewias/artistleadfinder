@@ -2,10 +2,8 @@
 
 Reading runs at once: phones and emails found in Direct replies, the state of «Рассылка»
 and of the parser, the sources, the logs, the settings, a look at the page open in an
-account's window. Everything that changes or sends something
-(starting or stopping «Рассылка» and the parser, senders, limits,
-sources, deleting an account, «Автоведение») is only proposed and runs with the app's own
-checks after the user presses «Выполнить».
+account's window. Actions run immediately through the app's own checks when requested
+by the user. Tool names retain the propose_ prefix for stored conversation compatibility.
 
 The parser is driven by the shell, not by the core: a start is put in a small queue the
 shell takes (`assistant.shell_next_internal`), opens the window and starts the usual run.
@@ -13,6 +11,7 @@ shell takes (`assistant.shell_next_internal`), opens the window and starts the u
 
 import json
 import logging
+import uuid
 from collections import deque
 from typing import Any
 
@@ -36,6 +35,24 @@ login:!!document.querySelector('input[name=username]'),
 dialogs:[...document.querySelectorAll('[role=dialog]')].map(d=>(d.innerText||'').slice(0,500))})"""
 
 OPERATOR_TOOLS = [
+    {
+        "name": "browser_account_create",
+        "description": "Создать браузерный профиль аккаунта Instagram. name — уникальное имя; "
+        "proxy_json — пустая строка без прокси или JSON {scheme: http/socks5, host, port, "
+        "username?, password?}. Это профиль в приложении, вход в Instagram пользователь "
+        "выполняет вручную. Не выдумывай адреса и данные авторизации прокси.",
+        "strict": True,
+        "input_schema": _schema({"name": {"type": "string"}, "proxy_json": {"type": "string"}}),
+    },
+    {
+        "name": "browser_account_proxy",
+        "description": "Сразу сменить прокси браузерного аккаунта. account — имя из accounts; "
+        "proxy_json — JSON {scheme: http/socks5, host, port, username?, password?} или null "
+        "для отключения. Неуказанный пароль сохраняется при том же username. Открытый "
+        "браузер переоткроется; у занятого аккаунта сначала нужно завершить работу.",
+        "strict": True,
+        "input_schema": _schema({"account": {"type": "string"}, "proxy_json": {"type": "string"}}),
+    },
     {
         "name": "direct_findings",
         "description": "Телефоны и почты, найденные в ответах Direct, которые ещё не разобраны.",
@@ -91,20 +108,20 @@ OPERATOR_TOOLS = [
     },
     {
         "name": "propose_outreach",
-        "description": "Предложить запустить «Рассылку» по списку (start) или остановить её "
+        "description": "Сразу запустить «Рассылку» по списку (start) или остановить её "
         "(stop: неотправленные снимаются, список остаётся).",
         "strict": True,
         "input_schema": _schema({"action": {"type": "string", "enum": ["start", "stop"]}}),
     },
     {
         "name": "propose_outreach_senders",
-        "description": "Предложить набор аккаунтов-отправителей «Рассылки» (имена аккаунтов).",
+        "description": "Сразу изменить набор аккаунтов-отправителей «Рассылки» (имена аккаунтов).",
         "strict": True,
         "input_schema": _schema({"accounts": STRINGS}),
     },
     {
         "name": "propose_campaign_control",
-        "description": "Предложить поставить кампанию рассылки на паузу, продолжить или "
+        "description": "Сразу поставить кампанию рассылки на паузу, продолжить или "
         "отменить (id из outreach_status).",
         "strict": True,
         "input_schema": _schema(
@@ -116,7 +133,7 @@ OPERATOR_TOOLS = [
     },
     {
         "name": "propose_sender_status",
-        "description": "Предложить состояние аккаунта для рассылки: active (вернуть в работу), "
+        "description": "Сразу изменить состояние аккаунта для рассылки: active (вернуть в работу), "
         "paused, disabled.",
         "strict": True,
         "input_schema": _schema(
@@ -128,14 +145,14 @@ OPERATOR_TOOLS = [
     },
     {
         "name": "propose_settings",
-        "description": "Предложить изменить настройки: changes_json — JSON-объект "
+        "description": "Сразу изменить настройки: changes_json — JSON-объект "
         "{ключ: значение} с ключами из app_settings.",
         "strict": True,
         "input_schema": _schema({"changes_json": {"type": "string"}}),
     },
     {
         "name": "propose_parser_sources",
-        "description": "Предложить добавить источники парсера (add: ссылки или @ники "
+        "description": "Сразу добавить источники парсера (add: ссылки или @ники "
         "Instagram), включить (enable) или выключить (disable) существующие.",
         "strict": True,
         "input_schema": _schema(
@@ -144,14 +161,14 @@ OPERATOR_TOOLS = [
     },
     {
         "name": "propose_parser_start",
-        "description": "Предложить запустить парсер на аккаунте: найти target новых лидов. "
+        "description": "Без подтверждения запустить парсер на аккаунте: найти target новых лидов. "
         "Окно аккаунта откроется само.",
         "strict": True,
         "input_schema": _schema({"account": {"type": "string"}, "target": {"type": "integer"}}),
     },
     {
         "name": "propose_parser_control",
-        "description": "Предложить поставить запуск парсера на аккаунте на паузу, продолжить "
+        "description": "Без подтверждения поставить парсер на аккаунте на паузу, продолжить "
         "или отменить.",
         "strict": True,
         "input_schema": _schema(
@@ -163,14 +180,14 @@ OPERATOR_TOOLS = [
     },
     {
         "name": "propose_account_delete",
-        "description": "Предложить удалить аккаунт Instagram из приложения вместе с его входом "
+        "description": "Сразу удалить аккаунт Instagram из приложения вместе с его входом "
         "(окно закроется). Необратимо.",
         "strict": True,
         "input_schema": _schema({"account": {"type": "string"}}),
     },
     {
         "name": "propose_duty",
-        "description": "Предложить включить или выключить «Автоведение»: раз в 5 минут "
+        "description": "Сразу включить или выключить «Автоведение»: раз в 5 минут "
         "приложение само держит лимиты рассылки, запускает «Рассылку», когда в списке есть "
         "новые, и парсер на аккаунте parser, пока новых в списке меньше queue_target. "
         "senders — аккаунты-отправители.",
@@ -188,6 +205,8 @@ OPERATOR_TOOLS = [
     },
 ]
 OPERATOR_LABELS = {
+    "browser_account_create": "Создаю браузерный аккаунт",
+    "browser_account_proxy": "Меняю прокси аккаунта",
     "direct_findings": "Смотрю находки из Direct",
     "outreach_status": "Смотрю рассылку",
     "parser_status": "Смотрю парсер",
@@ -195,16 +214,16 @@ OPERATOR_LABELS = {
     "parser_log": "Смотрю журнал парсера",
     "app_settings": "Смотрю настройки",
     "window_look": "Смотрю окно аккаунта",
-    "propose_outreach": "Предлагаю действие с рассылкой",
-    "propose_outreach_senders": "Предлагаю отправителей",
-    "propose_campaign_control": "Предлагаю действие с кампанией",
-    "propose_sender_status": "Предлагаю состояние аккаунта",
-    "propose_settings": "Предлагаю настройки",
-    "propose_parser_sources": "Предлагаю источники",
-    "propose_parser_start": "Предлагаю запустить парсер",
-    "propose_parser_control": "Предлагаю действие с парсером",
-    "propose_account_delete": "Предлагаю удалить аккаунт",
-    "propose_duty": "Предлагаю «Автоведение»",
+    "propose_outreach": "Управляю рассылкой",
+    "propose_outreach_senders": "Меняю отправителей",
+    "propose_campaign_control": "Управляю кампанией",
+    "propose_sender_status": "Меняю состояние аккаунта",
+    "propose_settings": "Меняю настройки",
+    "propose_parser_sources": "Меняю источники",
+    "propose_parser_start": "Запускаю парсер",
+    "propose_parser_control": "Управляю парсером",
+    "propose_account_delete": "Удаляю аккаунт",
+    "propose_duty": "Управляю «Автоведением»",
 }
 VERBS = {"pause": "пауза", "resume": "продолжить", "cancel": "отменить"}
 SENDER_STATES = {"active": "в работе", "paused": "на паузе", "disabled": "выключен"}
@@ -241,6 +260,7 @@ class OperatorTools:
         # Parser starts waiting for the shell, and what the shell answered to the last ones.
         self.shell_requests: deque[dict] = deque()
         self.shell_notes: deque[dict] = deque(maxlen=10)
+        self.browser_changes: dict[str, dict] = {}
 
     def _account(self, value: object) -> dict:
         wanted = " ".join(str(value or "").split()).lower()
@@ -254,6 +274,10 @@ class OperatorTools:
     # ---------- the shell's queue ----------
 
     def request_scout(self, profile_id: str, target: int | None = None) -> None:
+        with self.action_lock:
+            self._request_scout(profile_id, target)
+
+    def _request_scout(self, profile_id: str, target: int | None = None) -> None:
         """A parser run on the account, started by the shell at its next round."""
         accounts = {item["profile"]["id"]: item for item in self.core("scout.accounts", {})}
         if profile_id not in accounts:
@@ -273,7 +297,8 @@ class OperatorTools:
             self.duty.tick()
         except Exception as error:  # noqa: BLE001 - the queue is served anyway
             log.warning("duty_failed", extra={"error_type": type(error).__name__})
-        return self.shell_requests.popleft() if self.shell_requests else None
+        with self.action_lock:
+            return self.shell_requests.popleft() if self.shell_requests else None
 
     def shell_result(self, params: dict) -> dict:
         error = str(params.get("error") or "")[:300]
@@ -383,6 +408,94 @@ class OperatorTools:
         return compact(self.core("browser.runtime.eval", {"id": profile["id"], "script": LOOK}))
 
     # ---------- proposals ----------
+
+    @staticmethod
+    def _proxy_params(value: object):
+        try:
+            proxy = json.loads(str(value)) if str(value or "").strip() else None
+        except ValueError:
+            raise ToolError("proxy_json: нужен JSON-объект или null.") from None
+        if proxy is not None and not isinstance(proxy, dict):
+            raise ToolError("proxy_json: нужен JSON-объект или null.")
+        return proxy
+
+    def _browser_change(self, kind: str, payload: dict, summary: str) -> dict:
+        # Proxy credentials must not be copied into AssistantAction.params or summaries.
+        token = uuid.uuid4().hex
+        with self.action_lock:
+            self.browser_changes[token] = payload
+            try:
+                return self._propose(kind, {"request_id": token}, summary)
+            finally:
+                self.browser_changes.pop(token, None)
+
+    def tool_browser_account_create(self, params: dict) -> dict:
+        from ..browser_sessions import validate_name
+
+        try:
+            name = validate_name(params.get("name") or "")
+        except ValueError:
+            raise ToolError("Задайте имя аккаунта длиной от 1 до 80 символов.") from None
+        if any(p["name"].casefold() == name.casefold() for p in self._profiles()):
+            raise ToolError("Аккаунт с таким именем уже есть. Выберите другое имя.")
+        return self._browser_change(
+            "browser_create", {"name": name, "proxy": self._proxy_params(params.get("proxy_json"))},
+            f"Создать браузерный аккаунт «{name}»",
+        )
+
+    def tool_browser_account_proxy(self, params: dict) -> dict:
+        profile = self._account(params.get("account"))
+        return self._browser_change(
+            "browser_proxy",
+            {"id": profile["id"], "proxy": self._proxy_params(params.get("proxy_json"))},
+            f"Сменить прокси аккаунта «{profile['name']}»",
+        )
+
+    def _execute_browser(self, kind: str, params: dict) -> str:
+        from ..browser_idle import window_work
+        from ..browser_sessions import validate_proxy
+
+        payload = self.browser_changes.get(params.get("request_id"))
+        if payload is None:
+            raise UserError("Запрос устарел. Повторите команду в чате.")
+        if kind == "browser_create":
+            try:
+                validate_proxy(payload["proxy"])
+                profile = self.core("browser.create", payload)
+            except ValueError:
+                raise UserError("Проверьте адрес, порт и авторизацию прокси.") from None
+            return (
+                f"Аккаунт «{profile['name']}» создан. "
+                "Войдите в Instagram вручную через «Браузер»."
+            )
+        current = next(
+            (p for p in self.core("browser.list", {}) if p["id"] == payload["id"]), None
+        )
+        if current is None:
+            raise UserError("Аккаунт удалён. Выберите существующий аккаунт.")
+        previous = dict(current.get("proxy") or {})
+        if previous.get("has_password"):
+            previous["password"] = "validation-only"
+        try:
+            validate_proxy(payload["proxy"], previous)
+        except ValueError:
+            raise UserError("Проверьте адрес, порт и авторизацию прокси.") from None
+        with self.sessions() as session:
+            if window_work(session, payload["id"])[0]:
+                raise UserError("Аккаунт занят. Остановите его задачи перед сменой прокси.")
+        opened = self.core("browser.runtime.is_open", {"id": payload["id"]})["open"]
+        if opened:
+            self.core("browser.runtime.close", {"id": payload["id"]})
+        self.core("browser.update", {**payload, "name": current["name"]})
+        if opened:
+            try:
+                self.core("browser.runtime.open", {"id": payload["id"]})
+            except Exception as error:
+                log.warning(
+                    "assistant_browser_reopen_failed", extra={"error_type": type(error).__name__}
+                )
+                return "Прокси сохранён. Окно не удалось открыть — откройте «Браузер» вручную."
+        return f"Прокси аккаунта «{current['name']}» изменён."
 
     def tool_propose_outreach(self, params: dict) -> dict:
         start = params.get("action") == "start"
@@ -519,6 +632,8 @@ class OperatorTools:
 
     def _execute_operator(self, kind: str, params: dict) -> str | None:
         """What the action did, or None when the kind is not the operator's."""
+        if kind in {"browser_create", "browser_proxy"}:
+            return self._execute_browser(kind, params)
         if kind == "outreach":
             if params["action"] == "start":
                 campaign = self.core("outreach.workspace_start", {}).get("campaign") or {}
@@ -549,9 +664,17 @@ class OperatorTools:
             self.request_scout(params["profile_id"], params["target"])
             return "Запуск парсера передан приложению: окно откроется, парсер начнёт за минуту."
         if kind == "parser_control":
+            cancelled = False
+            if params["action"] == "cancel":
+                kept = [r for r in self.shell_requests if r["profile_id"] != params["profile_id"]]
+                cancelled = len(kept) != len(self.shell_requests)
+                self.shell_requests.clear()
+                self.shell_requests.extend(kept)
             accounts = {item["profile"]["id"]: item for item in self.core("scout.accounts", {})}
             run = (accounts.get(params["profile_id"]) or {}).get("run") or {}
             if run.get("status") not in RUN_OPEN:
+                if cancelled:
+                    return "Ожидающий запуск парсера отменён."
                 raise UserError("На этом аккаунте нет незавершённого запуска парсера.")
             if params["action"] == "resume" and run.get("stage") == "interrupted":
                 raise UserError("Запуск прерван перезапуском приложения: запустите парсер заново.")

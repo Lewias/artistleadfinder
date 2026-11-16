@@ -233,7 +233,7 @@ export function Assistant() {
     );
 
   return (
-    <div className="screen work-flow">
+    <div className="screen work-flow assistant-screen">
       <PageHeader
         page="assistant"
         count={data.models.main}
@@ -353,7 +353,7 @@ export function Assistant() {
           </form>
           <p className="assistant-disclosure">
             Вопросы и фрагменты переписок, которые просматривает ассистент, отправляются в API подключённой
-            модели. Ассистент готовит сообщения, но уходят они только после вашей кнопки. Модель и ключ — в
+            модели. Команды выполняются сразу; действия и отправка iMessage — после вашей кнопки. Модель и ключ — в
             «Настройках».
           </p>
           <ErrorToast message={error || state.error} />
@@ -365,7 +365,7 @@ export function Assistant() {
               <section className="panel">
                 <div className="board-heading">
                   <h2>Действия</h2>
-                  <span className="helper">Выполняются только по вашей кнопке</span>
+                  <span className="helper">Подтверждение требуется только для iMessage</span>
                 </div>
                 <div className="assistant-drafts">
                   {data.actions.map(action => (

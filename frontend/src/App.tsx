@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import {
+  AtSign,
   AudioLines,
   BarChart3,
   BookUser,
@@ -14,6 +15,7 @@ import {
   Disc3,
   Flame,
   History,
+  KeyRound,
   LayoutTemplate,
   Mail,
   MailPlus,
@@ -50,10 +52,12 @@ import { Assistant } from './pages/Assistant';
 import { EmailAccounts, EmailCampaigns } from './pages/Email';
 import { EmailWarmup } from './pages/EmailWarmup';
 import { InstagramWarmup } from './pages/InstagramWarmup';
+import { ThreadsAccounts, ThreadsPosts } from './pages/Threads';
 import { BrowserProfiles } from './components/BrowserProfiles';
 import { SectionTransition } from './components/SectionTransition';
 import { ErrorBoundary, ErrorToast, Toaster } from './components/Toaster';
 import { UpdateNotice } from './components/UpdateNotice';
+import { PauseNotice } from './components/PauseNotice';
 import { AccountGate, AccountMenu } from './components/account/AccountGate';
 import { useUpdater } from './hooks/useUpdater';
 import { reportError } from './lib/toast';
@@ -76,6 +80,8 @@ const icons: Record<PageId, LucideIcon> = {
   email: Mail,
   'email-accounts': MailPlus,
   'email-warmup': Flame,
+  threads: AtSign,
+  'threads-accounts': KeyRound,
   'instagram-warmup': Flame,
   'email-crm': BookUser,
   assistant: Sparkles,
@@ -96,6 +102,7 @@ const toolPages: PageId[] = [
   'imessage-crm-users',
   'email-accounts',
   'email-warmup',
+  'threads-accounts',
 ];
 
 /** Sidebar badges of the open channel, fetched in one call instead of one per page. */
@@ -145,6 +152,7 @@ function Workspace({
     instagram: 'discovery',
     imessage: 'imessage',
     email: 'email',
+    threads: 'threads',
   });
   const [workTab, setWorkTab] = useState<WorkTab>('auto');
   const navigate = (page: PageId) => {
@@ -327,6 +335,7 @@ function Workspace({
             <strong>{pages.find(item => item.id === active)?.label}</strong>
           </div>
           <UpdateNotice state={updater.state} install={updater.install} />
+          <PauseNotice />
           <span
             role="status"
             className={`core-status ${core.error ? 'offline' : core.data ? 'connected' : 'pending'}`}
@@ -390,6 +399,10 @@ function Workspace({
                 <EmailAccounts />
               ) : active === 'email-warmup' ? (
                 <EmailWarmup onAccounts={() => navigate('email-accounts')} />
+              ) : active === 'threads' ? (
+                <ThreadsPosts onAccounts={() => navigate('threads-accounts')} />
+              ) : active === 'threads-accounts' ? (
+                <ThreadsAccounts />
               ) : active === 'email-crm' ? (
                 <Crm crm="email" onWrite={() => navigate('email')} />
               ) : active === 'crm' ? (

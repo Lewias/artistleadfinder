@@ -1074,8 +1074,7 @@ class AssistantUsage(Base):
 
 
 class AssistantAction(Base):
-    """An action the assistant proposed (a cloud search, an outreach, a list, a contact);
-    it runs only when the user presses «Выполнить»."""
+    """An audited assistant action; iMessage actions await the user's confirmation."""
 
     __tablename__ = "assistant_actions"
     __table_args__ = (
@@ -1364,3 +1363,64 @@ class EmailWarmupMessage(Base):
     placement: Mapped[str | None] = mapped_column(String(8))
     answered: Mapped[bool] = mapped_column(Boolean, default=False)
     note: Mapped[str] = mapped_column(String(300), default="")
+
+
+class ThreadsAccount(Base):
+    """Schema 29: a Threads profile connected through the official API with the user's own
+    Meta app. The access token is encrypted for the OS user (secret_box) and never leaves
+    the core; a disconnected account keeps its history but has no token.
+    """
+
+    __tablename__ = "threads_accounts"
+    __table_args__ = (CheckConstraint("status IN ('active','reauth','disconnected')"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    threads_user_id: Mapped[str] = mapped_column(String(40), unique=True)
+    username: Mapped[str] = mapped_column(String(64), default="")
+    name: Mapped[str] = mapped_column(String(120), default="")
+    token_box: Mapped[bytes | None] = mapped_column(LargeBinary)
+    auth_mode: Mapped[str] = mapped_column(String(10), default="api", server_default="api")
+    browser_profile_id: Mapped[str | None] = mapped_column(String(32))
+    # Long-lived tokens live 60 days from their last refresh; None when Threads did not say.
+    token_expires_at: Mapped[datetime | None]
+    token_refreshed_at: Mapped[datetime | None]
+    status: Mapped[str] = mapped_column(String(14), default="active")
+    reason: Mapped[str] = mapped_column(String(300), default="")
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    # «В очередь»: daily posting times, "HH:MM" on the computer's clock.
+    slots: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["10:00"])
+    connected_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ThreadsPost(Base):
+    """A text post and its publishing job. One post makes at most one Threads post: the
+    container is created once and kept; after an unclear answer the container and the
+    profile's recent posts are checked before it is published again.
+    """
+
+    __tablename__ = "threads_posts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft','scheduled','publishing','published','failed','review',"
+            "'cancelled','missed')"
+        ),
+        Index("ix_threads_posts_due", "status", "scheduled_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("threads_accounts.id"))
+    text: Mapped[str] = mapped_column(String(4000), default="")
+    status: Mapped[str] = mapped_column(String(12), default="draft")
+    scheduled_at: Mapped[datetime | None]
+    # Placed by «В очередь» into the account's next free slot.
+    slot: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempts: Mapped[int] = mapped_column(default=0)
+    next_attempt_at: Mapped[datetime | None]
+    container_id: Mapped[str | None] = mapped_column(String(40))
+    container_at: Mapped[datetime | None]
+    # Set when the publish request went out: from then on the result is checked first.
+    publish_sent_at: Mapped[datetime | None]
+    media_id: Mapped[str | None] = mapped_column(String(40))
+    permalink: Mapped[str | None] = mapped_column(String(300))
+    published_at: Mapped[datetime | None]
+    error: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
