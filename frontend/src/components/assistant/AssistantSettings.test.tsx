@@ -1,41 +1,63 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import { ModelForm } from './AssistantSettings';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AssistantSettings } from './AssistantSettings';
+import { Assistant } from '../../pages/Assistant';
 
-const provider = {
-  provider: 'compatible' as const,
-  base_url: 'https://opencode.ai/inference/go/openai/v1',
-  main: 'claude-haiku-5-5',
-  strong: '',
-  anthropic_key: false,
-  compatible_key: false,
-  shared_key_available: true,
-};
+const resource = vi.hoisted(() => ({ configured: true }));
+vi.mock('../../hooks/useResource', () => ({
+  useResource: (method: string) => ({
+    data:
+      method === 'telegram.state'
+        ? { linked: false }
+        : {
+            configured: resource.configured,
+            running: false,
+            error: '',
+            items: [],
+            sends: [],
+            drafts: [],
+            chat_drafts: [],
+            actions: [],
+            models: { main: 'Haiku 5.5', strong: '' },
+          },
+    error: '',
+    loading: false,
+    refresh: () => {},
+  }),
+}));
 
-describe('shared OpenCode connection', () => {
-  it('offers a ready connection without a key field', () => {
-    const html = renderToStaticMarkup(<ModelForm provider={provider} onSaved={() => {}} />);
-    expect(html).toContain('Ключ уже встроен');
+describe('ready assistant without provider setup', () => {
+  beforeEach(() => {
+    resource.configured = true;
+  });
+
+  function hasNoSetup(html: string) {
+    for (const label of ['Ключ API', 'Сменить модель', 'Адрес API', 'Основная модель', 'Подключите модель']) {
+      expect(html).not.toContain(label);
+    }
     expect(html).not.toContain('type="password"');
-    expect(html).toContain('claude-haiku-5-5');
+    expect(html).not.toContain('radiogroup');
+    expect(html).not.toContain('<select');
+  }
+
+  it('shows only Telegram connection in assistant settings', () => {
+    const html = renderToStaticMarkup(<AssistantSettings />);
+    expect(html).toContain('Подключить Telegram');
+    hasNoSetup(html);
+    expect(html).not.toContain('<input');
   });
 
-  it('keeps the key input for builds without a shared credential', () => {
-    const html = renderToStaticMarkup(
-      <ModelForm provider={{ ...provider, shared_key_available: false }} onSaved={() => {}} />,
-    );
-    expect(html).toContain('type="password"');
-    expect(html).not.toContain('Ключ уже встроен');
+  it('opens the chat immediately without model selection', () => {
+    const html = renderToStaticMarkup(<Assistant />);
+    expect(html).toContain('Спросите что угодно');
+    hasNoSetup(html);
   });
 
-  it('does not offer the shared credential to a different provider', () => {
-    const html = renderToStaticMarkup(
-      <ModelForm
-        provider={{ ...provider, base_url: 'https://openrouter.ai/api/v1' }}
-        onSaved={() => {}}
-      />,
-    );
-    expect(html).toContain('type="password"');
-    expect(html).not.toContain('Ключ уже встроен');
+  it('never offers a key or provider form even when unavailable', () => {
+    resource.configured = false;
+    const html = renderToStaticMarkup(<Assistant />);
+    expect(html).toContain('Ассистент временно недоступен');
+    expect(html).toContain('Повторить');
+    hasNoSetup(html);
   });
 });

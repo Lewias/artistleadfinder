@@ -402,7 +402,7 @@ def test_the_key_is_checked_and_kept_encrypted(app):
     with pytest.raises(UserError, match="sk-ant-"):
         helper.set_key({"key": "not-a-key"})
     helper.set_key({"key": ""})
-    with pytest.raises(UserError, match="Подключите модель"):
+    with pytest.raises(UserError, match="Ассистент недоступен"):
         helper.ask({"text": "привет"})
 
 

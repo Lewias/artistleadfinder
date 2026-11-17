@@ -13,6 +13,7 @@ from artist_lead_finder.assistant.compat import CompatClient, from_chat, to_chat
 from artist_lead_finder.assistant.service import AssistantService
 from artist_lead_finder.database import open_database
 from artist_lead_finder.errors import UserError
+from artist_lead_finder.models import Setting
 from artist_lead_finder.service import ApplicationService
 
 JAY = "+79991234567"
@@ -235,11 +236,21 @@ def test_new_user_can_use_bundled_go_without_a_key_and_state_never_exposes_it(ap
     assert secret not in json.dumps(state)
     assert run(helper, "Hello")["error"] == ""
     assert api.requests[0]["headers"]["Authorization"] == "Bearer " + secret
-    # A user's key for a different provider still works, with no shared-key forwarding.
-    api.answers.append(answer("Other provider"))
-    helper.set_model({"provider": "compatible", "base_url": BASE, "main": "other", "key": "own"})
+    # An old user's provider/model selection cannot override the ready connection.
+    _, sessions, _ = app
+    with sessions.begin() as session:
+        session.merge(Setting(key="assistant_model", value={
+            "provider": "compatible", "base_url": BASE, "main": "other", "strong": "paid-model"
+        }))
+    helper.compat_keys.save("old-personal-key")
+    api.answers.append(answer("Still built in"))
     assert run(helper, "Hello again")["error"] == ""
-    assert api.requests[-1]["headers"]["Authorization"] == "Bearer own"
+    assert api.requests[-1]["headers"]["Authorization"] == "Bearer " + secret
+    assert api.requests[-1]["body"]["model"] == "claude-haiku-5-5"
+    assert helper.config()["base_url"] == GO_URL and helper.config()["strong"] == ""
+    for method in ("assistant.model", "assistant.set_key"):
+        with pytest.raises(UserError, match="подключён автоматически"):
+            helper.call(method, {"provider": "anthropic", "key": "ignored"})
 
 
 @pytest.mark.parametrize("url", [

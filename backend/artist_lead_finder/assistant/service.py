@@ -509,6 +509,10 @@ class AssistantService(AppTools, OperatorTools, CatalogTools):
             return bool(self._setting(session, ESCALATION_KEY, True))
 
     def config(self) -> dict:
+        # Distributed builds always use the bundled connection, including users with
+        # provider settings saved by older versions. No user setup or selection remains.
+        if shared_key():
+            return dict(DEFAULT_CONFIG)
         with self.sessions() as session:
             saved = self._setting(session, MODEL_KEY, None)
         config = dict(DEFAULT_CONFIG)
@@ -585,12 +589,16 @@ class AssistantService(AppTools, OperatorTools, CatalogTools):
         return self.thread is not None and self.thread.is_alive()
 
     def set_key(self, params: dict) -> dict:
+        if shared_key():
+            raise UserError("Ассистент подключён автоматически; изменение подключения недоступно.")
         self.keys.save(str(params.get("key") or ""))
         self.error = ""
         return self.state({})
 
     def set_model(self, params: dict) -> dict:
         """Choose the provider and the models; an optional key goes to that provider's store."""
+        if shared_key():
+            raise UserError("Ассистент подключён автоматически; изменение подключения недоступно.")
         if self.running():
             raise UserError("Дождитесь, пока ассистент закончит, или остановите его.")
         provider = str(params.get("provider") or "anthropic")
@@ -652,7 +660,7 @@ class AssistantService(AppTools, OperatorTools, CatalogTools):
         if len(text) > MAX_QUESTION:
             raise UserError(f"Не длиннее {MAX_QUESTION} символов.")
         if not self.configured():
-            raise UserError("Подключите модель в настройках ассистента, чтобы он заработал.")
+            raise UserError("Ассистент недоступен. Перезапустите или обновите приложение.")
         with self.lock:
             if self.running():
                 raise UserError("Ассистент ещё работает над прошлой задачей.")

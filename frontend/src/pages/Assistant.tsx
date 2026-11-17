@@ -6,7 +6,6 @@ import {
   Play,
   Send,
   Smartphone,
-  Sparkles,
   Square,
   Wrench,
   X,
@@ -25,7 +24,6 @@ import type {
 import { PageHeader } from '../components/PageHeader';
 import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
 import { chatBlocks } from '../components/assistant/chat';
-import { ModelForm } from '../components/assistant/AssistantSettings';
 import { Button } from '../components/ui/button';
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
@@ -129,11 +127,7 @@ function ChatDraftCard({
           <b>{draft.contact_name || draft.handle}</b> <small className="helper">{draft.handle}</small>
         </span>
         {state && <span className={`send-state ${state.tone}`}>{state.label}</span>}
-        {!state && pending && (
-          <span className={`assistant-model${pending.strong ? ' strong' : ''}`}>
-            {pending.strong && <Sparkles size={12} />} {pending.model}
-          </span>
-        )}
+        {!state && pending && <span className="assistant-model">Черновик</span>}
       </header>
       <div className="assistant-send-text">{text}</div>
       {send?.note && send.state !== 'sent' && send.state !== 'delivered' && (
@@ -225,9 +219,12 @@ export function Assistant() {
         <PageHeader page="assistant" />
         <section className="panel board">
           <div className="board-heading">
-            <h2>Подключите модель</h2>
+            <h2>Ассистент временно недоступен</h2>
           </div>
-          <ModelForm provider={data.provider} onSaved={state.refresh} />
+          <p className="helper">Перезапустите приложение или обновите его до последней версии.</p>
+          <Button variant="outline" onClick={state.refresh}>
+            Повторить
+          </Button>
         </section>
       </div>
     );
@@ -236,7 +233,6 @@ export function Assistant() {
     <div className="screen work-flow assistant-screen">
       <PageHeader
         page="assistant"
-        count={data.models.main}
         actions={
           <Button variant="outline" disabled={data.running} onClick={() => void call('assistant.new_chat')}>
             <MessageSquarePlus size={14} /> Новый чат
@@ -352,9 +348,8 @@ export function Assistant() {
             )}
           </form>
           <p className="assistant-disclosure">
-            Вопросы и фрагменты переписок, которые просматривает ассистент, отправляются в API подключённой
-            модели. Команды выполняются сразу; действия и отправка iMessage — после вашей кнопки. Модель и ключ — в
-            «Настройках».
+            Вопросы и выбранные фрагменты переписки отправляются сервису ассистента. Команды выполняются
+            сразу; действия и отправка iMessage — после вашей кнопки.
           </p>
           <ErrorToast message={error || state.error} />
         </section>
