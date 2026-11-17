@@ -178,10 +178,13 @@ def test_window_reads_preloaded_and_fetched_data():
         else:
             route.abort()
 
+    manager = None
     try:
         manager = sync_api.sync_playwright().start()
         browser = manager.chromium.launch(headless=True, channel="chromium")
     except Exception as error:  # pragma: no cover - depends on the local Chromium install
+        if manager is not None:
+            manager.stop()
         pytest.skip(f"Bundled Chromium unavailable: {error}")
     try:
         context_ = browser.new_context()

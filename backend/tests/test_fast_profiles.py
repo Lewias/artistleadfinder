@@ -437,10 +437,13 @@ def test_chromium_learns_the_page_request_and_replays_it():
         else:
             route.abort()
 
+    manager = None
     try:
         manager = sync_api.sync_playwright().start()
         browser = manager.chromium.launch(headless=True, channel="chromium")
     except Exception as error:  # pragma: no cover - depends on the local Chromium install
+        if manager is not None:
+            manager.stop()
         pytest.skip(f"Bundled Chromium unavailable: {error}")
     try:
         context_ = browser.new_context()
@@ -509,10 +512,13 @@ def test_chromium_replays_the_query_by_id_and_drops_a_missing_address():
         else:
             route.abort()
 
+    manager = None
     try:
         manager = sync_api.sync_playwright().start()
         browser = manager.chromium.launch(headless=True, channel="chromium")
     except Exception as error:  # pragma: no cover - depends on the local Chromium install
+        if manager is not None:
+            manager.stop()
         pytest.skip(f"Bundled Chromium unavailable: {error}")
     try:
         context_ = browser.new_context()

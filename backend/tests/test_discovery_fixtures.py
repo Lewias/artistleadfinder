@@ -20,10 +20,13 @@ SCRIPTS = {
 def browser():
     os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
     sync_api = pytest.importorskip("playwright.sync_api")
+    manager = None
     try:
         manager = sync_api.sync_playwright().start()
         instance = manager.chromium.launch(headless=True, channel="chromium")
     except Exception as error:  # pragma: no cover - depends on the local Chromium install
+        if manager is not None:
+            manager.stop()
         pytest.skip(f"Bundled Chromium unavailable: {error}")
     yield instance
     instance.close()
