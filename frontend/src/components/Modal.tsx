@@ -8,6 +8,7 @@ export function Modal({
   children,
   wide = false,
   narrow = false,
+  dismissible = true,
   icon,
 }: {
   title: string;
@@ -17,6 +18,7 @@ export function Modal({
   wide?: boolean;
   /** For a compact dialog such as the phone launch window. */
   narrow?: boolean;
+  dismissible?: boolean;
   icon?: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -28,9 +30,10 @@ export function Modal({
     latest.current = onClose;
   }, [onClose]);
   const close = useCallback(() => {
+    if (!dismissible) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) latest.current();
     else setClosing(true);
-  }, []);
+  }, [dismissible]);
   useEffect(() => {
     if (!closing) return;
     const timer = window.setTimeout(() => latest.current(), 160);
@@ -81,7 +84,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
       >
-        <button className="drawer-close" aria-label="Закрыть" onClick={close}>
+        <button className="drawer-close" aria-label="Закрыть" onClick={close} disabled={!dismissible}>
           <X size={16} />
         </button>
         <h2 className={icon ? 'modal-title-icon' : undefined}>

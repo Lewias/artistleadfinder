@@ -1,7 +1,11 @@
-import type { BrowserProfile, BrowserProxy } from '../services/types';
+import type { BrowserProfile, BrowserProxy, ExternalBrowserProvider } from '../services/types';
 import { parseProxyInput, type ProxyForm } from './proxyInput';
 
 export type ProfileForm = { name: string; proxy: ProxyForm; proxyInput: string };
+export const externalBrowserLabels: Record<ExternalBrowserProvider, string> = {
+  nst: 'NSTbrowser',
+  dolphin: 'Dolphin Anty',
+};
 const emptyProxy = (): ProxyForm => ({
   scheme: 'none',
   host: '',

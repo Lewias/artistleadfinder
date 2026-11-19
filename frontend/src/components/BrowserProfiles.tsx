@@ -6,6 +6,7 @@ import {
   Cookie,
   Globe2,
   LogIn,
+  Link2,
   Pencil,
   Play,
   Plus,
@@ -25,11 +26,12 @@ import type { BrowserProfile, OutreachWorkspace, ScoutAccountRow } from '../serv
 import { Button } from './ui/button';
 import { Menu } from './Menu';
 import { Modal } from './Modal';
+import { ExternalProfileDialog } from './ExternalProfileDialog';
 import { ProxyFields } from './ProxyFields';
-import { emptyForm, fromProfile, getProxy, type ProfileForm } from './profileForm';
+import { emptyForm, externalBrowserLabels, fromProfile, getProxy, type ProfileForm } from './profileForm';
 import { controlScout, errorText, scoutActive, startScout } from './accountRuns';
 
-type Dialog = { kind: 'create' } | { kind: 'edit' | 'delete'; profile: BrowserProfile } | null;
+type Dialog = { kind: 'create' | 'external' } | { kind: 'edit' | 'delete'; profile: BrowserProfile } | null;
 
 const secretStore = navigator.userAgent.includes('Mac') ? 'macOS Keychain' : 'Windows DPAPI';
 
@@ -44,6 +46,10 @@ function accountStatus(profile: BrowserProfile, scout: ScoutAccountRow | undefin
     return { text: `Парсинг · найдено ${scout.found} из ${scout.target}`, tone: 'busy' };
   }
   if (sending) return { text: 'Рассылка идёт', tone: 'busy' };
+  if (profile.external)
+    return profile.cookie_count
+      ? { text: 'Есть сессия Instagram', tone: 'ok' }
+      : { text: 'Откройте браузер и проверьте вход', tone: 'off' };
   return profile.cookie_count
     ? { text: 'Сессия сохранена · готов', tone: 'ok' }
     : { text: 'Нет сессии — откройте окно и войдите', tone: 'off' };
@@ -57,6 +63,8 @@ export function BrowserProfiles() {
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<Dialog>(null);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
+  const [externalPort, setExternalPort] = useState('');
+  const [externalToken, setExternalToken] = useState('');
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -184,18 +192,27 @@ export function BrowserProfiles() {
     setDialog(next);
     setFormError('');
     setForm(next?.kind === 'edit' ? fromProfile(next.profile) : emptyForm());
+    setExternalPort(next?.kind === 'edit' ? String(next.profile.external?.port ?? '') : '');
+    setExternalToken('');
   };
+  const editedExternal = dialog?.kind === 'edit' ? dialog.profile.external : undefined;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy('form');
     setFormError('');
     try {
-      const proxy = getProxy(form);
+      const name = form.name.trim();
       if (dialog?.kind === 'edit') {
-        await api.browser('update', { id: dialog.profile.id, name: form.name.trim(), proxy });
-        setMessage('Настройки профиля сохранены. Прокси применится при следующем открытии окна.');
+        await api.browser('update', {
+          id: dialog.profile.id,
+          name,
+          ...(editedExternal
+            ? { external_connection: { port: Number(externalPort), token: externalToken.trim() } }
+            : { proxy: getProxy(form) }),
+        });
+        setMessage('Настройки профиля сохранены.');
       } else {
-        await api.browser('create', { name: form.name.trim(), proxy });
+        await api.browser('create', { name, proxy: getProxy(form) });
         setMessage('Профиль создан. Откройте окно, чтобы войти в Instagram, или импортируйте cookies.');
       }
       setDialog(null);
@@ -253,7 +270,14 @@ export function BrowserProfiles() {
               {parsingAll ? <Square size={13} /> : <Radar size={15} />}
               {parsingAll ? 'Стоп парсинга' : `Парсинг (${selected.length})`}
             </Button>
-            <Button onClick={() => openDialog({ kind: 'create' })}>
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => openDialog({ kind: 'external' })}
+            >
+              <Link2 size={16} /> NST / Dolphin
+            </Button>
+            <Button disabled={busy !== null} onClick={() => openDialog({ kind: 'create' })}>
               <Plus size={16} /> Новый профиль
             </Button>
           </>
@@ -273,11 +297,13 @@ export function BrowserProfiles() {
         <span>Изоляция сессий</span>
         <span className="tag">{secretStore}</span>
         <span className="helper">
-          Каждый профиль — отдельное окно Chromium. Cookies и пароль прокси хранятся зашифрованными.
+          У каждого профиля своя сессия. Прокси профилей NST и Dolphin настраиваются в исходном браузере.
         </span>
       </div>
       {profiles.length === 0 && (
-        <div className="panel empty-panel">Пока нет профилей. Нажмите «Новый профиль».</div>
+        <div className="panel empty-panel">
+          Создайте профиль или подключите существующий из NST или Dolphin.
+        </div>
       )}
       <div className="profile-list">
         {profiles.map(profile => {
@@ -306,9 +332,11 @@ export function BrowserProfiles() {
                 <div className="account-meta">
                   <Globe2 size={13} />
                   <span>
-                    {profile.proxy
-                      ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}`
-                      : '—'}
+                    {profile.external
+                      ? externalBrowserLabels[profile.external.provider]
+                      : profile.proxy
+                        ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}`
+                        : '—'}
                   </span>
                   <span className={`dot ${status.tone}`} />
                   <span>{status.text}</span>
@@ -363,7 +391,9 @@ export function BrowserProfiles() {
                       const result = await api.browser<{ warning?: string }>('open', { id: profile.id });
                       setMessage(
                         result.warning ||
-                          `Окно «${profile.name}» открыто. Сессия сохранится автоматически при закрытии.`,
+                          (profile.external
+                            ? `Профиль «${profile.name}» открыт в ${externalBrowserLabels[profile.external.provider]}.`
+                            : `Окно «${profile.name}» открыто. Сессия сохранится автоматически при закрытии.`),
                       );
                     })
                   }
@@ -382,23 +412,30 @@ export function BrowserProfiles() {
                           close();
                           void run(profile, async () => {
                             await api.browser('save', { id: profile.id });
-                            setMessage(`Сессия «${profile.name}» сохранена.`);
+                            setMessage(
+                              profile.external
+                                ? `Сессия «${profile.name}» проверена.`
+                                : `Сессия «${profile.name}» сохранена.`,
+                            );
                           });
                         }}
                       >
-                        <RefreshCw size={15} /> Сохранить сессию сейчас
+                        <RefreshCw size={15} />{' '}
+                        {profile.external ? 'Проверить сессию' : 'Сохранить сессию сейчас'}
                       </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="menu-item"
-                        onClick={() => {
-                          close();
-                          pickCookies(profile);
-                        }}
-                      >
-                        <Cookie size={15} /> Импорт cookies…
-                      </button>
+                      {!profile.external && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="menu-item"
+                          onClick={() => {
+                            close();
+                            pickCookies(profile);
+                          }}
+                        >
+                          <Cookie size={15} /> Импорт cookies…
+                        </button>
+                      )}
                       <button
                         type="button"
                         role="menuitem"
@@ -408,7 +445,8 @@ export function BrowserProfiles() {
                           openDialog({ kind: 'edit', profile });
                         }}
                       >
-                        <Pencil size={15} /> Название и прокси…
+                        <Pencil size={15} />{' '}
+                        {profile.external ? 'Настройки подключения…' : 'Название и прокси…'}
                       </button>
                       <button
                         type="button"
@@ -419,7 +457,7 @@ export function BrowserProfiles() {
                           openDialog({ kind: 'delete', profile });
                         }}
                       >
-                        <Trash2 size={15} /> Удалить профиль…
+                        <Trash2 size={15} /> {profile.external ? 'Отключить профиль…' : 'Удалить профиль…'}
                       </button>
                     </>
                   )}
@@ -440,6 +478,18 @@ export function BrowserProfiles() {
         </p>
       )}
 
+      {dialog?.kind === 'external' && (
+        <ExternalProfileDialog
+          profiles={profiles}
+          onClose={() => setDialog(null)}
+          onAdded={({ added, skipped }) => {
+            setDialog(null);
+            setMessage(`Добавлено профилей: ${added}.${skipped ? ` Уже подключено: ${skipped}.` : ''}`);
+            void refresh().catch(err => setMessage(errorText(err)));
+            scout.refresh();
+          }}
+        />
+      )}
       {(dialog?.kind === 'create' || dialog?.kind === 'edit') && (
         <Modal
           title={dialog.kind === 'edit' ? 'Настройки профиля' : 'Новый профиль'}
@@ -458,18 +508,50 @@ export function BrowserProfiles() {
                 onChange={event => setForm({ ...form, name: event.target.value })}
               />
             </label>
-            <ProxyFields
-              value={form.proxy}
-              input={form.proxyInput}
-              disabled={busy === 'form'}
-              onChange={proxy => setForm(current => ({ ...current, proxy }))}
-              onInputChange={proxyInput => setForm(current => ({ ...current, proxyInput }))}
-            />
+            {editedExternal ? (
+              <>
+                <label>
+                  Порт локального API
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    required
+                    value={externalPort}
+                    disabled={busy === 'form'}
+                    onChange={event => setExternalPort(event.target.value)}
+                  />
+                </label>
+                {editedExternal.provider === 'nst' && (
+                  <label>
+                    Новый API-ключ NSTbrowser
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      placeholder="Оставьте пустым, чтобы сохранить текущий ключ"
+                      value={externalToken}
+                      disabled={busy === 'form'}
+                      onChange={event => setExternalToken(event.target.value)}
+                    />
+                  </label>
+                )}
+              </>
+            ) : (
+              <ProxyFields
+                value={form.proxy}
+                input={form.proxyInput}
+                disabled={busy === 'form'}
+                onChange={proxy => setForm(current => ({ ...current, proxy }))}
+                onInputChange={proxyInput => setForm(current => ({ ...current, proxyInput }))}
+              />
+            )}
             <ErrorToast message={formError} />
             <p className="helper">
-              {dialog.kind === 'edit'
-                ? 'Для смены прокси сначала закройте окно этого профиля.'
-                : 'Создаётся пустая сессия: войдите вручную после открытия окна или импортируйте cookies. Поддерживаются HTTP и SOCKS5 с логином и паролем.'}
+              {editedExternal
+                ? `Прокси и сессия этого профиля управляются в ${externalBrowserLabels[editedExternal.provider]}.`
+                : dialog.kind === 'edit'
+                  ? 'Для смены прокси сначала закройте окно этого профиля.'
+                  : 'Создаётся пустая сессия: войдите вручную после открытия окна или импортируйте cookies. Поддерживаются HTTP и SOCKS5 с логином и паролем.'}
             </p>
             <div className="actions">
               <Button type="submit" disabled={busy === 'form' || !form.name.trim()}>
@@ -483,14 +565,18 @@ export function BrowserProfiles() {
         </Modal>
       )}
       {dialog?.kind === 'delete' && (
-        <Modal title={`Удалить «${dialog.profile.name}»?`} onClose={() => setDialog(null)}>
+        <Modal
+          title={`${dialog.profile.external ? 'Отключить' : 'Удалить'} «${dialog.profile.name}»?`}
+          onClose={() => setDialog(null)}
+        >
           <p className="helper">
-            Профиль и его сохранённые cookies будут удалены. Перед этим закройте окно браузера профиля. Лиды и
-            история рассылок останутся.
+            {dialog.profile.external
+              ? 'Закройте окно профиля. Будет удалена его привязка к Artist Lead Finder.'
+              : 'Профиль и его сохранённые cookies будут удалены. Перед этим закройте окно браузера профиля. Лиды и история рассылок останутся.'}
           </p>
           <div className="actions">
             <Button variant="danger" disabled={busy !== null} onClick={() => remove(dialog.profile)}>
-              <Trash2 size={15} /> Удалить профиль
+              <Trash2 size={15} /> {dialog.profile.external ? 'Отключить профиль' : 'Удалить профиль'}
             </Button>
             <Button variant="outline" onClick={() => setDialog(null)}>
               Отмена

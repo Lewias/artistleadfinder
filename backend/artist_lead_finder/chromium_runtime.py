@@ -16,6 +16,7 @@ from . import profile_requests
 from .browser_sessions import BrowserSessions
 from .database import application_data_dir
 from .direct_message import send_direct
+from .external_browsers import ExternalWindow, ProfileClient
 from .inbox.reader import read_thread
 from .instagram_warmup_browser import warmup_action
 from .lead_scout import feed as grid_feed
@@ -70,6 +71,9 @@ class Window:
     # has had nothing more to do (monotonic seconds). See browser_idle.
     worked: bool = False
     idle_since: float | None = None
+    external: ExternalWindow | None = None
+    existing_pages: set[Page] = field(default_factory=set)
+    opened_pages: set[Page] = field(default_factory=set)
 
 
 def watch_rate_limits(window: Window) -> None:
@@ -337,7 +341,14 @@ class ChromiumRuntime:
                 pass
             if window.page.is_closed():
                 # A closed tab with other tabs still open keeps the window in use.
-                alive = [page for page in window.context.pages if not page.is_closed()]
+                candidates = window.context.pages
+                if window.external and not window.external.started_here:
+                    candidates = [window.threads_page] if window.threads_page else []
+                alive = [
+                    page
+                    for page in candidates
+                    if not page.is_closed() and page not in window.existing_pages
+                ]
                 if alive:
                     window.page = alive[-1]
             if window.browser.is_connected() and not window.page.is_closed():
@@ -352,6 +363,17 @@ class ChromiumRuntime:
             # Closing the window by hand leaves the browser connected, so the session
             # can still be kept; this also covers app exit.
             self._persist(identifier, window)
+            if window.external and window.browser.is_connected():
+                if window.external.started_here:
+                    window.external.stop()
+                else:
+                    # Disconnect from a user-owned NST window, leaving its tabs alone.
+                    for page in window.opened_pages:
+                        if not page.is_closed():
+                            try:
+                                page.close()
+                            except Exception:
+                                pass
             try:
                 window.browser.close()
             except Exception:
@@ -362,6 +384,11 @@ class ChromiumRuntime:
             return {"ok": False}
         try:
             cookies = window.context.cookies(INSTAGRAM)
+            if window.external:
+                return self.sessions.save_external_session_count(
+                    identifier,
+                    sum(row["name"] == "sessionid" and bool(row["value"]) for row in cookies),
+                )
             threads_cookies = window.context.cookies(
                 ["https://www.threads.com/", "https://www.threads.net/"]
             )
@@ -388,11 +415,13 @@ class ChromiumRuntime:
         if window:
             window.page.bring_to_front()
             return {"ok": True, "reused": True}
-        self._ready(wait=20)
         if identifier == GUEST_ID:
             record = {"cookies": [], "proxy": None}
         else:
             record = self.sessions.read(identifier)
+        if record.get("external"):
+            return self._open_external(identifier, record["external"])
+        self._ready(wait=20)
         proxy = record.get("proxy")
         proxy_options = None
         if proxy_override:
@@ -448,6 +477,51 @@ class ChromiumRuntime:
             browser.close()
             raise
 
+    def _open_external(self, identifier: str, connection: dict) -> dict:
+        client = ProfileClient(connection)
+        endpoint, started_here = client.open_profile(connection["id"])
+        external = ExternalWindow(client, connection["id"], started_here)
+        browser = None
+        page = None
+        try:
+            browser = self._engine().connect_over_cdp(endpoint, timeout=6500)
+            context = browser.contexts[0]
+            existing_pages = set(context.pages)
+            page = context.new_page()
+            window = Window(
+                browser,
+                context,
+                page,
+                external=external,
+                existing_pages=existing_pages,
+                opened_pages={page},
+            )
+            watch_rate_limits(window)
+            watch_data(window)
+        except Exception:
+            if page is not None:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            if browser is not None:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            external.stop()
+            raise BrowserLaunchError(f"Не удалось подключиться к окну {client.label}.") from None
+        self.windows[identifier] = window
+        self._persist(identifier, window)
+        try:
+            page.goto(INSTAGRAM, wait_until="domcontentloaded", timeout=6500)
+        except Exception:
+            return {
+                "ok": True,
+                "warning": f"Instagram загружается. Проверьте окно {client.label}.",
+            }
+        return {"ok": True, "reused": False}
+
     @staticmethod
     def _same_site(value: object) -> str:
         normalized = str(value or "Lax").lower()
@@ -481,6 +555,8 @@ class ChromiumRuntime:
             or window.threads_page is window.page
         ):
             window.threads_page = window.context.new_page()
+            if window.external:
+                window.opened_pages.add(window.threads_page)
         return window, window.threads_page
 
     @_on_browser_thread
@@ -508,7 +584,9 @@ class ChromiumRuntime:
         pages = [
             page
             for page in reversed(window.context.pages)
-            if not page.is_closed() and urlparse(page.url).hostname in HOSTS
+            if not page.is_closed()
+            and page not in window.existing_pages
+            and urlparse(page.url).hostname in HOSTS
         ]
         for page in pages:
             found = identity(page)

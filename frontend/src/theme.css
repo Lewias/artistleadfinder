@@ -2652,6 +2652,29 @@ tbody tr:hover td {
   display: grid;
   gap: 12px;
 }
+.external-profile-list {
+  display: grid;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--alf-radius);
+}
+.external-profile-list .external-profile-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+.external-profile-option + .external-profile-option {
+  border-top: 1px solid var(--line);
+}
+.external-profile-option input {
+  width: auto;
+  flex: none;
+}
+.external-profile-option .helper {
+  margin-left: auto;
+}
 @media (max-width: 1320px) {
   .account-row {
     flex-wrap: wrap;

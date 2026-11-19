@@ -6,6 +6,8 @@ import time
 import uuid
 from pathlib import Path
 
+from .errors import UserError
+from .external_browsers import ProfileClient, provider_fields, valid_profile_id
 from .secret_box import protect
 
 
@@ -134,7 +136,8 @@ def read_cookie_file(path: str) -> list[dict]:
 
 def public_profile(identifier: str, record: dict) -> dict:
     proxy = record.get("proxy")
-    return dict(
+    external = record.get("external")
+    result = dict(
         id=identifier,
         name=record["name"],
         cookie_count=len(record["cookies"]),
@@ -145,6 +148,10 @@ def public_profile(identifier: str, record: dict) -> dict:
         if proxy
         else None,
     )
+    if external:
+        result["cookie_count"] = record.get("external_session_count", 0)
+        result["external"] = {key: external[key] for key in ("provider", "id", "port")}
+    return result
 
 
 class BrowserSessions:
@@ -166,6 +173,13 @@ class BrowserSessions:
         temporary.write_bytes(protect(json.dumps(record).encode("utf-8")))
         temporary.replace(path)
 
+    def save_external_session_count(self, identifier: str, count: int) -> dict:
+        record = self.read(identifier)
+        if record.get("external_session_count") != count:
+            record["external_session_count"] = count
+            self.write(identifier, record)
+        return {"ok": True}
+
     def call(self, method: str, params: dict):
         if method == "browser.list":
             profiles = []
@@ -173,6 +187,14 @@ class BrowserSessions:
                 record = self.read(path.stem)
                 profiles.append(public_profile(path.stem, record))
             return sorted(profiles, key=lambda profile: profile["name"].casefold())
+        if method == "browser.external_list":
+            connection = provider_fields(params)
+            cursor = params.get("cursor")
+            if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 4096):
+                raise UserError("Некорректная страница списка профилей.")
+            return ProfileClient(connection).profiles(cursor)
+        if method == "browser.external_add":
+            return self.add_external(params)
         if method == "browser.create":
             name = validate_name(params["name"])
             proxy = validate_proxy(params.get("proxy"))
@@ -191,19 +213,44 @@ class BrowserSessions:
         if method == "browser.update":
             record = self.read(identifier)
             record["name"] = validate_name(params["name"])
-            record["proxy"] = validate_proxy(params.get("proxy"), record.get("proxy"))
+            external = record.get("external")
+            if external:
+                if params.get("proxy") is not None:
+                    raise UserError("Меняйте прокси в настройках профиля исходного браузера.")
+                if "external_connection" in params:
+                    values = params["external_connection"]
+                    if not isinstance(values, dict):
+                        raise UserError("Проверьте настройки подключения профиля.")
+                    updated = provider_fields(
+                        {
+                            "provider": external["provider"],
+                            "port": values.get("port", external["port"]),
+                            "token": (
+                                values.get("token") or external["token"]
+                                if external["provider"] == "nst"
+                                else ""
+                            ),
+                        },
+                        token_required=external["provider"] == "nst",
+                    )
+                    record["external"] = {**updated, "id": external["id"]}
+            else:
+                record["proxy"] = validate_proxy(params.get("proxy"), record.get("proxy"))
             self.write(identifier, record)
             return public_profile(identifier, record)
         if method == "browser.import_cookies":
-            cookies = read_cookie_file(params["path"])
             record = self.read(identifier)
-            record["cookies"] = cookies
+            if record.get("external"):
+                raise UserError("Импортируйте cookies в исходном браузере этого профиля.")
+            record["cookies"] = read_cookie_file(params["path"])
             self.write(identifier, record)
             return public_profile(identifier, record)
         if method == "browser.load_internal":
-            return self.read(identifier)
+            return {"proxy": self.read(identifier).get("proxy")}
         if method == "browser.save_internal":
             record = self.read(identifier)
+            if record.get("external"):
+                raise UserError("Сессия этого профиля хранится в исходном браузере.")
             record["cookies"] = parse_cookies(
                 json.dumps(params["cookies"]), allow_empty="threads_cookies" in params
             )
@@ -219,3 +266,34 @@ class BrowserSessions:
             self.path(identifier).unlink()
             return {"ok": True}
         raise ValueError("Unknown browser method")
+
+    def add_external(self, params: dict) -> dict:
+        connection = provider_fields(params, token_required=params.get("provider") != "dolphin")
+        provider = connection["provider"]
+        if provider == "dolphin":
+            # The remote token is only used to retrieve the list. Launch uses the signed-in app.
+            connection["token"] = ""
+        rows = params.get("profiles")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 500:
+            raise UserError("Выберите от 1 до 500 профилей.")
+        requested = {}
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("name"), str):
+                raise UserError("Некорректные данные профиля.")
+            requested[valid_profile_id(provider, row.get("id"))] = validate_name(row["name"])
+
+        linked = {
+            profile["external"]["id"]
+            for profile in self.call("browser.list", {})
+            if profile.get("external", {}).get("provider") == provider
+        }
+        added = 0
+        for remote_id, name in requested.items():
+            if remote_id in linked:
+                continue
+            record = dict(
+                name=name, cookies=[], proxy=None, external={**connection, "id": remote_id}
+            )
+            self.write(uuid.uuid4().hex, record)
+            added += 1
+        return {"added": added, "skipped": len(requested) - added}

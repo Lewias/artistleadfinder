@@ -302,7 +302,10 @@ async fn browser_action(
         return Err("Недоступный метод".into());
     }
     let core = core.inner().clone();
-    if action == "list" || action == "import" || action == "create" {
+    if matches!(
+        action.as_str(),
+        "list" | "import" | "create" | "external_list" | "external_add"
+    ) {
         return backend_request(core, format!("browser.{action}"), params).await;
     }
     let id = params["id"].as_str().ok_or("Нет профиля")?;

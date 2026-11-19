@@ -316,11 +316,18 @@ export interface BrowserProxy {
   username?: string | null;
   has_password?: boolean;
 }
+export type ExternalBrowserProvider = 'nst' | 'dolphin';
+export interface ExternalBrowserProfile {
+  provider: ExternalBrowserProvider;
+  id: string;
+  port: number;
+}
 export interface BrowserProfile {
   id: string;
   name: string;
   cookie_count: number;
   proxy: BrowserProxy | null;
+  external?: ExternalBrowserProfile;
 }
 export interface CaptureQueue {
   id: number;

@@ -17,6 +17,8 @@ export type BrowserAction =
   | 'update'
   | 'import'
   | 'import_cookies'
+  | 'external_list'
+  | 'external_add'
   | 'open'
   | 'threads_open'
   | 'save'

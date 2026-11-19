@@ -10,7 +10,7 @@ import { Button } from '../components/ui/button';
 import { Menu } from '../components/Menu';
 import { Modal } from '../components/Modal';
 import { ProxyFields } from '../components/ProxyFields';
-import { emptyForm, fromProfile, getProxy } from '../components/profileForm';
+import { emptyForm, externalBrowserLabels, fromProfile, getProxy } from '../components/profileForm';
 import './Threads.css';
 
 type ProfileDialog = { kind: 'create' } | { kind: 'edit'; profile: BrowserProfile };
@@ -23,6 +23,7 @@ export function ThreadsAccounts() {
   const [formError, setFormError] = useState('');
   const [disconnect, setDisconnect] = useState<ThreadsAccount>();
   const [notice, setNotice] = useState('');
+  const editedExternal = dialog?.kind === 'edit' ? dialog.profile.external : undefined;
   const openDialog = (next: ProfileDialog) => {
     setDialog(next);
     setForm(next.kind === 'edit' ? fromProfile(next.profile) : emptyForm());
@@ -31,7 +32,7 @@ export function ThreadsAccounts() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      const params = { name: form.name.trim(), proxy: getProxy(form) };
+      const params = { name: form.name.trim(), ...(editedExternal ? {} : { proxy: getProxy(form) }) };
       const saved =
         dialog?.kind === 'edit'
           ? await resource.browser<BrowserProfile>('update', { ...params, id: dialog.profile.id })
@@ -96,9 +97,11 @@ export function ThreadsAccounts() {
                 <div className="account-meta">
                   <Globe2 size={13} />
                   <span>
-                    {profile.proxy
-                      ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}`
-                      : 'Без прокси'}
+                    {profile.external
+                      ? externalBrowserLabels[profile.external.provider]
+                      : profile.proxy
+                        ? `${profile.proxy.scheme.toUpperCase()} ${profile.proxy.host}:${profile.proxy.port}`
+                        : 'Без прокси'}
                   </span>
                   <span className={`dot ${tone}`} />
                   <span>{status}</span>
@@ -125,10 +128,19 @@ export function ThreadsAccounts() {
                           close();
                           void resource
                             .browser('save', { id: profile.id })
-                            .then(saved => saved && setNotice(`Сессия «${profile.name}» сохранена.`));
+                            .then(
+                              saved =>
+                                saved &&
+                                setNotice(
+                                  profile.external
+                                    ? `Сессия «${profile.name}» проверена.`
+                                    : `Сессия «${profile.name}» сохранена.`,
+                                ),
+                            );
                         }}
                       >
-                        <RefreshCw size={15} /> Сохранить сессию сейчас
+                        <RefreshCw size={15} />{' '}
+                        {profile.external ? 'Проверить сессию' : 'Сохранить сессию сейчас'}
                       </button>
                       <button
                         type="button"
@@ -139,7 +151,7 @@ export function ThreadsAccounts() {
                           openDialog({ kind: 'edit', profile });
                         }}
                       >
-                        <Pencil size={15} /> Название и прокси…
+                        <Pencil size={15} /> {profile.external ? 'Переименовать…' : 'Название и прокси…'}
                       </button>
                       {account && (
                         <button
@@ -206,18 +218,22 @@ export function ThreadsAccounts() {
                 placeholder="Например, рабочий профиль"
               />
             </label>
-            <ProxyFields
-              value={form.proxy}
-              input={form.proxyInput}
-              disabled={busy}
-              onChange={proxy => setForm(current => ({ ...current, proxy }))}
-              onInputChange={proxyInput => setForm(current => ({ ...current, proxyInput }))}
-            />
+            {!editedExternal && (
+              <ProxyFields
+                value={form.proxy}
+                input={form.proxyInput}
+                disabled={busy}
+                onChange={proxy => setForm(current => ({ ...current, proxy }))}
+                onInputChange={proxyInput => setForm(current => ({ ...current, proxyInput }))}
+              />
+            )}
             <ErrorToast message={formError || resource.mutationError} />
             <p className="helper">
-              {dialog.kind === 'edit'
-                ? 'Для смены прокси сначала закройте окно этого профиля. Изменения применяются к Instagram и Threads.'
-                : 'Профиль будет доступен в Instagram и Threads. После создания откройте браузер и войдите в аккаунт.'}
+              {editedExternal
+                ? `Прокси и сессия этого профиля управляются в ${externalBrowserLabels[editedExternal.provider]}.`
+                : dialog.kind === 'edit'
+                  ? 'Для смены прокси сначала закройте окно этого профиля. Изменения применяются к Instagram и Threads.'
+                  : 'Профиль будет доступен в Instagram и Threads. После создания откройте браузер и войдите в аккаунт.'}
             </p>
             <div className="actions">
               <Button type="submit" disabled={busy || !form.name.trim()}>
