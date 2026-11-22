@@ -174,7 +174,7 @@ DEFAULTS = {
 
 def system_info(data_dir: Path, log_dir: Path) -> dict:
     return {
-        "version": "0.12.5",
+        "version": "0.12.6",
         "data_dir": str(data_dir),
         "log_dir": str(log_dir),
         "transport": "stdio",
