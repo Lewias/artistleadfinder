@@ -33,6 +33,7 @@ from sqlalchemy import delete, func, select
 from .. import secret_box
 from ..errors import UserError
 from ..models import (
+    AssistantDraft,
     IMessageAttachment,
     IMessageCampaign,
     IMessageEvent,
@@ -803,14 +804,12 @@ class IMessageService:
             log.info("imessage_campaign_started", extra={"campaign_id": campaign.id})
         return {**self.state(), "skipped": skipped}
 
-    def send_messages(self, items: list[dict], origin: str) -> int:
-        """A campaign of the given messages ({phone, message}), apart from the workspace's
-        list: the assistant's drafts the user sent. The phone takes it like any other;
-        returns the campaign's id."""
+    def send_drafts(self, drafts: list[AssistantDraft], origin: str) -> int:
+        """Create a phone campaign and mark its drafts queued in the same transaction."""
         recipients = []
-        for item in items:
-            phone = normalize_recipient(item.get("phone"))
-            text = str(item.get("message") or "").strip()
+        for draft in drafts:
+            phone = normalize_recipient(draft.handle)
+            text = draft.text.strip()
             if phone is None or not text or len(text) > MAX_MESSAGE_LENGTH:
                 raise UserError("Некорректный получатель или текст сообщения.")
             recipients.append((phone, text))
@@ -836,6 +835,9 @@ class IMessageService:
             )
             session.add(campaign)
             session.flush()
+            for draft in drafts:
+                draft.status, draft.campaign_id = "queued", campaign.id
+                session.add(draft)
             for position, (phone, text) in enumerate(recipients, start=1):
                 session.add(
                     IMessageJob(

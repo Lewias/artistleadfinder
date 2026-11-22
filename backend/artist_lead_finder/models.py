@@ -1009,7 +1009,7 @@ class AssistantTurn(Base):
 
 
 class AssistantDraft(Base):
-    """An iMessage the assistant proposed; it goes out only when the user sends it."""
+    """An assistant iMessage, either a draft for review or a message submitted for sending."""
 
     __tablename__ = "assistant_drafts"
     __table_args__ = (
@@ -1031,8 +1031,7 @@ class AssistantDraft(Base):
 
 
 class AssistantSend(Base):
-    """A draft sent through Messages on this Mac after the user confirmed the recipient and
-    the exact text; its state is read back from the row Messages writes to chat.db."""
+    """A message submitted to Messages on this Mac, tracked via chat.db."""
 
     __tablename__ = "assistant_sends"
     __table_args__ = (
@@ -1046,7 +1045,7 @@ class AssistantSend(Base):
     handle: Mapped[str] = mapped_column(String(200))
     contact_name: Mapped[str] = mapped_column(String(160), default="")
     text: Mapped[str] = mapped_column(String(2000))
-    # sha256 of the recipient and text the user confirmed.
+    # sha256 of the recipient and text submitted for sending.
     token: Mapped[str] = mapped_column(String(64))
     state: Mapped[str] = mapped_column(String(12), default="queued")
     note: Mapped[str] = mapped_column(String(300), default="")

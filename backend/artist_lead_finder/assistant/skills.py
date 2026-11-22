@@ -1,6 +1,6 @@
-"""Sales skills: the producer's playbook from `producer-sales-skills/` at the repo root.
+"""Sales skills: the bundled playbook and each account's local Markdown copies.
 
-That folder is also a Claude Code plugin: `skills/<name>/SKILL.md` files with front matter
+The source folder is also a Claude Code plugin: `skills/<name>/SKILL.md` files with front matter
 (`name`, `description`) and shared, user-editable `reference/*.md` files (offers, stages,
 voice…). The assistant's system prompt lists only names and descriptions; full texts are
 read on demand with the `load_skill` tool, so the prompt stays small and cacheable. The
@@ -9,9 +9,13 @@ prompt in full. All of this is text placed in the prompt: nothing in it is execu
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import RLock
+
+from ..errors import UserError
 
 # The frozen core bundles the folder next to this module (see scripts/build-core.py).
 BUNDLED = Path(__file__).parent / "skills_library"
@@ -81,6 +85,74 @@ def catalog_text() -> str:
     return "\n".join(f"- {skill.name} ({skill.kind}): {skill.description}" for skill in skills)
 
 
-def text_of(name: str) -> str:
-    skill = library().get(name)
-    return skill.text if skill else ""
+class LocalRules:
+    def __init__(self, data_dir: Path):
+        self.root = data_dir / "sales-rules"
+        self.lock = RLock()
+
+    def _path(self, name: str) -> Path:
+        return self.root / f"{name}.md"
+
+    def _write(self, path: Path, text: str) -> None:
+        temporary = None
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(
+                mode="w", encoding="utf-8", delete=False, dir=self.root, suffix=".tmp"
+            ) as file:
+                temporary = Path(file.name)
+                file.write(text + "\n")
+            temporary.replace(path)
+        except (OSError, UnicodeError):
+            raise UserError(f"Не удалось сохранить локальный документ {path.name}.") from None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def initialize(self) -> None:
+        with self.lock:
+            for name, skill in library().items():
+                path = self._path(name)
+                if not path.exists():
+                    self._write(path, skill.text)
+
+    def read(self, name: str) -> Skill:
+        default = library().get(name)
+        if default is None:
+            raise UserError(f"Нет скилла {name}. Есть: {', '.join(library())}.")
+        with self.lock:
+            path = self._path(name)
+            try:
+                text = path.read_text(encoding="utf-8-sig").rstrip("\n")
+            except FileNotFoundError:
+                self._write(path, default.text)
+                text = default.text
+            except (OSError, UnicodeError):
+                raise UserError(f"Не удалось прочитать локальный документ {path.name}.") from None
+        return replace(default, text=text)
+
+    def edit(self, name: str, find: str, replacement: str) -> bool:
+        with self.lock:
+            current = self.read(name).text
+            if find:
+                if current.count(find) != 1:
+                    raise UserError("Нужен один точный фрагмент из текущего текста документа.")
+                updated = current.replace(find, replacement, 1)
+            else:
+                addition = replacement.strip()
+                if not addition:
+                    raise UserError("Укажите текст, который нужно добавить.")
+                if f"\n{addition}\n" in f"\n{current}\n":
+                    return False
+                updated = f"{current}\n\n{addition}" if current else addition
+            if current == updated:
+                return False
+            self._write(self._path(name), updated)
+            return True
+
+
+def text_of(name: str, local: LocalRules | None = None) -> str:
+    if name not in library():
+        return ""
+    skill = local.read(name) if local is not None else library()[name]
+    return skill.text

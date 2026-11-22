@@ -1,8 +1,7 @@
-"""Sending an assistant draft through Messages on this Mac, only after the user confirmed it.
+"""Sending an assistant message through Messages on this Mac.
 
-- Nothing sends on its own: the assistant only drafts. The «Ассистент» screen calls this
-  after the user saw the exact recipient and text (the confirmation token is a hash of
-  both, so an edited text needs a new confirmation).
+- The assistant can submit a new message on the user's command. For an existing draft,
+  the screen still confirms the exact recipient and text with a hash of both.
 - One send per draft, by either route: a draft handed to the iPhone queue or to Messages
   is no longer pending. A Mac send is replaced only when it definitely failed. Contacts
   outside the CRM or marked «Не связываться» and anything that is not a phone or an email
@@ -108,7 +107,8 @@ class MacSend:
 
     def preview(self, draft_id: int) -> dict:
         """What the confirmation dialog shows; its token authorizes exactly this send."""
-        draft = self._sendable(draft_id)
+        with self.sessions() as session:
+            draft = self._sendable(session, session.get(AssistantDraft, draft_id))
         return {
             "draft_id": draft.id,
             "contact": draft.contact_name or draft.handle,
@@ -118,34 +118,48 @@ class MacSend:
         }
 
     def send(self, draft_id: int, token: str) -> dict:
-        with self.lock:  # a double click must not send twice
-            draft = self._sendable(draft_id)
+        return self._send(draft_id, token)
+
+    def send_new(self, draft: AssistantDraft) -> dict:
+        return self._send(draft, confirmation_token(draft.handle, draft.text))
+
+    def _send(self, draft_or_id: AssistantDraft | int, token: str) -> dict:
+        with self.lock, self.sessions.begin() as session:
+            draft = (
+                session.get(AssistantDraft, draft_or_id)
+                if isinstance(draft_or_id, int)
+                else draft_or_id
+            )
+            draft = self._sendable(session, draft)
             if token != confirmation_token(draft.handle, draft.text):
                 raise UserError(
                     "Черновик изменился после подтверждения. Подтвердите отправку ещё раз."
                 )
             # Without chat.db the status cannot be read back: refuse before sending.
             after = self.outbox.max_rowid()
-            with self.sessions.begin() as session:
+            if draft.id is not None:
                 session.execute(
                     delete(AssistantSend).where(
                         AssistantSend.draft_id == draft.id, AssistantSend.state == "failed"
                     )
                 )
-                job = AssistantSend(
-                    draft_id=draft.id,
-                    handle=draft.handle,
-                    contact_name=draft.contact_name,
-                    text=draft.text,
-                    token=token,
-                    after_rowid=after,
-                    confirmed_at=self.now(),
-                    updated_at=self.now(),
-                )
-                session.add(job)
-                session.get(AssistantDraft, draft.id).status = "queued"
-                session.flush()
-                job_id = job.id
+            draft.status = "queued"
+            session.add(draft)
+            session.flush()
+            draft_id = draft.id
+            job = AssistantSend(
+                draft_id=draft_id,
+                handle=draft.handle,
+                contact_name=draft.contact_name,
+                text=draft.text,
+                token=token,
+                after_rowid=after,
+                confirmed_at=self.now(),
+                updated_at=self.now(),
+            )
+            session.add(job)
+            session.flush()
+            job_id = job.id
         handle, text = draft.handle, draft.text
         self.background(lambda: self._dispatch(job_id, draft_id, handle, text))
         return self.job(draft_id) or {}
@@ -167,22 +181,15 @@ class MacSend:
         self._move(job_id, "dispatched")
         self.refresh(only_job=job_id)
 
-    def _sendable(self, draft_id: int) -> AssistantDraft:
+    def _sendable(self, session, draft: AssistantDraft | None) -> AssistantDraft:
         if not self.transport.enabled:
             raise UserError(self.transport.describe())
-        with self.sessions() as session:
-            draft = session.get(AssistantDraft, int(draft_id or 0))
-            job = session.scalar(select(AssistantSend).where(AssistantSend.draft_id == draft_id))
-            recent = session.scalar(
-                select(func.count(AssistantSend.id)).where(
-                    AssistantSend.state != "failed",
-                    AssistantSend.confirmed_at > self.now() - timedelta(hours=1),
-                )
-            )
         if draft is None:
             raise UserError("Черновик не найден.")
-        if job is not None and job.state != "failed":
-            raise UserError("Этот черновик уже отправлялся; дважды он не отправится.")
+        if draft.id is not None:
+            job = session.scalar(select(AssistantSend).where(AssistantSend.draft_id == draft.id))
+            if job is not None and job.state != "failed":
+                raise UserError("Этот черновик уже отправлялся; дважды он не отправится.")
         if draft.status != "pending":
             raise UserError("Этот черновик уже отправлен или отклонён.")
         handle = normalize_recipient(draft.handle)
@@ -193,6 +200,12 @@ class MacSend:
             raise UserError("Этого номера больше нет в CRM: писать можно только контактам из CRM.")
         if DO_NOT_CONTACT in contact["statuses"]:
             raise UserError("У контакта статус «Не связываться».")
+        recent = session.scalar(
+            select(func.count(AssistantSend.id)).where(
+                AssistantSend.state != "failed",
+                AssistantSend.confirmed_at > self.now() - timedelta(hours=1),
+            )
+        )
         if int(recent or 0) >= SEND_LIMIT_PER_HOUR:
             raise UserError(
                 f"За последний час отправлено {SEND_LIMIT_PER_HOUR} сообщений. Это предел, "

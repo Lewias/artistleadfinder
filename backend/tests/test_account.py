@@ -177,11 +177,15 @@ def test_first_account_takes_the_data_of_the_old_version(server, tmp_path):
     (tmp_path / "artist-leads.sqlite3").write_text("old base")
     (tmp_path / "browser-sessions").mkdir()
     (tmp_path / "browser-sessions" / "a.session").write_text("cookies")
+    rules = tmp_path / "sales-rules"
+    rules.mkdir()
+    (rules / "offers.md").write_text("Local offer", encoding="utf-8")
     user, _, _, opened = signed_in(server, tmp_path)
     folder = tmp_path / "accounts" / user
     assert opened[0].folder == folder
     assert (folder / "artist-leads.sqlite3").read_text() == "old base"
     assert (folder / "browser-sessions" / "a.session").exists()
+    assert (folder / "sales-rules" / "offers.md").read_text(encoding="utf-8") == "Local offer"
     assert not (tmp_path / "artist-leads.sqlite3").exists()
 
 

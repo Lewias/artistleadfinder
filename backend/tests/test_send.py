@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 import test_assistant
-from test_assistant import JAY, KEY, STRANGER, FakeClaude, reply, run, text, tool
+from test_assistant import JAY, KEY, KID, STRANGER, FakeClaude, reply, run, text, tool
 
 from artist_lead_finder.assistant import mac_send, skills
 from artist_lead_finder.assistant.mac_send import SEND_LIMIT_PER_HOUR, confirmation_token
@@ -94,6 +94,60 @@ def test_the_assistant_loads_a_skill_on_demand(app):
     missing = claude.requests[2]["messages"][-1]["content"][0]
     assert missing["is_error"] and "Нет скилла no-such-skill" in missing["content"]
     assert any(item["text"] == "Открываю скилл продаж" for item in state["items"])
+
+
+def test_sales_edits_are_local_and_used_by_both_models(app):
+    _, _, tmp_path = app
+    old_price = "| Unlimited Lease | $100 |"
+    new_price = "| Unlimited Lease | $120 |"
+    new_rule = "Если артист спросил про контракт, сначала уточни тип лицензии."
+    helper, claude = test_assistant.assistant(
+        app,
+        [
+            reply(tool("load_skill", name="offers")),
+            reply(tool("edit_sales_rule", name="offers", find=old_price, replacement=new_price)),
+            reply(tool("edit_sales_rule", name="guardrails", find="", replacement=new_rule)),
+            reply(tool("load_skill", name="offers")),
+            reply(tool("ask_stronger_model", task="Проверь цену лизинга", handle="", contact_id=0)),
+            reply(text("Сохранил цену и правило."), stop="end_turn"),
+        ],
+        strong=[reply(text("Lease is $120\n---\nЦена из офферов."), stop="end_turn")],
+    )
+
+    state = run(helper, "Поменяй цену Unlimited Lease на $120 и добавь правило про контракт")
+
+    assert state["error"] == ""
+    assert new_rule not in claude.requests[0]["system"]
+    assert new_rule in claude.requests[3]["system"]
+    loaded = claude.requests[4]["messages"][-1]["content"][0]
+    assert new_price in json.loads(loaded["content"])["text"]
+    assert new_price in claude.strong_requests[0]["system"]
+    assert new_rule in claude.strong_requests[0]["system"]
+    path = tmp_path / "data" / "sales-rules" / "offers.md"
+    assert new_price in path.read_text(encoding="utf-8")
+
+    reopened = skills.LocalRules(tmp_path / "data")
+    reopened.initialize()
+    assert new_price in reopened.read("offers").text
+    assert old_price in skills.LocalRules(tmp_path / "another-account").read("offers").text
+    assert old_price in skills.library()["offers"].text
+
+
+def test_local_sales_edits_read_manual_changes_and_refuse_stale_or_unknown_targets(tmp_path):
+    rules = skills.LocalRules(tmp_path)
+    rules.initialize()
+    path = rules.root / "voice.md"
+    path.write_text("Новая строка\nНовая строка\nТочный фрагмент\n", encoding="utf-8")
+
+    assert "Точный фрагмент" in rules.read("voice").text
+    with pytest.raises(UserError, match="один точный фрагмент"):
+        rules.edit("voice", "Новая строка", "Другое")
+    with pytest.raises(UserError, match="Нет скилла"):
+        rules.edit("../voice", "", "Другое")
+    assert rules.edit("voice", "Точный фрагмент", "Готово")
+    assert not rules.edit("voice", "", "Готово")
+    assert rules.read("voice").text == "Новая строка\nНовая строка\nГотово"
+    assert not (tmp_path / "voice.md").exists()
 
 
 # ---------- a Messages database and Messages itself, as stand-ins ----------
@@ -226,6 +280,42 @@ def draft_status(sessions, draft_id) -> str:
 
 
 # ---------- sending ----------
+
+
+def test_assistant_sends_to_messages_without_a_button_and_ignores_duplicate_calls(mac):
+    helper, transport, _chat, sessions = mac
+    send = {"handle": JAY, "text": TEXT, "reason": "ответ"}
+    claude = FakeClaude(
+        [
+            reply(
+                tool("send_imessage", **send),
+                tool("send_imessage", **send),
+                tool("send_imessage", handle=KID, text=TEXT, reason="ответ"),
+                tool("send_imessage", handle=STRANGER, text=TEXT, reason="ответ"),
+            ),
+            reply(text("Передаю сообщение Jay в Сообщения."), stop="end_turn"),
+        ]
+    )
+    helper.client_factory = lambda key: claude
+    helper.set_key({"key": KEY})
+
+    state = run(helper, "Отправь Jay сообщение в iMessage")
+
+    assert any(item["name"] == "send_imessage" for item in claude.requests[0]["tools"])
+    assert transport.sent == [(JAY, TEXT)]
+    assert state["drafts"] == []
+    [card] = state["chat_drafts"]
+    [job] = state["sends"]
+    assert job["draft_id"] == card["id"] and job["state"] == "dispatched"
+    assert draft_status(sessions, card["id"]) == "queued"
+    accepted, duplicate, opted_out, outside_crm = claude.requests[-1]["messages"][-1]["content"]
+    assert json.loads(accepted["content"])["state"] == "dispatched"
+    for result, message in (
+        (duplicate, "уже запрошена"),
+        (opted_out, "Не связываться"),
+        (outside_crm, "нет в CRM"),
+    ):
+        assert result["is_error"] and message in result["content"]
 
 
 def test_a_confirmed_draft_goes_out_once_and_its_status_comes_from_chat_db(mac):

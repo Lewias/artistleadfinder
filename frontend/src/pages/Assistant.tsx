@@ -76,9 +76,7 @@ function Steps({ steps, strong }: { steps: AssistantItem[]; strong: string }) {
   );
 }
 
-/** A draft the assistant made: the chat asks whether to send it, and nothing goes out
- * without a button here. The card shows the exact recipient and text, so pressing
- * «Отправить» is the confirmation; a text that changed meanwhile is refused. */
+/** Shows the message status and lets the user send a pending draft. */
 function ChatDraftCard({
   draft,
   pending,
@@ -116,7 +114,7 @@ function ChatDraftCard({
   const state = send
     ? { label: SEND_STATES[send.state].label, tone: SEND_STATES[send.state].tone }
     : draft.status === 'queued'
-      ? { label: 'В очереди iPhone', tone: 'wait' }
+      ? { label: draft.campaign_id ? 'В очереди iPhone' : 'Отправка с Mac', tone: 'wait' }
       : draft.status === 'rejected'
         ? { label: 'Не отправлено', tone: 'idle' }
         : null;
@@ -348,8 +346,8 @@ export function Assistant() {
             )}
           </form>
           <p className="assistant-disclosure">
-            Вопросы и выбранные фрагменты переписки отправляются сервису ассистента. Команды выполняются
-            сразу; действия и отправка iMessage — после вашей кнопки.
+            Вопросы и выбранные фрагменты переписки отправляются сервису ассистента. По прямой команде
+            ассистент отправляет отдельное iMessage без повторного подтверждения.
           </p>
           <ErrorToast message={error || state.error} />
         </section>

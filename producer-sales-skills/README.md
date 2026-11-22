@@ -2,7 +2,7 @@
 
 Персональная система продаж для продюсера, который продаёт биты и лицензии независимым хип-хоп и R&B артистам в Instagram, iMessage и email.
 
-Методики взяты из [Sales-Skills](https://github.com/louisblythe/Sales-Skills) (MIT) и переложены под артистов: что взяли и что выбросили — в [SOURCES.md](SOURCES.md). Скиллы готовят **только черновики и предложения**: ничего не отправляют и не меняют CRM без отдельного «да» (см. [reference/guardrails.md](reference/guardrails.md)).
+Методики взяты из [Sales-Skills](https://github.com/louisblythe/Sales-Skills) (MIT) и переложены под артистов. Скиллы готовят черновики и предложения. Ассистент Artist Lead Finder может отправить отдельное iMessage по прямой команде продюсера. [Границы скиллов](reference/guardrails.md) · [Источники](SOURCES.md)
 
 ## Скиллы
 

@@ -204,7 +204,7 @@ export const pages = [
     eyebrow: 'ИИ',
     title: 'Ассистент',
     description:
-      'Ассистент видит CRM, переписку iMessage и данные приложения, выполняет ваши команды и готовит ответы. Действия iMessage требуют вашего подтверждения.',
+      'Ассистент видит CRM, переписку iMessage и данные приложения. По вашей команде он может отправить отдельное iMessage.',
     placement: 'footer',
     channel: 'instagram',
   },

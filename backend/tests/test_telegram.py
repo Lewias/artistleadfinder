@@ -169,6 +169,29 @@ def test_imessage_drafts_wait_but_crm_actions_run_without_the_button(server, mak
     assert service.crm.contacts({"crm": "imessage", "search": "Lil"})["items"]
 
 
+def test_telegram_send_command_queues_imessage_for_iphone_without_a_button(server, make):
+    app = make(
+        script=[
+            reply(tool("send_imessage", handle=JAY, text="yo want the pack", reason="ответ")),
+            reply(text("Сообщение для Jay в очереди iPhone."), stop="end_turn"),
+        ]
+    )
+    assistant = app.runtime.service.assistant
+    assistant.mac_send.transport.enabled = False
+    app.link()
+    request = server.tg_ask(app.user, "Отправь Jay ответ в iMessage")
+
+    assert app.bridge.run_once() == 1
+
+    assert request["answer"] == "Сообщение для Jay в очереди iPhone."
+    state = assistant.state({})
+    assert state["drafts"] == []
+    [message] = state["chat_drafts"]
+    assert message["status"] == "queued" and message["campaign_id"] is not None
+    [job] = app.runtime.service.imessage.state()["jobs"]
+    assert (job["phone"], job["message"], job["status"]) == (JAY, "yo want the pack", "pending")
+
+
 def test_new_chat_and_a_failed_run_are_reported(server, make):
     app = make(script=[reply(text("Раз."), stop="end_turn")])
     app.link()

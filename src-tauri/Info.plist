@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Artist Lead Finder отправляет через Сообщения черновики, которые вы подтвердили.</string>
+  <string>Artist Lead Finder отправляет iMessage через Сообщения по вашей команде.</string>
 </dict>
 </plist>

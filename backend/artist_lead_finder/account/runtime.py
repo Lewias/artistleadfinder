@@ -30,6 +30,7 @@ LEGACY_ITEMS = (
     "openrouter-key.vault",
     "imported-profiles.json",
     "scout-debug",
+    "sales-rules",
 )
 TICK_SECONDS = 30
 # CRM calls that change contacts or statuses: the sync sends them right away.
