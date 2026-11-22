@@ -99,8 +99,20 @@ def test_dolphin_start_uses_signed_in_local_client_and_refuses_duplicates(monkey
     assert len(calls) == 2  # A conflict must never close the user's window.
 
 
-@pytest.mark.parametrize("running", [False, True])
-def test_nst_runtime_preserves_original_session_and_window(store, monkeypatch, running):
+@pytest.mark.parametrize(
+    ("running", "browsers", "address_field"),
+    [
+        (False, None, "webSocketDebuggerUrl"),
+        (False, [], "webSocketDebuggerUrl"),
+        (False, [{"profileId": "abc", "running": False}], "webSocketDebuggerUrl"),
+        (True, [{"profileId": "abc", "running": True}], "webSocketDebuggerUrl"),
+        (True, [{"profileId": "abc", "running": True}], "debuggerUrl"),
+        (True, [{"profileId": "abc", "running": True}], None),
+    ],
+)
+def test_nst_runtime_preserves_original_session_and_window(
+    store, monkeypatch, running, browsers, address_field
+):
     store.call(
         "browser.external_add",
         {"provider": "nst", "token": "test", "profiles": [{"id": "abc", "name": "NST"}]},
@@ -113,12 +125,12 @@ def test_nst_runtime_preserves_original_session_and_window(store, monkeypatch, r
     def reply(request, timeout):
         path = urlsplit(request.full_url).path
         calls.append((request.method, path))
-        data = (
-            [{"profileId": "abc", "running": running}]
-            if path.endswith("/browsers")
-            else {"webSocketDebuggerUrl": "ws://localhost:9222/devtools/browser/test"}
-        )
-        return io.BytesIO(json.dumps({"code": 0, "data": data}).encode())
+        address = "ws://localhost:9222/devtools/browser/test"
+        if path.endswith("/browsers"):
+            data = browsers
+        else:
+            data = {address_field: address} if address_field else address
+        return io.BytesIO(json.dumps({"code": 200, "err": False, "data": data}).encode())
 
     monkeypatch.setattr(external_browsers._opener, "open", reply)
     runtime = ChromiumRuntime(store)
@@ -154,6 +166,22 @@ def test_nst_runtime_preserves_original_session_and_window(store, monkeypatch, r
             ("POST", "/api/v2/browsers/abc"),
             ("DELETE", "/api/v2/browsers/abc"),
         ]
+
+
+@pytest.mark.parametrize("response_data", [{}, {"data": {}}])
+def test_nst_refuses_to_start_with_an_invalid_window_list(monkeypatch, response_data):
+    client = ProfileClient(provider_fields({"provider": "nst", "token": "test"}))
+    payload = {"code": 200, "err": False, **response_data}
+    reply = Mock(return_value=io.BytesIO(json.dumps(payload).encode()))
+    monkeypatch.setattr(external_browsers._opener, "open", reply)
+
+    with pytest.raises(UserError, match="непонятный список открытых окон"):
+        client.open_profile("abc")
+
+    reply.assert_called_once()
+    request = reply.call_args.args[0]
+    assert request.method == "GET"
+    assert urlsplit(request.full_url).path == "/api/v2/browsers"
 
 
 def test_failed_cdp_attach_closes_only_the_profile_just_started(monkeypatch):

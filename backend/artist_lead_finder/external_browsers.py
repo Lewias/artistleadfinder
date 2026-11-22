@@ -113,6 +113,10 @@ class ProfileClient:
             # The API examples use 0, while the desktop client also returns 200 on success.
             if payload.get("err") or payload.get("code", 0) not in (0, 200):
                 raise UserError("Ошибка API NSTbrowser. Проверьте ключ и состояние профиля.")
+            # NSTbrowser can return an explicit null when no browser is open.
+            if method == "GET" and path == "/browsers" and "data" in payload:
+                if payload["data"] is None:
+                    return []
             return payload.get("data")
         if payload.get("success") is False:
             raise UserError("Dolphin Anty отклонил запрос. Проверьте состояние профиля.")
@@ -183,7 +187,11 @@ class ProfileClient:
             data = self._request("POST", path + "/start", body={"automation": True}, timeout=25)
         try:
             if self.provider == "nst":
-                address = urlsplit(data["webSocketDebuggerUrl"])
+                if isinstance(data, dict):
+                    data = data.get("webSocketDebuggerUrl") or data.get("debuggerUrl")
+                if not isinstance(data, str):
+                    raise ValueError
+                address = urlsplit(data)
                 if address.scheme != "ws" or address.hostname not in (
                     "localhost",
                     "127.0.0.1",
