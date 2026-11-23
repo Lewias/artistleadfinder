@@ -236,7 +236,7 @@ class CompatClient:
             request["tools"] = to_functions(tools)
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "ArtistLeadFinder/0.12.6",
+            "User-Agent": "ArtistLeadFinder/0.12.7",
         }
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"

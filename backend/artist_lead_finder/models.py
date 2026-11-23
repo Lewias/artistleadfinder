@@ -12,6 +12,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -541,6 +542,56 @@ class OutboundMessageJob(Base):
     # when queued, so a retry sends exactly the same message.
     variant: Mapped[str | None] = mapped_column(String(4000))
     body: Mapped[str | None] = mapped_column(String(4000))
+
+
+class InstagramActivityTask(Base):
+    """Schema 31: separate low-priority work, deduplicated per sender/content."""
+
+    __tablename__ = "instagram_activity_tasks"
+    __table_args__ = (
+        UniqueConstraint("sender_id", "target", name="uq_instagram_activity_content"),
+        CheckConstraint(
+            "status IN ('pending','running','done','skipped','failed','interrupted','cancelled')"
+        ),
+        Index("ix_instagram_activity_queue", "status", "campaign_id", "sender_id"),
+        Index(
+            "ix_instagram_activity_claim",
+            "sender_id",
+            unique=True,
+            sqlite_where=text("status = 'running'"),
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="CASCADE")
+    )
+    sender_id: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(20))
+    target: Mapped[str] = mapped_column(String(180))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    phase: Mapped[str] = mapped_column(String(20), default="open")
+    claim_token: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    claimed_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    reason: Mapped[str | None] = mapped_column(String(80))
+
+
+class InstagramActivityState(Base):
+    """Per-sender scheduler state. Disabling an action lasts for the current campaign."""
+
+    __tablename__ = "instagram_activity_state"
+    sender_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("outreach_campaigns.id", ondelete="CASCADE")
+    )
+    last_kind: Mapped[str | None] = mapped_column(String(20))
+    disabled: Mapped[list[str]] = mapped_column(JSON, default=list)
+    stopped: Mapped[bool] = mapped_column(default=False)
+    discovery_at: Mapped[datetime | None]
+    discovery_number: Mapped[int] = mapped_column(default=0)
+    last_step_at: Mapped[datetime | None]
 
 
 class Conversation(Base):

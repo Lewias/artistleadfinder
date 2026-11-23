@@ -176,9 +176,9 @@ class InboxService:
         return self._sender_wait(session, scan.sender_account_id, now)
 
     def _sender_wait(self, session, sender: str, now) -> str:
-        from ..instagram_warmup import active_profile as warmup_profile
+        from ..instagram_warmup import warming_profiles
 
-        if warmup_profile(session) == sender:
+        if sender in warming_profiles(session):
             return "В окне аккаунта идёт прогрев: чтение продолжится после него."
         if not self.window_open(sender):
             return "Откройте окно аккаунта, чтобы читать Директ."

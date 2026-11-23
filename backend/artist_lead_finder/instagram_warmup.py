@@ -62,6 +62,16 @@ def active_profile(session) -> str | None:
     return run.get("profile_id") if run and run.get("status") == "running" else None
 
 
+def warming_profiles(session) -> set[str]:
+    from .cookie_warmup import active_profile as cookie_profile
+
+    return {
+        identifier
+        for identifier in (active_profile(session), cookie_profile(session))
+        if identifier
+    }
+
+
 def russian_shop(profile: dict) -> str:
     """Return an exclusion reason; unknown counts never qualify as small shops."""
     count = profile.get("followers_count")

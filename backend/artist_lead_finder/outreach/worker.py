@@ -290,11 +290,9 @@ class OutreachWorker:
                     .where(SearchJob.status == "running")
                 )
             )
-            from ..instagram_warmup import active_profile as warmup_profile
+            from ..instagram_warmup import warming_profiles
 
-            warming = warmup_profile(session)
-            if warming:
-                busy.add(warming)
+            busy.update(warming_profiles(session))
             # Due follow-ups first: they are few, each is due once, and a long initial
             # list must not hold them back for days.
             steps = session.scalars(

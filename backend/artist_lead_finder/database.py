@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 30 for version in versions):
+        if any(version > 31 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -313,6 +313,9 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             session.add(SchemaMigration(version=29))
         if session.get(SchemaMigration, 30) is None:
             session.add(SchemaMigration(version=30))
+        # Schema 31: persistent Instagram activity queue and scheduler state.
+        if session.get(SchemaMigration, 31) is None:
+            session.add(SchemaMigration(version=31))
     return engine, factory
 
 

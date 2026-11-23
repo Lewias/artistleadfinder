@@ -5,6 +5,7 @@ import { useResource } from '../hooks/useResource';
 import type { BrowserProfile } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/button';
+import { CookieWarmupButton } from '../components/CookieWarmup';
 import { ErrorToast } from '../components/Toaster';
 import { errorText } from '../lib/errors';
 import './instagramWarmup.css';
@@ -59,9 +60,12 @@ export function InstagramWarmup() {
       <PageHeader
         page="instagram-warmup"
         actions={
-          <Button variant="outline" icon aria-label="Обновить" onClick={resource.refresh}>
-            <RefreshCw size={14} />
-          </Button>
+          <>
+            <CookieWarmupButton />
+            <Button variant="outline" icon aria-label="Обновить" onClick={resource.refresh}>
+              <RefreshCw size={14} />
+            </Button>
+          </>
         }
       />
       <ErrorToast message={resource.error} />

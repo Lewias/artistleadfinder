@@ -19,7 +19,7 @@ from sqlalchemy import select
 from .autopilot import ACTIVE as AUTOPILOT_ACTIVE
 from .autopilot import KEY as AUTOPILOT_KEY
 from .autopilot import _profiles as autopilot_profiles
-from .instagram_warmup import active_profile as warmup_profile
+from .instagram_warmup import warming_profiles
 from .models import (
     BrowserQueue,
     InboxScan,
@@ -46,7 +46,7 @@ def window_work(session, profile_id: str) -> tuple[bool, bool]:
     """(busy, worked): whether app work of the account is open now, and whether that work
     is of the kind that makes the window the app's (a parser run, a send, Direct reading;
     a one-off capture of the page open in the window is not)."""
-    if warmup_profile(session) == profile_id:
+    if profile_id in warming_profiles(session):
         return True, True
     threads = session.scalar(
         select(ThreadsPost.id)

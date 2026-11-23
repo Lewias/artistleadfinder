@@ -20,6 +20,7 @@ from .browser_capture import BrowserCaptureService
 from .browser_idle import IdleCloser
 from .browser_sessions import BrowserSessions
 from .chromium_runtime import ChromiumRuntime
+from .cookie_warmup import CookieWarmup
 from .crm.service import CrmService
 from .discovery import DiscoveryEngine
 from .email_outreach.service import EmailService
@@ -51,6 +52,7 @@ from .models import (
 )
 from .normalization import normalize
 from .outreach import events as outreach_events
+from .outreach.activity import ActivityEngine
 from .outreach.campaigns import CampaignService, iso
 from .outreach.followups import FollowUpScheduler
 from .outreach.senders import current_status, sent_counts, set_status
@@ -174,7 +176,7 @@ DEFAULTS = {
 
 def system_info(data_dir: Path, log_dir: Path) -> dict:
     return {
-        "version": "0.12.6",
+        "version": "0.12.7",
         "data_dir": str(data_dir),
         "log_dir": str(log_dir),
         "transport": "stdio",
@@ -231,9 +233,12 @@ class ApplicationService:
         self.workspace = WorkspaceService(sessions, self.campaigns)
         # Sends cut off by a crash are checked against the message records, never resent.
         self.outreach.recover()
+        self.activity = ActivityEngine(sessions, self.chromium, self.settings)
+        self.activity.recover()
         self.instagram_warmup = InstagramWarmup(
             sessions, self.chromium, lambda: self.browser_sessions.call("browser.list", {})
         )
+        self.cookie_warmup = CookieWarmup(sessions, self.browser_sessions)
         with self.sessions.begin() as session:
             outreach_events.prune(session)
         # iMessage through the iPhone: the LAN bridge comes back if it was on.
@@ -315,7 +320,23 @@ class ApplicationService:
             if method.startswith("browser."):
                 return self.browser_sessions.call(method, params)
             raise UserError("Неизвестный метод приложения.")
-        return handler(params)
+        result = handler(params)
+        if method in {
+            "outreach.campaign_control",
+            "outreach.workspace_stop",
+            "outreach.commit_internal",
+            "autopilot.cancel",
+        }:
+            try:
+                self.activity.reconcile()
+            except Exception as error:
+                log.warning(
+                    "instagram_activity_cleanup_failed",
+                    extra={
+                        "error_type": type(error).__name__,
+                    },
+                )
+        return result
 
     def _handlers(self) -> dict[str, Callable[[dict], Any]]:
         chromium = self.chromium
@@ -328,6 +349,9 @@ class ApplicationService:
             "instagram_warmup.start": self.instagram_warmup.start,
             "instagram_warmup.stop": self.instagram_warmup.stop,
             "instagram_warmup.tick_internal": self.instagram_warmup.tick,
+            "cookie_warmup.state": self.cookie_warmup.state,
+            "cookie_warmup.start": self.cookie_warmup.start,
+            "cookie_warmup.stop": self.cookie_warmup.stop,
             "browser.runtime.is_open": lambda p: {"open": chromium.is_open(p["id"])},
             "browser.runtime.close_idle": self.idle_closer.tick,
             "browser.runtime.close": lambda p: chromium.close(p["id"]),
@@ -398,6 +422,7 @@ class ApplicationService:
             "outreach.stop_conversation": self.campaigns.stop_conversation,
             "outreach.resolve_review": self.outreach.resolve_review,
             "outreach.next_internal": lambda p: self._outreach_next(),
+            "outreach.activity_tick_internal": self.activity.tick,
             "autopilot.state": self.autopilot.state,
             "autopilot.start": self.autopilot.start,
             "autopilot.cancel": self.autopilot.cancel,
@@ -499,7 +524,31 @@ class ApplicationService:
             self.autopilot.tick()
         except Exception as error:  # noqa: BLE001 - the send queue never stops for it
             log.warning("autopilot_tick_failed", extra={"error_type": type(error).__name__})
-        return self.outreach.next_job()
+        job = self.outreach.next_job()
+        if job:
+            try:
+                reason = self.activity.yield_sender(job["profile_id"])
+            except Exception as error:
+                log.warning(
+                    "instagram_activity_cleanup_failed",
+                    extra={
+                        "error_type": type(error).__name__,
+                    },
+                )
+                reason = None
+            if reason:
+                self.outreach.commit(
+                    {
+                        "job_id": job["job_id"],
+                        "token": job["token"],
+                        "kind": job.get("kind"),
+                        "result": {"outcome": "error", "error": reason},
+                    }
+                )
+                with self.sessions.begin() as session:
+                    current_status(session, job["profile_id"]).until = None
+                return None
+        return job
 
     def _sender_names(self) -> dict[str, str]:
         return {
@@ -1070,6 +1119,7 @@ class ApplicationService:
         return {"count": count, "path": str(path)}
 
     def shutdown(self) -> None:
+        self.cookie_warmup.shutdown()
         self.instagram_warmup.stop()
         # A running assistant stops after its current step.
         self.assistant.stopping.set()

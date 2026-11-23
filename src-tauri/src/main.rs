@@ -902,6 +902,9 @@ fn run_outreach_driver(core: Core, shell: ShellState) {
         else {
             // Nothing to send: the same window reads replies, never both at once.
             read_inbox_thread(&request);
+            if !shell.closing() && !shell.paused() {
+                let _ = request("outreach.activity_tick_internal", json!({}));
+            }
             continue;
         };
         let kind = job["kind"].as_str().unwrap_or("initial");

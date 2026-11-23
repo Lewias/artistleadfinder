@@ -18,6 +18,7 @@ from .database import application_data_dir
 from .direct_message import send_direct
 from .external_browsers import ExternalWindow, ProfileClient
 from .inbox.reader import read_thread
+from .instagram_activity_browser import ActivityTab
 from .instagram_warmup_browser import warmup_action
 from .lead_scout import feed as grid_feed
 from .lead_scout.candidates import normalize_instagram_username, parse_instagram_post_url
@@ -51,6 +52,7 @@ class Window:
     context: BrowserContext
     page: Page
     threads_page: Page | None = None
+    activity_tab: ActivityTab | None = None
     # Set when Instagram answered HTTP 429 since the last navigation.
     rate_limited: bool = False
     # Instagram data answers since the last navigation (a grid's posts arrive this way).
@@ -347,7 +349,9 @@ class ChromiumRuntime:
                 alive = [
                     page
                     for page in candidates
-                    if not page.is_closed() and page not in window.existing_pages
+                    if not page.is_closed()
+                    and page not in window.existing_pages
+                    and (window.activity_tab is None or page is not window.activity_tab.page)
                 ]
                 if alive:
                     window.page = alive[-1]
@@ -644,6 +648,29 @@ class ChromiumRuntime:
         if not window:
             raise BrowserLaunchError("Окно аккаунта закрыто. Прогрев остановлен.")
         return warmup_action(self, window, identifier, action, value)
+
+    @_on_browser_thread
+    def activity_step(self, task, guard) -> dict:
+        window = self._window(task.sender_id)
+        if not window or not guard():
+            return {"outcome": "skipped", "reason": "window_closed"}
+        if window.activity_tab is None or window.activity_tab.page.is_closed():
+            if task.phase != "open":
+                return {"outcome": "error", "reason": "tab_lost"}
+            window.activity_tab = ActivityTab(window)
+        return window.activity_tab.step(task, guard)
+
+    @_on_browser_thread
+    def activity_close(self, identifier: str) -> str | None:
+        window = self.windows.get(identifier)
+        if window and window.activity_tab:
+            problem = None
+            if not window.activity_tab.page.is_closed():
+                problem = window.activity_tab._problem()
+                window.activity_tab.page.close()
+            window.activity_tab = None
+            return problem
+        return None
 
     @_on_browser_thread
     def send_message(
