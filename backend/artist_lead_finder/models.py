@@ -579,7 +579,7 @@ class InstagramActivityTask(Base):
 
 
 class InstagramActivityState(Base):
-    """Per-sender scheduler state. Disabling an action lasts for the current campaign."""
+    """Per-sender mailing batch and the current break stage."""
 
     __tablename__ = "instagram_activity_state"
     sender_id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -590,8 +590,10 @@ class InstagramActivityState(Base):
     disabled: Mapped[list[str]] = mapped_column(JSON, default=list)
     stopped: Mapped[bool] = mapped_column(default=False)
     discovery_at: Mapped[datetime | None]
-    discovery_number: Mapped[int] = mapped_column(default=0)
+    batch_number: Mapped[int] = mapped_column("discovery_number", default=0)
     last_step_at: Mapped[datetime | None]
+    sent_in_batch: Mapped[int] = mapped_column(default=0)
+    stage: Mapped[str] = mapped_column(String(20), default="send")
 
 
 class Conversation(Base):

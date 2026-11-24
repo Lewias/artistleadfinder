@@ -46,6 +46,7 @@ from ..models import (
     utcnow,
 )
 from . import events, reasons
+from .activity import holds_dm, note_confirmed_dm, senders_in_break
 from .campaigns import record_reply, refresh_counts, skip_recipient
 from .eligibility import can_send_followup, can_send_initial_outreach, followup_previous
 from .followups import FollowUpScheduler
@@ -295,6 +296,7 @@ class OutreachWorker:
             busy.update(warming_profiles(session))
             # Due follow-ups first: they are few, each is due once, and a long initial
             # list must not hold them back for days.
+            on_break = senders_in_break()
             steps = session.scalars(
                 select(FollowUpJob)
                 .join(FollowUpRun, FollowUpRun.id == FollowUpJob.run_id)
@@ -302,6 +304,7 @@ class OutreachWorker:
                     FollowUpJob.status == "pending",
                     FollowUpJob.scheduled_at <= now,
                     FollowUpRun.status == "active",
+                    FollowUpJob.sender_account_id.not_in(on_break),
                 )
                 .order_by(FollowUpJob.scheduled_at, FollowUpJob.id)
                 .limit(200)
@@ -311,11 +314,20 @@ class OutreachWorker:
                 .where(
                     OutboundMessageJob.status == "ready",
                     OutboundMessageJob.campaign_id.in_(running),
+                    OutboundMessageJob.sender_account_id.not_in(on_break),
                 )
                 .order_by(OutboundMessageJob.scheduled_at, OutboundMessageJob.id)
                 .limit(200)
             ).all()
-            blocked: set[str] = set()
+            blocked = set(
+                session.scalars(
+                    select(OutboundMessageJob.sender_account_id)
+                    .where(OutboundMessageJob.status == "sending")
+                    .union(
+                        select(FollowUpJob.sender_account_id).where(FollowUpJob.status == "sending")
+                    )
+                )
+            )
             for job in [*steps, *candidates]:
                 sender = job.sender_account_id
                 if sender in blocked:
@@ -505,6 +517,8 @@ class OutreachWorker:
                 job = session.get(FollowUpJob, int(job_id))
                 if job is None or job.status != "sending" or job.claim_token != token:
                     return "CLAIM_LOST"
+                if holds_dm(session, job.sender_account_id):
+                    return "ACTIVITY_BREAK"
                 run = session.get(FollowUpRun, job.run_id)
                 if run is None or run.status != "active":
                     return (run.stop_reason if run else None) or reasons.USER_STOPPED
@@ -513,6 +527,8 @@ class OutreachWorker:
             job = session.get(OutboundMessageJob, int(job_id))
             if job is None or job.status != "sending" or job.claim_token != token:
                 return "CLAIM_LOST"
+            if holds_dm(session, job.sender_account_id):
+                return "ACTIVITY_BREAK"
             campaign = session.get(OutreachCampaign, job.campaign_id)
             if campaign is None or campaign.status != "running":
                 return reasons.CAMPAIGN_CANCELLED
@@ -670,6 +686,7 @@ class OutreachWorker:
             self._sender_problem(session, job.sender_account_id, *problem, run.campaign_id)
         if kind == "sent":
             self.followups.record_sent(session, run, job, sent_at=now, result=result)
+            note_confirmed_dm(session, job.sender_account_id, run.campaign_id)
             return {"ok": True, "outcome": "sent"}
         job.last_error = details
         if kind == "unconfirmed":
@@ -766,6 +783,7 @@ class OutreachWorker:
             self.followups.start(
                 session, conversation=conversation, origin=message, campaign=campaign, sent_at=now
             )
+        note_confirmed_dm(session, job.sender_account_id, campaign.id)
         self._mark_sent(session, job, recipient, message)
 
     def _mark_sent(self, session, job, recipient, message: Message) -> None:
@@ -818,6 +836,7 @@ class OutreachWorker:
             run = session.get(FollowUpRun, job.run_id)
             if sent:
                 self.followups.record_sent(session, run, job, sent_at=as_utc(job.claimed_at) or now)
+                note_confirmed_dm(session, job.sender_account_id, run.campaign_id)
                 return {"ok": True}
             if retry:
                 if run.status not in {"review", "active", "paused"}:

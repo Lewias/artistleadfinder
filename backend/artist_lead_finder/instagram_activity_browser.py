@@ -1,7 +1,7 @@
 """Short activity steps through the existing browser session's visible Instagram UI."""
 
 import re
-import time
+from time import monotonic
 from urllib.parse import urlsplit
 
 from .direct_message import DISMISS_BUTTON
@@ -10,7 +10,12 @@ from .instagram_warmup_browser import LIKE, UNLIKE
 from .lead_scout.candidates import normalize_instagram_username, parse_instagram_post_url
 
 HOME = "https://www.instagram.com/"
+REELS = HOME + "reels/"
 LOAD_BUDGET = 15
+REELS_SECONDS = 300
+REEL_SCROLL_SECONDS = 12
+TIMELINE_SCROLLS = 3
+REEL_PATH = re.compile(r"/reels?/[A-Za-z0-9_-]{1,80}/?")
 STORY = re.compile(r"/stories/([A-Za-z0-9_.]{1,30})/(?:([0-9]+)/)?$")
 STORY_TITLE = re.compile(r"^(?:stories|истории)\s*[•·|–-]\s*instagram$", re.I)
 VIEW_STORY = re.compile(r"^(view story|watch story|смотреть историю|посмотреть историю)$", re.I)
@@ -29,6 +34,13 @@ STORY_LABEL = re.compile(
     r"^(?:История ([A-Za-z0-9_.]{1,30})|([A-Za-z0-9_.]{1,30})['’]s story)(?:,.*)?$",
     re.I,
 )
+TIMELINE_LINKS = """() => [...document.querySelectorAll('main article')].flatMap(article => {
+  const rect = article.getBoundingClientRect();
+  if (rect.bottom <= 0 || rect.top >= innerHeight ||
+      !article.checkVisibility({visibilityProperty: true})) return [];
+  return [...article.querySelectorAll('a[href]:has(time), a[href*="/p/"], a[href*="/reel/"]')]
+    .map(a => a.href).slice(0, 8);
+}).slice(0, 40)"""
 
 
 def canonical(value, kind):
@@ -128,6 +140,10 @@ class ActivityTab:
         self.task_id = None
         self.opened_at = 0
         self.problem = None
+        self.watch_at = None
+        self.scroll_at = None
+        self.timeline_posts = {}
+        self.timeline_scrolls = 0
         self.page.on("response", self._response)
         self.page.on("requestfinished", self._request_finished)
 
@@ -206,9 +222,60 @@ class ActivityTab:
         return None if guard() else {"outcome": "pending"}
 
     def _waiting(self, reason="unavailable"):
-        if time.monotonic() - self.opened_at < LOAD_BUDGET:
+        if monotonic() - self.opened_at < LOAD_BUDGET:
             return {"outcome": "pending"}
         return {"outcome": "skipped", "reason": reason}
+
+    def _scroll(self, guard):
+        blocked = self._blocked(guard)
+        if blocked:
+            return blocked
+        width, height = self.page.evaluate("() => [innerWidth, innerHeight]")
+        self.page.mouse.move(width / 2, height / 2)
+        self.page.mouse.wheel(0, round(height * 0.9))
+        return None
+
+    def _reels(self, task, guard):
+        path = urlsplit(self.page.url).path
+        now = monotonic()
+        if self.page.url != REELS and not (
+            REEL_PATH.fullmatch(path) and canonical(self.page.url, "feed")
+        ):
+            return self._waiting()
+        if not media_visible(self.page, "video"):
+            self.watch_at = None
+            return self._waiting()
+        elapsed = min(now - self.watch_at, LOAD_BUDGET) if self.watch_at is not None else 0
+        watched = task.payload.get("progress", 0) + elapsed
+        if watched >= REELS_SECONDS:
+            return {"outcome": "done"}
+        self.opened_at = self.watch_at = now
+        if self.scroll_at is None:
+            self.scroll_at = now
+        if now - self.scroll_at >= REEL_SCROLL_SECONDS:
+            blocked = self._scroll(guard)
+            if blocked:
+                return blocked
+            self.scroll_at = now
+        return {"outcome": "pending", "phase": "watch", "progress": watched}
+
+    def _timeline(self, guard):
+        if (
+            canonical(self.page.url, "navigate") != HOME
+            or not self.page.locator("main article").count()
+        ):
+            return self._waiting()
+        for url in self.page.evaluate(TIMELINE_LINKS):
+            post = canonical(url, "like")
+            if post:
+                self.timeline_posts.setdefault(post, None)
+        if self.timeline_scrolls >= TIMELINE_SCROLLS:
+            return {"outcome": "done", "posts": list(self.timeline_posts)[:100]}
+        blocked = self._scroll(guard)
+        if blocked:
+            return blocked
+        self.timeline_scrolls += 1
+        return {"outcome": "pending", "phase": "scroll"}
 
     def step(self, task, guard):
         if task.phase == "open":
@@ -217,13 +284,27 @@ class ActivityTab:
         if blocked:
             return blocked
         kind = task.kind
-        if kind not in ("discover", "story", "feed", "profile", "like", "navigate"):
+        if kind not in (
+            "discover",
+            "story",
+            "feed",
+            "profile",
+            "like",
+            "navigate",
+            "reels",
+            "timeline",
+        ):
             return {"outcome": "skipped", "reason": "unsupported"}
-        target = HOME if kind == "discover" else canonical(task.payload.get("url"), kind)
+        target = {"reels": REELS, "timeline": HOME, "discover": HOME}.get(kind)
+        if not target:
+            target = canonical(task.payload.get("url"), kind)
         if not target:
             return {"outcome": "skipped", "reason": "unavailable"}
         if task.phase == "open":
-            self.task_id, self.opened_at, self.problem = task.id, time.monotonic(), None
+            self.task_id, self.opened_at, self.problem = task.id, monotonic(), None
+            self.watch_at = self.scroll_at = None
+            self.timeline_posts.clear()
+            self.timeline_scrolls = 0
             origin = canonical(task.payload.get("from_url"), "navigate")
             url = origin if kind in ("navigate", "story") and origin else target
             # Page.navigate returns after scheduling navigation. Network loading continues
@@ -248,8 +329,12 @@ class ActivityTab:
             if blocked:
                 return blocked
             dismiss.click(timeout=600, no_wait_after=True)
-            self.opened_at = time.monotonic()
+            self.opened_at = monotonic()
             return {"outcome": "pending"}
+        if kind == "reels":
+            return self._reels(task, guard)
+        if kind == "timeline":
+            return self._timeline(guard)
         if kind == "navigate" and task.phase == "inspect":
             origin = canonical(task.payload.get("from_url"), "navigate")
             if not origin or canonical(self.page.url, "navigate") != origin:
@@ -304,7 +389,7 @@ class ActivityTab:
                     if blocked:
                         return blocked
                     offered.click(timeout=600, no_wait_after=True)
-                    self.opened_at = time.monotonic()
+                    self.opened_at = monotonic()
                     return {"outcome": "pending", "phase": "confirm"}
             if viewer == target and task.phase != "view":
                 button = self.page.get_by_role("button", name=VIEW_STORY).filter(visible=True).first
@@ -313,7 +398,7 @@ class ActivityTab:
                     if blocked:
                         return blocked
                     button.click(timeout=600, no_wait_after=True)
-                    self.opened_at = time.monotonic()
+                    self.opened_at = monotonic()
                     return {"outcome": "pending", "phase": "view"}
             return self._waiting()
         if canonical(self.page.url, "navigate") != target:

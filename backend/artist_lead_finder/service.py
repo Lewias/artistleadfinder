@@ -176,7 +176,7 @@ DEFAULTS = {
 
 def system_info(data_dir: Path, log_dir: Path) -> dict:
     return {
-        "version": "0.12.7",
+        "version": "0.12.8",
         "data_dir": str(data_dir),
         "log_dir": str(log_dir),
         "transport": "stdio",
@@ -233,7 +233,7 @@ class ApplicationService:
         self.workspace = WorkspaceService(sessions, self.campaigns)
         # Sends cut off by a crash are checked against the message records, never resent.
         self.outreach.recover()
-        self.activity = ActivityEngine(sessions, self.chromium, self.settings)
+        self.activity = ActivityEngine(sessions, self.chromium)
         self.activity.recover()
         self.instagram_warmup = InstagramWarmup(
             sessions, self.chromium, lambda: self.browser_sessions.call("browser.list", {})
@@ -423,6 +423,7 @@ class ApplicationService:
             "outreach.resolve_review": self.outreach.resolve_review,
             "outreach.next_internal": lambda p: self._outreach_next(),
             "outreach.activity_tick_internal": self.activity.tick,
+            "outreach.activity_suspend_internal": self.activity.suspend,
             "autopilot.state": self.autopilot.state,
             "autopilot.start": self.autopilot.start,
             "autopilot.cancel": self.autopilot.cancel,

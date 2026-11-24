@@ -52,7 +52,7 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory.begin() as session:
         versions = list(session.scalars(select(SchemaMigration.version)))
-        if any(version > 31 for version in versions):
+        if any(version > 32 for version in versions):
             engine.dispose()
             raise NewerDatabaseError(
                 "База данных создана более новой версией Artist Lead Finder. Установите "
@@ -80,6 +80,10 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
             "updated_at": "DATETIME",
         },
         "outbound_message_jobs": {"variant": "VARCHAR(4000)", "body": "VARCHAR(4000)"},
+        "instagram_activity_state": {
+            "sent_in_batch": "INTEGER NOT NULL DEFAULT 0",
+            "stage": "VARCHAR(20) NOT NULL DEFAULT 'send'",
+        },
         "conversations": {"reply_checked_at": "DATETIME"},
         "outreach_workspace": {
             "followup_sequence_id": "INTEGER REFERENCES outreach_followup_sequences (id)"
@@ -316,6 +320,16 @@ def open_database(path: Path | None = None) -> tuple[Engine, sessionmaker[Sessio
         # Schema 31: persistent Instagram activity queue and scheduler state.
         if session.get(SchemaMigration, 31) is None:
             session.add(SchemaMigration(version=31))
+        # Schema 32: discard pending work from the previous random scheduler.
+        if session.get(SchemaMigration, 32) is None:
+            session.execute(
+                text("""
+                UPDATE instagram_activity_tasks SET status = 'cancelled',
+                    reason = 'scheduler_changed', finished_at = CURRENT_TIMESTAMP
+                WHERE status IN ('pending', 'running')
+            """)
+            )
+            session.add(SchemaMigration(version=32))
     return engine, factory
 
 

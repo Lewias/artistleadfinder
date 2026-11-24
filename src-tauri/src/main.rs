@@ -895,6 +895,7 @@ fn run_outreach_driver(core: Core, shell: ShellState) {
         // A window the app has no more work for closes by itself (the core decides).
         let _ = request("browser.runtime.close_idle", json!({}));
         if shell.paused() {
+            let _ = request("outreach.activity_suspend_internal", json!({}));
             continue;
         }
         let job = request("outreach.next_internal", json!({})).unwrap_or(Value::Null);
@@ -944,6 +945,7 @@ fn run_outreach_driver(core: Core, shell: ShellState) {
         // A reply read may follow before the next send (the core paces both).
         if !shell.closing() && !shell.paused() {
             read_inbox_thread(&request);
+            let _ = request("outreach.activity_tick_internal", json!({}));
         }
     }
 }
