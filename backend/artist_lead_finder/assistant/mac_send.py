@@ -1,11 +1,11 @@
 """Sending an assistant message through Messages on this Mac.
 
-- The assistant can submit a new message on the user's command. For an existing draft,
-  the screen still confirms the exact recipient and text with a hash of both.
+- The assistant can submit a new message on the user's command. The Dialogs screen
+  submits the exact recipient and text the user entered.
 - One send per draft, by either route: a draft handed to the iPhone queue or to Messages
-  is no longer pending. A Mac send is replaced only when it definitely failed. Contacts
-  outside the CRM or marked «Не связываться» and anything that is not a phone or an email
-  are refused, and at most SEND_LIMIT_PER_HOUR messages go out per hour.
+  is no longer pending. A Mac send is replaced only when it definitely failed. A recipient
+  needs a CRM contact or an incoming personal iMessage. «Не связываться» still blocks sends,
+  and at most SEND_LIMIT_PER_HOUR messages go out per hour.
 - Messages does the sending (osascript, in a thread: the RPC loop must not wait for it).
   What happened next is read back from chat.db, from the row Messages wrote for the
   message after the ROWID taken before sending: queued -> dispatched -> sent -> delivered,
@@ -67,7 +67,9 @@ class Transport(Protocol):
 
 
 class Outbox(Protocol):
-    """The part of the chat.db reader that confirms what Messages did."""
+    """The chat.db checks used before and after sending."""
+
+    def has_incoming(self, recipient: str) -> bool: ...
 
     def max_rowid(self) -> int: ...
 
@@ -103,19 +105,15 @@ class MacSend:
     def status(self) -> dict:
         return {"enabled": self.transport.enabled, "description": self.transport.describe()}
 
-    # ---------- confirm and send ----------
+    def check_recipient(self, handle: str, contact: dict | None) -> None:
+        if contact is not None:
+            if DO_NOT_CONTACT in contact["statuses"]:
+                raise UserError("У контакта статус «Не связываться».")
+            return
+        if not self.outbox.has_incoming(handle):
+            raise UserError("Получателя нет в CRM и от него нет входящего личного iMessage.")
 
-    def preview(self, draft_id: int) -> dict:
-        """What the confirmation dialog shows; its token authorizes exactly this send."""
-        with self.sessions() as session:
-            draft = self._sendable(session, session.get(AssistantDraft, draft_id))
-        return {
-            "draft_id": draft.id,
-            "contact": draft.contact_name or draft.handle,
-            "recipient": draft.handle,
-            "text": draft.text,
-            "token": confirmation_token(draft.handle, draft.text),
-        }
+    # ---------- confirm and send ----------
 
     def send(self, draft_id: int, token: str) -> dict:
         return self._send(draft_id, token)
@@ -195,11 +193,7 @@ class MacSend:
         handle = normalize_recipient(draft.handle)
         if handle is None or handle != draft.handle:
             raise UserError("На этот адрес приложение не отправляет (не телефон и не email).")
-        contact = self.contacts().get(handle)
-        if contact is None:
-            raise UserError("Этого номера больше нет в CRM: писать можно только контактам из CRM.")
-        if DO_NOT_CONTACT in contact["statuses"]:
-            raise UserError("У контакта статус «Не связываться».")
+        self.check_recipient(handle, self.contacts().get(handle))
         recent = session.scalar(
             select(func.count(AssistantSend.id)).where(
                 AssistantSend.state != "failed",

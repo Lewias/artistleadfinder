@@ -47,7 +47,6 @@ def test_the_skill_library_is_the_producers_playbook():
     references = {name for name, skill in library.items() if skill.kind == "reference"}
     assert references == {
         "deal-stages",
-        "guardrails",
         "message-examples",
         "offers",
         "qualification",
@@ -57,9 +56,9 @@ def test_the_skill_library_is_the_producers_playbook():
     closing = library["closing"].text
     assert "../../reference/" not in closing and "`offers` (load_skill)" in closing
     assert not closing.startswith("---")
-    # The guardrails always go into the prompt; the rest is only listed.
     prompt = system_prompt()
-    assert library["guardrails"].text in prompt
+    assert "guardrails" not in prompt
+    assert "главный источник решений по продажам" in prompt
     assert "- closing (skill): " in prompt and "- offers (reference): " in prompt
     assert library["offers"].text not in prompt
 
@@ -96,7 +95,7 @@ def test_the_assistant_loads_a_skill_on_demand(app):
     assert any(item["text"] == "Открываю скилл продаж" for item in state["items"])
 
 
-def test_sales_edits_are_local_and_used_by_both_models(app):
+def test_sales_edits_are_local_and_read_on_demand(app):
     _, _, tmp_path = app
     old_price = "| Unlimited Lease | $100 |"
     new_price = "| Unlimited Lease | $120 |"
@@ -106,23 +105,19 @@ def test_sales_edits_are_local_and_used_by_both_models(app):
         [
             reply(tool("load_skill", name="offers")),
             reply(tool("edit_sales_rule", name="offers", find=old_price, replacement=new_price)),
-            reply(tool("edit_sales_rule", name="guardrails", find="", replacement=new_rule)),
+            reply(tool("edit_sales_rule", name="offers", find="", replacement=new_rule)),
             reply(tool("load_skill", name="offers")),
-            reply(tool("ask_stronger_model", task="Проверь цену лизинга", handle="", contact_id=0)),
             reply(text("Сохранил цену и правило."), stop="end_turn"),
         ],
-        strong=[reply(text("Lease is $120\n---\nЦена из офферов."), stop="end_turn")],
     )
 
     state = run(helper, "Поменяй цену Unlimited Lease на $120 и добавь правило про контракт")
 
     assert state["error"] == ""
-    assert new_rule not in claude.requests[0]["system"]
-    assert new_rule in claude.requests[3]["system"]
+    assert all(new_rule not in request["system"] for request in claude.requests)
     loaded = claude.requests[4]["messages"][-1]["content"][0]
-    assert new_price in json.loads(loaded["content"])["text"]
-    assert new_price in claude.strong_requests[0]["system"]
-    assert new_rule in claude.strong_requests[0]["system"]
+    document = json.loads(loaded["content"])["text"]
+    assert new_price in document and new_rule in document
     path = tmp_path / "data" / "sales-rules" / "offers.md"
     assert new_price in path.read_text(encoding="utf-8")
 
@@ -131,6 +126,54 @@ def test_sales_edits_are_local_and_used_by_both_models(app):
     assert new_price in reopened.read("offers").text
     assert old_price in skills.LocalRules(tmp_path / "another-account").read("offers").text
     assert old_price in skills.library()["offers"].text
+
+
+def test_haiku_receives_the_jarvis_ladder_and_price_rules_through_load_skill(app):
+    helper, claude = test_assistant.assistant(
+        app,
+        [
+            reply(tool("load_skill", name="closing"), tool("load_skill", name="offers")),
+            reply(text("Сначала спроси, собирается ли он записать демку."), stop="end_turn"),
+        ],
+    )
+    state = run(helper, "Артисту зашёл второй бит. Что написать дальше?")
+    assert state["error"] == ""
+    assert {request["model"] for request in claude.requests} == {"claude-haiku-5-5"}
+    results = [
+        json.loads(block["content"]) for block in claude.requests[1]["messages"][-1]["content"]
+    ]
+    documents = {item["name"]: item["text"] for item in results}
+    assert "бит → демка → релиз → лицензия" in documents["closing"]
+    assert "весь актуальный прайс одним сообщением" in documents["closing"]
+    assert "Цену и ссылку на оплату не отправлять вместе" in documents["offers"]
+    assert "после явного согласия на известную цену" in documents["offers"]
+
+
+def test_unedited_local_voice_updates_and_retired_rules_stay_unavailable(tmp_path):
+    rules = skills.LocalRules(tmp_path)
+    rules.initialize()
+    voice = skills.library()["voice"].text
+    before, _, changed = voice.partition("## Подстройка под артиста\n")
+    _, _, after = changed.partition("## Длина по каналу\n")
+    lines = f"{before}## Длина по каналу\n{after}".splitlines()
+    lines[2] = (
+        "Готовые сообщения артисту — на естественном американском английском, как пишет "
+        "продюсер другу по цеху. Не корпоратив, не сленг-перебор, не продажник."
+    )
+    old_voice = "\n".join(lines).replace(
+        "- `want me to send the contract for this one`",
+        "- `no rush just lmk`",
+    )
+    path = rules.root / "voice.md"
+    path.write_text(old_voice + "\n", encoding="utf-8")
+    retired = rules.root / "guardrails.md"
+    retired.write_text("Старое правило\n", encoding="utf-8")
+
+    assert rules.read("voice").text == voice
+    assert path.read_text(encoding="utf-8").strip() == voice
+    with pytest.raises(UserError, match="Нет скилла guardrails"):
+        rules.read("guardrails")
+    assert retired.read_text(encoding="utf-8") == "Старое правило\n"
 
 
 def test_local_sales_edits_read_manual_changes_and_refuse_stale_or_unknown_targets(tmp_path):
@@ -270,8 +313,10 @@ def add_draft(sessions, handle=JAY, body=TEXT, status="pending") -> int:
 
 
 def confirm(helper, draft_id) -> dict:
-    preview = helper.call("assistant.send_preview", {"id": draft_id})
-    return helper.call("assistant.send_confirm", {"id": draft_id, "token": preview["token"]})
+    with helper.sessions() as session:
+        message = session.get(AssistantDraft, draft_id)
+        token = confirmation_token(message.handle, message.text)
+    return {"send": helper.mac_send.send(draft_id, token)}
 
 
 def draft_status(sessions, draft_id) -> str:
@@ -289,7 +334,7 @@ def test_assistant_sends_to_messages_without_a_button_and_ignores_duplicate_call
         [
             reply(
                 tool("send_imessage", **send),
-                tool("send_imessage", **send),
+                tool("send_imessage", handle=JAY, text="different text", reason="повтор"),
                 tool("send_imessage", handle=KID, text=TEXT, reason="ответ"),
                 tool("send_imessage", handle=STRANGER, text=TEXT, reason="ответ"),
             ),
@@ -303,8 +348,7 @@ def test_assistant_sends_to_messages_without_a_button_and_ignores_duplicate_call
 
     assert any(item["name"] == "send_imessage" for item in claude.requests[0]["tools"])
     assert transport.sent == [(JAY, TEXT)]
-    assert state["drafts"] == []
-    [card] = state["chat_drafts"]
+    [card] = state["chat_sends"]
     [job] = state["sends"]
     assert job["draft_id"] == card["id"] and job["state"] == "dispatched"
     assert draft_status(sessions, card["id"]) == "queued"
@@ -318,25 +362,94 @@ def test_assistant_sends_to_messages_without_a_button_and_ignores_duplicate_call
         assert result["is_error"] and message in result["content"]
 
 
-def test_a_confirmed_draft_goes_out_once_and_its_status_comes_from_chat_db(mac):
+def test_assistant_can_reply_to_an_incoming_chat_without_creating_a_crm_contact(mac):
+    helper, transport, chat, sessions = mac
+    row = chat.add(STRANGER, "can you send the details")
+    chat.update(row, is_from_me=0)
+    claude = FakeClaude(
+        [
+            reply(tool("send_imessage", handle=STRANGER, text=TEXT, reason="ответ")),
+            reply(text("Передаю сообщение в Сообщения."), stop="end_turn"),
+        ]
+    )
+    helper.client_factory = lambda key: claude
+    helper.set_key({"key": KEY})
+
+    state = run(helper, "Ответь на входящее сообщение от " + STRANGER)
+
+    assert state["error"] == "" and transport.sent == [(STRANGER, TEXT)]
+    assert STRANGER not in helper._handle_index()
+    with sessions() as session:
+        [draft] = session.query(AssistantDraft).all()
+        assert draft.contact_id is None and draft.contact_name == STRANGER
+
+
+def test_suggestion_cannot_send_and_old_draft_tool_is_not_available(mac):
+    helper, transport, _, sessions = mac
+    claude = FakeClaude(
+        [
+            reply(
+                tool("send_imessage", handle=JAY, text=TEXT, reason="ответ"),
+                tool("draft_imessage", handle=JAY, text=TEXT, reason="вариант"),
+            ),
+            reply(text(TEXT), stop="end_turn"),
+        ]
+    )
+    helper.client_factory = lambda key: claude
+    helper.set_key({"key": KEY})
+    state = run(helper, "Предложи, что ответить Jay в iMessage")
+
+    names = {item["name"] for item in claude.requests[0]["tools"]}
+    assert "send_imessage" not in names and "draft_imessage" not in names
+    send_result, draft_result = claude.requests[1]["messages"][-1]["content"]
+    assert send_result["is_error"] and "прямая команда" in send_result["content"]
+    assert draft_result["is_error"] and "Такого инструмента" in draft_result["content"]
+    assert transport.sent == [] and state["chat_sends"] == []
+    assert state["items"][-1]["text"] == TEXT
+    with sessions() as session:
+        assert session.query(AssistantDraft).count() == 0
+
+
+def test_unresolved_placeholder_never_reaches_the_transport(mac):
+    helper, transport, _, _ = mac
+    claude = FakeClaude(
+        [
+            reply(tool("send_imessage", handle=JAY, text="pay here {{PAY_LINK}}", reason="оплата")),
+            reply(text("Нужна ссылка."), stop="end_turn"),
+        ]
+    )
+    helper.client_factory = lambda key: claude
+    helper.set_key({"key": KEY})
+    state = run(helper, "Отправь Jay ссылку на оплату в iMessage")
+
+    [result] = claude.requests[1]["messages"][-1]["content"]
+    assert result["is_error"] and "заполните подстановки" in result["content"]
+    assert transport.sent == [] and state["chat_sends"] == []
+
+
+def test_incoming_permission_uses_full_address_and_excludes_groups_and_outgoing(tmp_path):
+    chat = ChatDb(tmp_path / "chat.db")
+    chat.update(chat.add("+1 555 555-0123", "a personal message"), is_from_me=0)
+    chat.update(chat.add("Band@Example.com", "an email handle"), is_from_me=0)
+    chat.update(chat.add(STRANGER, "a group message"), is_from_me=0)
+    with sqlite3.connect(chat.path) as database:
+        database.execute("update chat set style = 43 where chat_identifier = ?", (STRANGER,))
+    db = MessagesDb(chat.path)
+
+    assert db.has_incoming("+15555550123")
+    assert db.has_incoming("band@example.com")
+    assert not db.has_incoming("+75555550123")
+    assert not db.has_incoming(STRANGER)
+    assert not db.has_incoming(JAY)
+
+
+def test_a_submitted_message_goes_out_once_and_its_status_comes_from_chat_db(mac):
     helper, transport, chat, sessions = mac
     draft_id = add_draft(sessions)
-    preview = helper.call("assistant.send_preview", {"id": draft_id})
-    assert preview == {
-        "draft_id": draft_id,
-        "contact": "Jay",
-        "recipient": JAY,
-        "text": TEXT,
-        "token": confirmation_token(JAY, TEXT),
-    }
-    assert transport.sent == []  # the preview sends nothing
-
-    result = helper.call("assistant.send_confirm", {"id": draft_id, "token": preview["token"]})
+    result = confirm(helper, draft_id)
     assert transport.sent == [(JAY, TEXT)]
-    # Messages wrote the row but has not sent it yet; the old identical message is ignored.
     assert result["send"]["state"] == "dispatched"
     assert draft_status(sessions, draft_id) == "queued"
-    assert result["drafts"] == []
 
     chat.update(transport.rows[0], is_sent=1)
     assert helper.state({})["sends"][0]["state"] == "sent"
@@ -346,25 +459,9 @@ def test_a_confirmed_draft_goes_out_once_and_its_status_comes_from_chat_db(mac):
     [send] = helper.state({})["sends"]
     assert send["state"] == "delivered" and send["delivered_at"]
     assert send["contact_name"] == "Jay" and send["handle"] == JAY
-
-    # One send per draft, by either route.
     with pytest.raises(UserError, match="уже отправлялся"):
         confirm(helper, draft_id)
-    with pytest.raises(UserError, match="уже отправлена или отклонена"):
-        helper.call("assistant.drafts_send", {"ids": [draft_id]})
     assert len(transport.sent) == 1
-
-
-def test_an_edited_text_needs_a_new_confirmation(mac):
-    helper, transport, _chat, sessions = mac
-    draft_id = add_draft(sessions)
-    token = helper.call("assistant.send_preview", {"id": draft_id})["token"]
-    helper.call("assistant.draft_update", {"id": draft_id, "text": "yo\nlmk"})
-    with pytest.raises(UserError, match="изменился после подтверждения"):
-        helper.call("assistant.send_confirm", {"id": draft_id, "token": token})
-    with pytest.raises(UserError, match="изменился"):
-        helper.call("assistant.send_confirm", {"id": draft_id, "token": ""})
-    assert transport.sent == []
 
 
 def test_who_may_not_be_written_to_is_refused(mac, app):
@@ -373,7 +470,7 @@ def test_who_may_not_be_written_to_is_refused(mac, app):
     # Not in the CRM, marked «Не связываться», not a phone or an email.
     stranger = add_draft(sessions, handle=STRANGER)
     with pytest.raises(UserError, match="нет в CRM"):
-        helper.call("assistant.send_preview", {"id": stranger})
+        confirm(helper, stranger)
     service.crm.save(
         {
             "crm": "imessage",
@@ -385,14 +482,14 @@ def test_who_may_not_be_written_to_is_refused(mac, app):
     )
     opted_out = add_draft(sessions)
     with pytest.raises(UserError, match="Не связываться"):
-        helper.call("assistant.send_preview", {"id": opted_out})
+        confirm(helper, opted_out)
     short_code = add_draft(sessions, handle="12345")
     with pytest.raises(UserError, match="не телефон и не email"):
-        helper.call("assistant.send_preview", {"id": short_code})
+        confirm(helper, short_code)
     # Already in the iPhone queue, or rejected.
     queued = add_draft(sessions, status="queued")
     with pytest.raises(UserError, match="уже отправлен или отклонён"):
-        helper.call("assistant.send_preview", {"id": queued})
+        confirm(helper, queued)
     assert transport.sent == []
 
 
@@ -484,9 +581,8 @@ def test_without_the_mac_or_chat_db_nothing_is_sent(mac, tmp_path):
         confirm(helper, draft_id)
     transport.enabled = True
     helper.mac_send.outbox = MessagesDb(tmp_path / "missing.db")
-    token = confirmation_token(JAY, TEXT)
     with pytest.raises(UserError, match="Полный доступ к диску"):
-        helper.call("assistant.send_confirm", {"id": draft_id, "token": token})
+        confirm(helper, draft_id)
     assert transport.sent == [] and draft_status(sessions, draft_id) == "pending"
     assert helper.state({})["mac_send"] == {
         "enabled": True,
@@ -507,31 +603,12 @@ def test_old_chat_db_without_flags_counts_the_row_as_sent(tmp_path):
     assert handle_key("Kid@Example.com") == "kid@example.com"
 
 
-def test_a_draft_shows_as_a_card_under_the_answer_that_made_it(app):
-    service, sessions, tmp_path = app
-    claude = FakeClaude(
-        [
-            reply(tool("draft_imessage", handle=JAY, text=TEXT, reason="первое сообщение")),
-            reply(tool("draft_imessage", handle=STRANGER, text="yo", reason="чужой")),
-            reply(text("Готов черновик для Jay."), stop="end_turn"),
-        ]
-    )
-    helper = AssistantService(
-        sessions,
-        tmp_path / "data",
-        service.crm,
-        service.imessage,
-        messages_db=MessagesDb(tmp_path / "none.db"),
-        client_factory=lambda key: claude,
-        mac_transport=FakeTransport(),
-    )
-    helper.set_key({"key": KEY})
-    state = run(helper, "напиши Jay")
-    kinds = [item["kind"] for item in state["items"]]
-    # Only the draft that was made gets a card, right after its step.
-    assert kinds == ["user", "tool", "draft", "tool", "assistant"]
-    draft_id = state["items"][2]["draft_id"]
-    [card] = state["chat_drafts"]
-    assert card["id"] == draft_id and card["status"] == "pending" and card["text"] == TEXT
-    helper.call("assistant.draft_reject", {"id": draft_id})
-    assert helper.state({})["chat_drafts"][0]["status"] == "rejected"
+def test_old_pending_drafts_stay_unsent_and_draft_rpc_is_removed(mac):
+    helper, transport, _, sessions = mac
+    draft_id = add_draft(sessions)
+    assert "drafts" not in helper.state({})
+    assert helper.state({})["chat_sends"] == []
+    for method in ("assistant.send_confirm", "assistant.drafts_send", "assistant.draft_update"):
+        with pytest.raises(UserError, match="Неизвестное действие"):
+            helper.call(method, {"id": draft_id})
+    assert transport.sent == [] and draft_status(sessions, draft_id) == "pending"

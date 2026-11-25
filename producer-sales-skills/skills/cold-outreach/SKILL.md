@@ -5,7 +5,7 @@ description: Первое сообщение независимому артис
 
 # Холодный аутрич
 
-Сначала прочитай: `../../reference/guardrails.md`, `../../reference/voice.md`, `../../reference/message-examples.md`.
+Сначала прочитай: `../../reference/voice.md`, `../../reference/message-examples.md`.
 
 Источник методики: copywriting, social-selling, personalization-at-scale, tone-matching, response-length-calibration, email-sequence (Sales-Skills, MIT). LinkedIn, cold calls, подписи и B2B-триггеры (funding, найм) выброшены; триггеры заменены на музыкальные.
 

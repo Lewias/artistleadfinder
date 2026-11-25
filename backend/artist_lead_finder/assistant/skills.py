@@ -3,14 +3,14 @@
 The source folder is also a Claude Code plugin: `skills/<name>/SKILL.md` files with front matter
 (`name`, `description`) and shared, user-editable `reference/*.md` files (offers, stages,
 voice…). The assistant's system prompt lists only names and descriptions; full texts are
-read on demand with the `load_skill` tool, so the prompt stays small and cacheable. The
-guardrails reference is the exception: it is short and always applies, so it goes into the
-prompt in full. All of this is text placed in the prompt: nothing in it is executed.
+read on demand with the `load_skill` tool, so the prompt stays small and cacheable.
+Untouched defaults from older builds can be updated without replacing the user's edits.
 """
 
 import re
 from dataclasses import dataclass, replace
 from functools import cache
+from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import RLock
@@ -20,7 +20,17 @@ from ..errors import UserError
 # The frozen core bundles the folder next to this module (see scripts/build-core.py).
 BUNDLED = Path(__file__).parent / "skills_library"
 SKILLS_ROOT = BUNDLED if BUNDLED.is_dir() else Path(__file__).parents[3] / "producer-sales-skills"
-GUARDRAILS = "guardrails"
+PREVIOUS_DEFAULTS = {
+    "closing": "87d6cc1724fb5537b42113b6e43191c1c7a7a6cd6eefc213a005db43e72895ad",
+    "conversation-analysis": "b2675445a1b2674c9b2f744e3d7fae54cfc2555ccfc28ad2a0df5eeafd736ebc",
+    "deal-stages": "852f85eb01441810f7897c63fb5e39f4769b1200350d87738168f13da5a8a32a",
+    "follow-up": "ddd8bea9ad1870a8210e9014183c417cc3b2405313bc76aa815193c9b4a16364",
+    "lead-qualification": "a41dc96c96ef0c89d760b216a454e80fa76914b247b612fd8cfb36f6feaac266",
+    "negotiation": "0dcddc086bc48dcc35873213c2f945a07e5fdd9811e628d4c44591097b28f768",
+    "objection-handling": "d2c50dafed702750fb308710ded8aea62f8b59ef03982e839cbd754145063546",
+    "offers": "27f46cf649f2741fbde4a107bb92a2bb968c49fce3ac03978586441ef7b5381d",
+    "voice": "1a7987672204dfba3ffcb42d40b247371d063944ed8da819b94a367c5817ad9a",
+}
 FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 TITLE = re.compile(r"^#\s+(.+)$", re.M)
 # Skills point at references by plugin path; inside the app they are load_skill names.
@@ -124,6 +134,10 @@ class LocalRules:
             path = self._path(name)
             try:
                 text = path.read_text(encoding="utf-8-sig").rstrip("\n")
+                previous = PREVIOUS_DEFAULTS.get(name)
+                if previous and sha256(text.encode()).hexdigest() == previous:
+                    self._write(path, default.text)
+                    text = default.text
             except FileNotFoundError:
                 self._write(path, default.text)
                 text = default.text
@@ -149,10 +163,3 @@ class LocalRules:
                 return False
             self._write(self._path(name), updated)
             return True
-
-
-def text_of(name: str, local: LocalRules | None = None) -> str:
-    if name not in library():
-        return ""
-    skill = local.read(name) if local is not None else library()[name]
-    return skill.text

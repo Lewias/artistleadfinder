@@ -196,16 +196,6 @@ class TelegramBridge:
         last = max((i for i, item in enumerate(items) if item["kind"] == "user"), default=-1)
         turn = items[last + 1 :]
         parts = [plain(item["text"]) for item in turn if item["kind"] == "assistant"]
-        drafts = {draft["id"]: draft for draft in state["chat_drafts"]}
-        pending_drafts = []
-        for item in turn:
-            draft = drafts.get(item.get("draft_id")) if item["kind"] == "draft" else None
-            if draft is not None and draft["status"] == "pending":
-                who = draft["contact_name"] or draft["handle"]
-                pending_drafts.append(f"✉️ Черновик для {who} ({draft['handle']}):\n{draft['text']}")
-        if pending_drafts:
-            parts.extend(pending_drafts)
-            parts.append("Черновики не отправлены: проверьте и отправьте их кнопкой в приложении.")
         proposed = [
             action["summary"]
             for action in state["actions"]

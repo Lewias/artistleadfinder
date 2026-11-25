@@ -48,8 +48,6 @@ def check_structure() -> list[str]:
         for ref in re.findall(r"\.\./\.\./reference/([\w.-]+\.md)", text):
             if not (REFERENCE / ref).exists():
                 problems.append(f"{skill_file}: missing reference {ref}")
-        if "guardrails.md" not in text:
-            problems.append(f"{skill_file}: must point to reference/guardrails.md")
     scenarios = load_scenarios()
     ids = [s["id"] for s in scenarios]
     if len(ids) != len(set(ids)):
@@ -149,11 +147,16 @@ def grade(scenario: dict, output: str, banned: list[str], prices: set[int]) -> l
         fails.append("a draft is required")
     if expect.get("draft") == "none" and drafts:
         fails.append("no draft must be written here")
+    if "draft_count" in expect and len(drafts) != expect["draft_count"]:
+        fails.append(f"expected {expect['draft_count']} messages, got {len(drafts)}")
     joined = " ".join(drafts).lower()
     if drafts and expect.get("draft_must_include_any") and not any(
         word.lower() in joined for word in expect["draft_must_include_any"]
     ):
         fails.append(f"draft should include one of {expect['draft_must_include_any']}")
+    for phrase in expect.get("draft_must_include_all", []):
+        if phrase.lower() not in joined:
+            fails.append(f"draft must include '{phrase}'")
     for word in expect.get("draft_must_not_include", []):
         if word.lower() in joined:
             fails.append(f"draft must not include '{word}'")

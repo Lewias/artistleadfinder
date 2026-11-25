@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..errors import UserError
+from ..imessage.phones import normalize_recipient
 
 DEFAULT_PATH = Path.home() / "Library" / "Messages" / "chat.db"
 # Apple's epoch; newer macOS keeps nanoseconds, older seconds.
@@ -204,6 +205,34 @@ class MessagesDb:
             }
             for row in reversed(rows)
         ]
+
+    def has_incoming(self, recipient: str) -> bool:
+        """A real incoming iMessage in a personal chat with this full address."""
+        db = self._open()
+        try:
+            db.create_function("normalized_recipient", 1, normalize_recipient, deterministic=True)
+            row = db.execute(
+                """
+                select 1
+                  from chat c
+                 where c.style = ?
+                   and (c.chat_identifier = ? or normalized_recipient(c.chat_identifier) = ?)
+                   and exists (
+                       select 1
+                         from chat_message_join j
+                         join message m on m.ROWID = j.message_id
+                        where j.chat_id = c.ROWID
+                          and m.is_from_me = 0 and m.item_type = 0 and m.service = 'iMessage'
+                   )
+                 limit 1
+                """,
+                (SINGLE_CHAT, recipient.removeprefix("+"), recipient),
+            ).fetchone()
+            return row is not None
+        except sqlite3.Error:
+            raise UserError(NO_ACCESS) from None
+        finally:
+            db.close()
 
     # ---------- what Messages did with a message sent from this app ----------
 

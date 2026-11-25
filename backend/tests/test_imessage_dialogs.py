@@ -16,6 +16,7 @@ from artist_lead_finder.models import AssistantDraft
 app = test_assistant.app  # the real CRM: Jay (phone) and Kid («Не связываться»)
 
 STRANGER_CHAT = [(False, "who is this", 30, False)]
+UNKNOWN = "+15555550123"
 
 
 def dialogs(app, transport=None, messages_db=None) -> tuple[AssistantService, FakeTransport]:
@@ -42,7 +43,7 @@ def test_every_one_to_one_chat_is_listed_with_its_crm_contact(app):
     assert set(threads) == {JAY, KID, STRANGER}  # no group chats
     assert threads[JAY]["contact"]["name"] == "Jay" and threads[JAY]["reply_block"] == ""
     assert "Не связываться" in threads[KID]["reply_block"]
-    assert threads[STRANGER]["contact"] is None and "нет в CRM" in threads[STRANGER]["reply_block"]
+    assert threads[STRANGER]["contact"] is None and threads[STRANGER]["reply_block"] == ""
     assert threads[JAY]["last_text"] == "И какие гарантии?" and not threads[JAY]["last_from_me"]
     chat = helper.call("assistant.dialog", {"handle": JAY})
     assert [m["text"] for m in chat["messages"]] == [
@@ -62,15 +63,25 @@ def test_a_reply_goes_out_once_through_messages_and_refusals_send_nothing(app):
     with sessions() as session:
         [draft] = session.query(AssistantDraft).all()
         assert (draft.reason, draft.status, draft.model) == (REASON, "queued", "user")
-    # The reply does not wait in the assistant's drafts.
-    assert helper.state({})["drafts"] == []
+    assert helper.state({})["chat_sends"] == []
     assert helper.call("assistant.dialogs", {})["sends"][0]["text"] == "lets talk"
-    for handle, error in ((KID, "Не связываться"), (STRANGER, "нет в CRM"), ("@nick", "телефон")):
+    for handle, error in ((KID, "Не связываться"), (UNKNOWN, "нет в CRM"), ("@nick", "телефон")):
         with pytest.raises(UserError, match=error):
             helper.call("assistant.dialog_reply", {"handle": handle, "text": "yo"})
     with pytest.raises(UserError, match="Введите текст"):
         helper.call("assistant.dialog_reply", {"handle": JAY, "text": "   "})
     assert transport.sent == [(JAY, "lets talk")]
+
+
+def test_dialog_can_reply_without_a_crm_contact(app):
+    helper, transport = dialogs(app)
+    thread = helper.call("assistant.dialog", {"handle": STRANGER})
+    assert thread["contact"] is None and thread["reply_block"] == ""
+
+    helper.call("assistant.dialog_reply", {"handle": STRANGER, "text": "hey"})
+
+    assert transport.sent == [(STRANGER, "hey")]
+    assert STRANGER not in helper._handle_index()
 
 
 def test_a_reply_refused_by_the_send_limit_leaves_no_draft_behind(app, monkeypatch):
@@ -84,7 +95,7 @@ def test_a_reply_refused_by_the_send_limit_leaves_no_draft_behind(app, monkeypat
     with sessions() as session:
         statuses = sorted(draft.status for draft in session.query(AssistantDraft))
     assert statuses == ["queued", "rejected"]
-    assert helper.state({})["drafts"] == []
+    assert helper.state({})["chat_sends"] == []
 
 
 def test_off_the_mac_the_section_says_why_and_sends_nothing(app):

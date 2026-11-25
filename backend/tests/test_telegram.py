@@ -136,11 +136,11 @@ def test_a_question_from_telegram_is_answered_by_the_assistant(server, make):
     assert app.bridge.run_once() == 0
 
 
-def test_imessage_drafts_wait_but_crm_actions_run_without_the_button(server, make):
+def test_suggested_imessage_text_stays_in_telegram_and_crm_actions_run(server, make):
     app = make(
         script=[
             reply(
-                tool("draft_imessage", handle=JAY, text="yo want the pack", reason="ответ"),
+                tool("send_imessage", handle=JAY, text="yo want the pack", reason="ответ"),
                 tool(
                     "propose_crm_contact",
                     crm="imessage",
@@ -149,20 +149,18 @@ def test_imessage_drafts_wait_but_crm_actions_run_without_the_button(server, mak
                     notes="",
                 ),
             ),
-            reply(text("Подготовил ответ Jay и создал контакт Lil Test."), stop="end_turn"),
+            reply(text("Для Jay: yo want the pack. Создал контакт Lil Test."), stop="end_turn"),
         ]
     )
     app.link()
-    request = server.tg_ask(app.user, "ответь Jay и заведи Lil Test")
+    request = server.tg_ask(app.user, "предложи ответ Jay и заведи Lil Test")
     app.bridge.run_once()
     answer = request["answer"]
-    assert answer.startswith("Подготовил ответ Jay и создал контакт Lil Test.")
-    assert f"✉️ Черновик для Jay ({JAY}):\nyo want the pack" in answer
-    assert "Черновики не отправлены" in answer
+    assert answer == "Для Jay: yo want the pack. Создал контакт Lil Test."
     assert "«Выполнить»" not in answer and "Lil Test" in answer
-    # The contact is created at once; the iMessage draft remains unsent.
+    # The contact is created at once; asking for wording cannot send iMessage.
     state = app.runtime.call("assistant.state", {})
-    assert [draft["text"] for draft in state["drafts"]] == ["yo want the pack"]
+    assert state["chat_sends"] == []
     assert [action["status"] for action in state["actions"]] == ["done"]
     service = app.runtime.service
     assert not service.imessage.state()["workspace"]["recipients"]
@@ -185,9 +183,8 @@ def test_telegram_send_command_queues_imessage_for_iphone_without_a_button(serve
 
     assert request["answer"] == "Сообщение для Jay в очереди iPhone."
     state = assistant.state({})
-    assert state["drafts"] == []
-    [message] = state["chat_drafts"]
-    assert message["status"] == "queued" and message["campaign_id"] is not None
+    [message] = state["chat_sends"]
+    assert message["campaign_id"] is not None
     [job] = app.runtime.service.imessage.state()["jobs"]
     assert (job["phone"], job["message"], job["status"]) == (JAY, "yo want the pack", "pending")
 

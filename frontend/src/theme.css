@@ -5414,9 +5414,6 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 6px;
 }
-.assistant-steps li.escalation {
-  color: var(--violet);
-}
 .assistant-working {
   display: flex;
   align-items: center;
@@ -5493,16 +5490,6 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 8px;
 }
-.assistant-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.assistant-card-question {
-  margin-right: 4px;
-  color: var(--ink);
-}
 .assistant-ask {
   display: flex;
   align-items: flex-end;
@@ -5552,22 +5539,6 @@ button:active:not(:disabled) {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-}
-.assistant-model {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--alf-radius);
-  border: 1px solid var(--line-strong);
-  color: var(--muted);
-  font-size: var(--alf-font-xs);
-  white-space: nowrap;
-}
-.assistant-model.strong {
-  border-color: var(--violet-line);
-  background: var(--violet-bg);
-  color: var(--violet);
 }
 .assistant-settings {
   display: grid;

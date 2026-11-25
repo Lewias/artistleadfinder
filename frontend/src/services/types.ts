@@ -806,31 +806,17 @@ export interface CrmContact {
 export type CloudCategory = 'ARTIST' | 'PRODUCER' | 'MEDIA' | 'OTHER' | 'UNKNOWN';
 // ---------- Assistant ----------
 export interface AssistantItem {
-  /** user / assistant: messages; tool: a step; escalation: handed to the stronger model. */
-  kind: 'user' | 'assistant' | 'tool' | 'escalation' | 'draft';
+  kind: 'user' | 'assistant' | 'tool' | 'send';
   text: string;
-  /** draft: the draft this step made, shown as a send card under the answer. */
-  draft_id?: number;
+  message_id?: number;
 }
-/** A draft made in the current chat, in its state now. */
-export interface AssistantChatDraft {
+/** A message submitted from the current chat. */
+export interface AssistantChatSend {
   id: number;
   handle: string;
   contact_name: string;
   text: string;
-  status: 'pending' | 'queued' | 'rejected';
   campaign_id: number | null;
-}
-export interface AssistantDraft {
-  id: number;
-  handle: string;
-  contact_id: number | null;
-  contact_name: string;
-  text: string;
-  reason: string;
-  model: string;
-  /** Written by the stronger model. */
-  strong: boolean;
 }
 /** An action the assistant proposed; it runs on «Выполнить». */
 export interface AssistantAction {
@@ -841,7 +827,7 @@ export interface AssistantAction {
   result: string;
   done_at: string | null;
 }
-/** A draft sent through Messages on this Mac; the state comes from chat.db. */
+/** A message sent through Messages on this Mac; the state comes from chat.db. */
 export type MacSendState = 'queued' | 'dispatched' | 'sent' | 'delivered' | 'uncertain' | 'failed';
 export interface AssistantSend {
   id: number;
@@ -854,19 +840,10 @@ export interface AssistantSend {
   confirmed_at: string | null;
   delivered_at: string | null;
 }
-/** What the confirmation shows; the token authorizes exactly this recipient and text. */
-export interface AssistantSendPreview {
-  draft_id: number;
-  contact: string;
-  recipient: string;
-  text: string;
-  token: string;
-}
 export interface AssistantProvider {
   provider: 'anthropic' | 'compatible';
   base_url: string;
   main: string;
-  strong: string;
   anthropic_key: boolean;
   compatible_key: boolean;
   shared_key_available?: boolean;
@@ -876,13 +853,11 @@ export interface AssistantState {
   running: boolean;
   step: string;
   error: string;
-  escalation: boolean;
-  models: { main: string; strong: string };
+  models: { main: string };
   provider: AssistantProvider;
   messages: { available: boolean; reason: string };
   items: AssistantItem[];
-  chat_drafts: AssistantChatDraft[];
-  drafts: AssistantDraft[];
+  chat_sends: AssistantChatSend[];
   actions: AssistantAction[];
   usage: { today: number; month: number; by_model: Record<string, number> };
   /** Sending through Messages on this Mac: off outside macOS. */

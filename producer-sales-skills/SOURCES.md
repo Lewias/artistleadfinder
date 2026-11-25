@@ -21,7 +21,6 @@
 | objection-handling | objection-handling, objection-recognition, competitor-mention-handling, negative-sentiment-de-escalation, active-listening | LAER, «названное возражение ≠ настоящее», не принижать конкурентов, деэскалация | корпоративные возражения (вендор-контракты, пилоты) |
 | negotiation | negotiation, pricing-negotiation, pricing-discussion-logic, scarcity-urgency-calibration, urgency-creation | ценность до цены, обмен вместо уступки, когда называть цену, только реальная срочность, право уйти | procurement, flinch, good cop/bad cop, anchoring на ROI |
 | closing | closing, micro-commitment-stacking, cross-sell-upsell-detection, referral-request-timing | сигналы готовности, прямой вопрос / выбор / trial close, маленькие «да», апсейл по поводу | демо, пропозалы, puppy dog close |
-| reference/guardrails | compliance-handling, legal-compliance-phrase-avoidance, handoff-detection | opt-out прежде всего, не обещать результат, когда звать человека | TCPA/ACMA/CAN-SPAM-специфика, время звонков |
 
 ## Что не взяли совсем
 A/B-тесты, аналитика и прогнозы, territory planning, onboarding, enablement-инструменты, презентации, войсмейлы, звонки и календари, дедупликация каналов, доставляемость, мультиязычность, обучение бота на фидбеке. Для одного продюсера в переписке это лишнее или требует инфраструктуры.
@@ -29,5 +28,13 @@ A/B-тесты, аналитика и прогнозы, territory planning, onbo
 ## Что добавлено сверх источника
 - Стадии сделки и пороги «забыт» под ритм продажи битов (`deal-stages.md`).
 - Голос продюсера: американский английский без корпоратива и без перебора сленга (`voice.md`).
-- Запрет выдумывать кейсы и цифры, работа только с черновиками (`guardrails.md`).
 - Тестовые диалоги и проверка (`tests/`).
+
+## Адаптация из Jarvis
+
+Из бэкапа от 07.11.2026 взяты решения владельца о последовательности «бит → демка →
+релиз → лицензия», ответе на прямой вопрос о цене, едином сообщении с прайсом и оплате
+после согласия. Источники: `.claude/skills/sales/SKILL.md`, `.claude/skills/closer/SKILL.md`,
+`knowledge/books/way_of_the_wolf.md` и разборы оплаченных и потерянных сделок в
+`knowledge/best-dialogs/imessage_owner_cases.md`. Сценарии в тестах вымышлены по мотивам
+этих развилок. Тарифы, реквизиты, личности и настройки автоматизации из бэкапа не перенесены.

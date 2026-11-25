@@ -337,38 +337,25 @@ CORE["autopilot.state"] = {
 CORE["inbox.state"] = {"scan": None, "findings": [], "counts": {"new": 0, "added": 0, "hidden": 0}}
 
 CORE["assistant.state"] = {
-    "configured": True, "running": True, "step": "Пишет сильная модель", "error": "",
-    "escalation": True, "models": {"main": "Haiku 5.5", "strong": "Sonnet 5.5"},
+    "configured": True, "running": True, "step": "Ищу в CRM", "error": "",
+    "models": {"main": "Haiku 5.5"},
     "messages": {"available": True, "reason": ""},
     "items": [
-        {"kind": "user", "text": "Подготовь ответы всем, кто ждёт больше дня"},
+        {"kind": "user", "text": "Кто ждёт ответа больше дня?"},
         {"kind": "tool", "text": "Смотрю переписки"},
         {"kind": "tool", "text": "Читаю переписку"},
         {"kind": "tool", "text": "Открываю скилл продаж"},
-        {"kind": "assistant", "text": "Ждут двое:\n\n- **Jay** спрашивает про цену и гарантии (3 дня без ответа)\n- **Dre** взял лизинг, ждёт ссылку на оплату\n\nВопрос Jay про деньги, поэтому ответ ему пишет сильная модель."},
-        {"kind": "escalation", "text": "Спрашиваю сильную модель"},
-        {"kind": "tool", "text": "Готовлю черновик"},
-        {"kind": "draft", "text": "", "draft_id": 1},
-        {"kind": "tool", "text": "Готовлю черновик"},
-        {"kind": "draft", "text": "", "draft_id": 3},
-        {"kind": "assistant", "text": "Готовы два черновика. Dre уже получил своё сообщение, Jay ждёт вашей кнопки."},
+        {"kind": "assistant", "text": "Ждут двое:\n\n- **Jay** спрашивает про цену и условия (3 дня без ответа)\n- **Dre** взял лизинг, ждёт ссылку на оплату."},
+        {"kind": "user", "text": "Отправь Dre ответ про лизинг в iMessage"},
+        {"kind": "tool", "text": "Отправляю iMessage"},
+        {"kind": "send", "text": "", "message_id": 3},
+        {"kind": "assistant", "text": "Сообщение для Dre доставлено."},
         {"kind": "user", "text": "А кто может купить бит прямо сейчас?"},
         {"kind": "tool", "text": "Ищу в CRM"},
     ],
-    "chat_drafts": [
-        {"id": 1, "handle": "+79991234567", "contact_name": "Jay", "status": "pending",
-         "campaign_id": None,
-         "text": "Понимаю вопрос про гарантии. Давай созвонимся на 10 минут — покажу кейсы."},
-        {"id": 3, "handle": "+15555550199", "contact_name": "Dre", "status": "queued",
-         "campaign_id": None, "text": "lease is $100 mp3 + wav\nhere's the pack {{PAY_LINK}}"},
-    ],
-    "drafts": [
-        {"id": 1, "handle": "+79991234567", "contact_id": 1, "contact_name": "Jay",
-         "text": "Понимаю вопрос про гарантии. Давай созвонимся на 10 минут — покажу кейсы.",
-         "reason": "ответ про цену", "model": "Sonnet 5.5", "strong": True},
-        {"id": 2, "handle": "kid@example.com", "contact_id": 2, "contact_name": "Kid",
-         "text": "Привет! Послушал демо, вечером напишу подробно.", "reason": "подтвердить",
-         "model": "Haiku 5.5", "strong": False},
+    "chat_sends": [
+        {"id": 3, "handle": "+15555550199", "contact_name": "Dre", "campaign_id": None,
+         "text": "lease is $100 with the wav and a contract"},
     ],
     "actions": [
         {"id": 1, "kind": "instagram_list_add", "status": "done", "done_at": "2026-10-10T10:00:00",
@@ -377,22 +364,18 @@ CORE["assistant.state"] = {
         {"id": 2, "kind": "crm_contact", "status": "pending", "done_at": None, "result": "",
          "summary": "Новый контакт в CRM imessage: Lil Test — +79994445566"},
     ],
-    "usage": {"today": 0.0123, "month": 0.41, "by_model": {"Haiku 5.5": 0.18, "Sonnet 5.5": 0.23}},
-    "mac_send": {"enabled": True, "description": "Черновик уходит через Сообщения на этом Mac."},
+    "usage": {"today": 0.0123, "month": 0.41, "by_model": {"Haiku 5.5": 0.41}},
+    "mac_send": {"enabled": True, "description": "Отправка через Сообщения на этом Mac."},
     "sends": [
         {"id": 2, "draft_id": 4, "handle": "+15555550123", "contact_name": "Lil Nova",
          "text": "yo the hook on late nights stuck with me\nwant me to send a few that fit",
          "state": "dispatched", "note": "", "confirmed_at": "2026-10-10T10:05:00Z",
          "delivered_at": None},
         {"id": 1, "draft_id": 3, "handle": "+15555550199", "contact_name": "Dre",
-         "text": "lease is $100 mp3 + wav\nhere's the pack {{PAY_LINK}}", "state": "delivered",
+         "text": "lease is $100 with the wav and a contract", "state": "delivered",
          "note": "", "confirmed_at": "2026-10-10T09:00:00Z",
          "delivered_at": "2026-10-10T09:00:04Z"},
     ],
-}
-CORE["assistant.send_preview"] = {
-    "draft_id": 1, "contact": "Jay", "recipient": "+79991234567", "token": "0" * 64,
-    "text": "Понимаю вопрос про гарантии. Давай созвонимся на 10 минут — покажу кейсы.",
 }
 CORE["spotify.state"] = {
     "running": True,

@@ -197,6 +197,88 @@
         "draft_must_not_include": ["http", "paypal.me/"],
         "output_must_include_any": ["$150"]
       }
+    },
+    {
+      "id": "11-liked-beat-no-demo",
+      "title": "Artist likes the beat but has not recorded and did not ask the price",
+      "skill": "closing",
+      "channel": "imessage",
+      "today": "2026-11-06",
+      "dialog": [
+        {"from": "producer", "at": "2026-11-05", "text": "[shared a pack of beats]"},
+        {"from": "artist", "at": "2026-11-06", "text": "yo the second one is hard"}
+      ],
+      "expect": {
+        "draft": "required",
+        "draft_count": 1,
+        "draft_must_include_any": ["record", "demo", "lay something"],
+        "draft_must_not_include": ["$", "lease", "license", "contract", "pay", "http"]
+      }
+    },
+    {
+      "id": "12-demo-before-release",
+      "title": "Artist shared a demo but has not decided to release it",
+      "skill": "closing",
+      "channel": "imessage",
+      "today": "2026-11-06",
+      "dialog": [
+        {"from": "artist", "at": "2026-11-06", "text": "got the hook down on the second beat heres the demo [unreviewed audio]"}
+      ],
+      "expect": {
+        "draft": "required",
+        "draft_count": 1,
+        "draft_must_include_any": ["drop", "release", "put it out"],
+        "draft_must_not_include": ["$", "lease", "license", "http", "i listened", "i love how it sounds"]
+      }
+    },
+    {
+      "id": "13-general-price-one-message",
+      "title": "Artist asks for all license options before recording",
+      "skill": "closing",
+      "channel": "imessage",
+      "today": "2026-11-06",
+      "dialog": [
+        {"from": "artist", "at": "2026-11-06", "text": "what are the license options and prices"}
+      ],
+      "expect": {
+        "draft": "required",
+        "draft_count": 1,
+        "draft_must_include_all": ["$100", "$150", "$400"],
+        "draft_must_not_include": ["{{PAY_LINK}}", "http", "paypal", "deposit"]
+      }
+    },
+    {
+      "id": "14-idea-yes-not-price-yes",
+      "title": "Artist likes the release plan but has not agreed to a price",
+      "skill": "closing",
+      "channel": "imessage",
+      "today": "2026-11-06",
+      "dialog": [
+        {"from": "producer", "at": "2026-11-06", "text": "we could drop a single with that second beat"},
+        {"from": "artist", "at": "2026-11-06", "text": "yeah that would be hard"}
+      ],
+      "expect": {
+        "draft": "required",
+        "draft_count": 1,
+        "draft_must_include_any": ["license", "lease"],
+        "draft_must_not_include": ["$", "{{PAY_LINK}}", "http", "paypal", "deposit"]
+      }
+    },
+    {
+      "id": "15-owner-already-replied",
+      "title": "Producer already answered the price question in the live chat",
+      "skill": "conversation-analysis",
+      "channel": "imessage",
+      "today": "2026-11-06",
+      "dialog": [
+        {"from": "artist", "at": "2026-11-05", "text": "how much for the lease on that one"},
+        {"from": "producer", "at": "2026-11-06", "text": "its $100 for wav and the rights with a contract"}
+      ],
+      "expect": {
+        "draft": "none",
+        "next_action_any": ["дождаться", "ждать", "подождать"],
+        "output_must_include_any": ["уже ответил", "уже назвал"]
+      }
     }
   ]
 }

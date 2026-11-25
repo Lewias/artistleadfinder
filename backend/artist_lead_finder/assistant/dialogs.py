@@ -2,9 +2,9 @@
 
 Reading is chat.db, read only (the same reader the assistant uses), so it works only in the
 app on a Mac with Full Disk Access. A reply is the user's own text: it becomes a draft and
-goes through the same Mac send as an assistant draft — only to contacts from the CRM, not
-to «Не связываться», at most SEND_LIMIT_PER_HOUR an hour, sent once, its fate read back from
-chat.db. No browser window is involved.
+goes through the same Mac send as an assistant draft. An incoming personal iMessage is enough
+without a CRM card; «Не связываться» and the hourly limit still apply. The reply is sent
+once, its fate read back from chat.db. No browser window is involved.
 """
 
 from collections.abc import Callable
@@ -12,7 +12,7 @@ from collections.abc import Callable
 from ..errors import UserError
 from ..imessage.phones import normalize_recipient
 from ..models import AssistantDraft
-from .mac_send import DO_NOT_CONTACT, MacSend, confirmation_token
+from .mac_send import MacSend, confirmation_token
 from .messages_db import MessagesDb
 
 MAX_TEXT = 2000
@@ -40,14 +40,16 @@ class IMessageDialogs:
     def _contact(self, index: dict[str, dict], handle: str) -> dict | None:
         return index.get(normalize_recipient(handle) or "")
 
-    def _reply_block(self, contact: dict | None, sending: dict) -> str:
+    def _reply_block(self, handle: str | None, contact: dict | None, sending: dict) -> str:
         """Why the reply box is closed for this chat; empty when a reply can go."""
         if not sending["enabled"]:
             return sending["description"]
-        if contact is None:
-            return "Этого номера нет в CRM: отвечать отсюда можно только контактам из CRM."
-        if DO_NOT_CONTACT in contact["statuses"]:
-            return "У контакта статус «Не связываться»."
+        if handle is None:
+            return "Отвечать можно только на телефон с кодом страны или email."
+        try:
+            self.mac_send.check_recipient(handle, contact)
+        except UserError as error:
+            return str(error)
         return ""
 
     def state(self, params: dict) -> dict:
@@ -69,7 +71,9 @@ class IMessageDialogs:
                     {
                         **row,
                         "contact": contact,
-                        "reply_block": self._reply_block(contact, sending),
+                        "reply_block": self._reply_block(
+                            normalize_recipient(row["handle"]), contact, sending
+                        ),
                     }
                 )
         return {
@@ -88,7 +92,9 @@ class IMessageDialogs:
         return {
             "handle": handle,
             "contact": contact,
-            "reply_block": self._reply_block(contact, self.mac_send.status()),
+            "reply_block": self._reply_block(
+                normalize_recipient(handle), contact, self.mac_send.status()
+            ),
             "messages": messages,
         }
 
@@ -102,14 +108,14 @@ class IMessageDialogs:
         if len(text) > MAX_TEXT:
             raise UserError(f"Сообщение длиннее {MAX_TEXT} символов.")
         contact = self.contacts().get(handle)
-        block = self._reply_block(contact, self.mac_send.status())
+        block = self._reply_block(handle, contact, self.mac_send.status())
         if block:
             raise UserError(block)
         with self.sessions.begin() as session:
             draft = AssistantDraft(
                 handle=handle,
-                contact_id=contact["id"],
-                contact_name=contact["name"][:160],
+                contact_id=contact["id"] if contact else None,
+                contact_name=(contact["name"] if contact else handle)[:160],
                 text=text,
                 reason=REASON,
                 model=USER_MODEL,

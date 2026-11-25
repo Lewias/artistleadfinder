@@ -16,7 +16,6 @@ from artist_lead_finder.assistant.messages_db import (
 )
 from artist_lead_finder.assistant.service import (
     MODEL,
-    STRONG_MODEL,
     AssistantService,
     cost,
 )
@@ -152,21 +151,14 @@ def reply(*blocks, stop="tool_use", tokens=(1000, 200)):
 
 
 class FakeClaude:
-    def __init__(self, script, strong=None):
+    def __init__(self, script):
         self.script = list(script)
-        self.strong = list(strong or [])
         self.requests: list[dict] = []
-        self.strong_requests: list[dict] = []
         self.messages = SimpleNamespace(create=self._create)
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._strong))
 
     def _create(self, **request):
         self.requests.append(copy.deepcopy(request))
         return self.script.pop(0)
-
-    def _strong(self, **request):
-        self.strong_requests.append(copy.deepcopy(request))
-        return self.strong.pop(0)
 
 
 @pytest.fixture
@@ -189,9 +181,9 @@ def app(tmp_path):
     engine.dispose()
 
 
-def assistant(app, script, strong=None) -> tuple[AssistantService, FakeClaude]:
+def assistant(app, script) -> tuple[AssistantService, FakeClaude]:
     service, sessions, tmp_path = app
-    claude = FakeClaude(script, strong)
+    claude = FakeClaude(script)
     helper = AssistantService(
         sessions,
         tmp_path / "data",
@@ -215,8 +207,8 @@ def run(helper, question):
     return helper.state({})
 
 
-def test_haiku_hands_a_hard_reply_to_sonnet_and_drafts_its_text(app):
-    sonnet_text = "Понимаю вопрос про гарантии. Давай созвонимся на 10 минут — покажу кейсы."
+def test_haiku_handles_a_hard_reply_using_sales_skills(app):
+    draft_text = "i do beats not promo\nwant me to send the terms for the unlimited lease"
     helper, claude = assistant(
         app,
         [
@@ -226,35 +218,27 @@ def test_haiku_hands_a_hard_reply_to_sonnet_and_drafts_its_text(app):
             ),
             reply(tool("imessage_read", handle=JAY, limit=20)),
             reply(
-                text("Тут вопрос про деньги и гарантии — отдам сильной модели."),
-                tool(
-                    "ask_stronger_model",
-                    task="Ответить на вопрос о цене и гарантиях продвижения",
-                    handle=JAY,
-                    contact_id=1,
-                ),
+                tool("load_skill", name="objection-handling"),
+                tool("load_skill", name="offers"),
+                tool("load_skill", name="voice"),
             ),
-            reply(tool("draft_imessage", handle=JAY, text=sonnet_text, reason="ответ про цену")),
-            reply(text("Готов черновик для Jay, его писала сильная модель."), stop="end_turn"),
-        ],
-        strong=[
-            reply(text(sonnet_text + "\n---\nСнимаем страх, ведём к звонку."), stop="end_turn")
+            reply(text(draft_text), stop="end_turn"),
         ],
     )
     state = run(helper, "кто ждёт ответа? подготовь ответы")
     assert state["error"] == ""
 
-    # The everyday model ran the loop; the stronger one was asked once, with the context.
     assert {request["model"] for request in claude.requests} == {MODEL}
     first = claude.requests[0]
+    assert "Джордана Белфорта" in first["system"]
+    assert not {"ask_stronger_model", "draft_imessage", "send_imessage"} & {
+        item["name"] for item in first["tools"]
+    }
     assert first["cache_control"] == {"type": "ephemeral"}
     assert first["output_config"] == {"effort": "medium"}
     assert first["messages"][0]["content"][0]["text"].startswith("[Сегодня 2026-10-10]\n")
-    [strong] = claude.strong_requests
-    assert strong["model"] == STRONG_MODEL and strong["fallbacks"] == "default"
-    assert "server-side-fallback-2026-07-01" in strong["betas"]
-    context = strong["messages"][0]["content"]
-    assert "гарантии" in context and "Jay" in context and "сколько стоит" in context
+    context = claude.requests[2]["messages"][-1]["content"][0]["content"]
+    assert "гарантии" in context and "сколько стоит" in context
     # The thinking block went back unchanged, the tool results with it.
     second = claude.requests[1]["messages"]
     assert second[1]["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig-1"}
@@ -262,18 +246,16 @@ def test_haiku_hands_a_hard_reply_to_sonnet_and_drafts_its_text(app):
     assert '"handle": "+79991234567"' in threads and '"name": "Jay"' in threads
     assert "group-1" not in threads
 
-    [draft] = state["drafts"]
-    assert draft["text"] == sonnet_text and draft["strong"] and draft["model"] == "Sonnet 5.5"
-    assert draft["handle"] == JAY and draft["contact_name"] == "Jay"
+    assert state["chat_sends"] == [] and state["items"][-1]["text"] == draft_text
     kinds = [item["kind"] for item in state["items"]]
-    assert kinds[0] == "user" and "escalation" in kinds and kinds[-1] == "assistant"
+    assert kinds[0] == "user" and "tool" in kinds and kinds[-1] == "assistant"
     assert state["items"][0]["text"] == "кто ждёт ответа? подготовь ответы"
     usage = state["usage"]
-    assert set(usage["by_model"]) == {"Haiku 5.5", "Sonnet 5.5"}
-    assert usage["month"] == pytest.approx(5 * (1000 * 0.1 + 200 * 0.5) / 1e6 + 0.004, abs=1e-5)
+    assert set(usage["by_model"]) == {"Haiku 5.5"}
+    assert usage["month"] == pytest.approx(4 * (1000 * 0.1 + 200 * 0.5) / 1e6)
 
 
-def test_crm_changes_and_drafts_go_only_to_crm_contacts(app):
+def test_crm_changes_validate_statuses(app):
     service, _, _ = app
     helper, claude = assistant(
         app,
@@ -300,9 +282,6 @@ def test_crm_changes_and_drafts_go_only_to_crm_contacts(app):
                     next_action="Созвон",
                     next_action_date="2026-10-12",
                 ),
-                tool("draft_imessage", handle=STRANGER, text="Привет!", reason="знакомство"),
-                tool("draft_imessage", handle=KID, text="Hi!", reason="follow-up"),
-                tool("draft_imessage", handle="8 999 123-45-67", text="Созвонимся?", reason="x"),
             ),
             reply(text("Сделал."), stop="end_turn"),
         ],
@@ -319,37 +298,32 @@ def test_crm_changes_and_drafts_go_only_to_crm_contacts(app):
     texts = [block["content"] for block in results.values()]
     assert any('"statuses_available"' in item and "Интересуется" in item for item in texts)
     assert any("Таких статусов нет: Горячий" in item for item in texts)
-    assert any("нет в CRM" in item for item in texts)
-    assert any("Не связываться" in item for item in texts)
     jay = service.crm.contacts({"crm": "imessage", "search": "jay"})["items"][0]
     assert jay["statuses"] == ["Интересуется"]
     assert jay["notes"] == "🤖 10.10.2026: Спрашивал про цену"
     assert jay["next_action"] == "Созвон" and jay["next_action_at"].startswith("2026-10-12")
-    # A local number without the country code is not taken for a CRM phone.
-    assert state["drafts"] == []
+    assert state["chat_sends"] == []
 
 
-def test_sent_drafts_go_through_the_imessage_queue_once(app):
-    service, sessions, _ = app
+def test_explicit_send_goes_through_the_iphone_queue_once(app):
+    _, sessions, _ = app
     helper, _ = assistant(
         app,
         [
-            reply(tool("draft_imessage", handle=JAY, text="Созвонимся завтра?", reason="звонок")),
-            reply(text("Черновик готов."), stop="end_turn"),
+            reply(
+                tool("send_imessage", handle=JAY, text="Созвонимся завтра?", reason="звонок"),
+                tool("send_imessage", handle=JAY, text="Созвонимся вечером?", reason="звонок"),
+            ),
+            reply(text("Сообщение в очереди."), stop="end_turn"),
         ],
     )
-    state = run(helper, "напиши Jay")
-    [draft] = state["drafts"]
-    assert not draft["strong"] and draft["model"] == "Haiku 5.5"
-    helper.draft_update({"id": draft["id"], "text": "Созвонимся завтра в 15:00?"})
-    sent = helper.drafts_send({"ids": [draft["id"]]})
-    assert sent["drafts"] == []
+    helper.mac_send.transport.enabled = False
+    state = run(helper, "Отправь Jay сообщение в iMessage")
+    [sent] = state["chat_sends"]
     with sessions() as session:
         [job] = session.query(IMessageJob).all()
-    assert job.phone == JAY and job.message == "Созвонимся завтра в 15:00?"
+    assert job.phone == JAY and job.message == "Созвонимся завтра?"
     assert job.campaign_id == sent["campaign_id"]
-    with pytest.raises(UserError, match="уже отправлена"):
-        helper.drafts_send({"ids": [draft["id"]]})
 
 
 def test_the_conversation_goes_on_and_a_new_chat_starts_clean(app):
@@ -370,19 +344,48 @@ def test_the_conversation_goes_on_and_a_new_chat_starts_clean(app):
     assert [item["text"] for item in state["items"]] == ["начнём заново", "Новый разговор."]
 
 
-def test_without_escalation_haiku_answers_itself_and_errors_are_plain(app):
-    helper, claude = assistant(
-        app,
+def test_reopening_chat_drops_retired_tools_and_their_results_from_model_history(app):
+    helper, claude = assistant(app, [reply(text("Продолжаем."), stop="end_turn")])
+    conversation = helper.conversation()
+    helper._save_turn(conversation, "user", [{"type": "text", "text": "Сколько стоит бит?"}])
+    helper._save_turn(
+        conversation,
+        "assistant",
         [
-            reply(tool("ask_stronger_model", task="ответ", handle="", contact_id=0)),
-            reply(text("Отвечу сам."), stop="end_turn"),
+            {"type": "tool_use", "id": "old-model", "name": "ask_stronger_model", "input": {}},
+            {
+                "type": "tool_use",
+                "id": "old-rules",
+                "name": "load_skill",
+                "input": {"name": "guardrails"},
+            },
+            {"type": "tool_use", "id": "offers", "name": "load_skill", "input": {"name": "offers"}},
         ],
     )
-    helper.save_settings({"escalation": False})
-    run(helper, "ответь")
-    result = claude.requests[1]["messages"][-1]["content"][0]
-    assert result["is_error"] and "выключен" in result["content"]
-    assert claude.strong_requests == []
+    helper._save_turn(
+        conversation,
+        "user",
+        [
+            {"type": "tool_result", "tool_use_id": "old-model", "content": "Old reply"},
+            {"type": "tool_result", "tool_use_id": "old-rules", "content": "Old rules"},
+            {"type": "tool_result", "tool_use_id": "offers", "content": "Lease is $100"},
+        ],
+    )
+    helper._save_turn(conversation, "assistant", [{"type": "text", "text": "Лизинг стоит $100."}])
+
+    state = run(helper, "а что входит")
+    assert not state["error"]
+    [request] = claude.requests
+    call, result = request["messages"][1:3]
+    assert [block["id"] for block in call["content"]] == ["offers"]
+    assert [block["tool_use_id"] for block in result["content"]] == ["offers"]
+    kinds = [item["kind"] for item in state["items"]]
+    assert kinds == ["user", "tool", "assistant", "user", "assistant"]
+    assert state["models"] == {"main": "Haiku 5.5"}
+
+
+def test_model_request_errors_are_plain(app):
+    helper, _ = assistant(app, [])
 
     class Broken(FakeClaude):
         def _create(self, **request):
@@ -422,7 +425,6 @@ def test_costs_follow_the_price_list():
         cache_creation_input_tokens=10_000,
     )
     assert cost(MODEL, small)[1] == pytest.approx((1000 + 500 + 1250 + 500) / 1e6)
-    assert cost(STRONG_MODEL, small)[1] == pytest.approx((20000 + 10000 + 25000 + 10000) / 1e6)
     assert AssistantUsage.__tablename__ == "assistant_usage"
 
 

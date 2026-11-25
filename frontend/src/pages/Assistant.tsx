@@ -1,26 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  ArrowUpRight,
-  ChevronRight,
-  MessageSquarePlus,
-  Play,
-  Send,
-  Smartphone,
-  Square,
-  Wrench,
-  X,
-} from 'lucide-react';
+import { ChevronRight, MessageSquarePlus, Play, Send, Square, Wrench, X } from 'lucide-react';
 import { api } from '../services/api';
 import { useResource } from '../hooks/useResource';
 import ReactMarkdown from 'react-markdown';
-import type {
-  AssistantChatDraft,
-  AssistantDraft,
-  AssistantItem,
-  AssistantSend,
-  AssistantSendPreview,
-  AssistantState,
-} from '../services/types';
+import type { AssistantChatSend, AssistantItem, AssistantSend, AssistantState } from '../services/types';
 import { PageHeader } from '../components/PageHeader';
 import { SEND_STATES, awaitingMessages } from '../components/assistant/macSend';
 import { chatBlocks } from '../components/assistant/chat';
@@ -33,7 +16,7 @@ const SUGGESTIONS = [
   'Кто из лидов может купить бит прямо сейчас?',
   'Я кому-то обещал пак битов или файл и забыл отправить?',
   'Кому стоит написать сегодня?',
-  'Подготовь ответы всем, кто ждёт больше дня',
+  'Что лучше ответить тем, кто ждёт больше дня?',
   'Обнови статусы в CRM по последним перепискам',
 ];
 
@@ -55,20 +38,18 @@ function Markdown({ text }: { text: string }) {
 }
 
 /** What the assistant did for this answer, folded into one line. */
-function Steps({ steps, strong }: { steps: AssistantItem[]; strong: string }) {
+function Steps({ steps }: { steps: AssistantItem[] }) {
   if (!steps.length) return null;
-  const label = (step: AssistantItem) =>
-    step.kind === 'escalation' ? `Передал задачу ${strong}` : step.text;
   return (
     <details className="assistant-steps">
       <summary>
         <ChevronRight size={13} className="chevron" />
-        <span>Шаги · {[...new Set(steps.map(label))].join(' · ')}</span>
+        <span>Шаги · {[...new Set(steps.map(step => step.text))].join(' · ')}</span>
       </summary>
       <ul>
         {steps.map((step, index) => (
-          <li key={index} className={step.kind}>
-            {step.kind === 'escalation' ? <ArrowUpRight size={12} /> : <Wrench size={11} />} {label(step)}
+          <li key={index}>
+            <Wrench size={11} /> {step.text}
           </li>
         ))}
       </ul>
@@ -76,100 +57,28 @@ function Steps({ steps, strong }: { steps: AssistantItem[]; strong: string }) {
   );
 }
 
-/** Shows the message status and lets the user send a pending draft. */
-function ChatDraftCard({
-  draft,
-  pending,
-  send,
-  mac,
-  onChanged,
-}: {
-  draft: AssistantChatDraft;
-  pending?: AssistantDraft;
-  send?: AssistantSend;
-  mac: boolean;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const text = pending?.text ?? draft.text;
-  const act = async (work: () => Promise<unknown>) => {
-    setBusy(true);
-    setError('');
-    try {
-      await work();
-    } catch (err) {
-      setError(errorText(err));
-    }
-    setBusy(false);
-    onChanged();
-  };
-  const sendMac = () =>
-    act(async () => {
-      const preview = await api.request<AssistantSendPreview>('assistant.send_preview', { id: draft.id });
-      if (preview.text !== text || preview.recipient !== draft.handle)
-        throw new Error('Черновик изменился. Проверьте текст и нажмите ещё раз.');
-      await api.request('assistant.send_confirm', { id: draft.id, token: preview.token });
-    });
+/** Shows an iMessage already submitted, without controls that could send it again. */
+function ChatSendCard({ message, send }: { message: AssistantChatSend; send?: AssistantSend }) {
   const state = send
-    ? { label: SEND_STATES[send.state].label, tone: SEND_STATES[send.state].tone }
-    : draft.status === 'queued'
-      ? { label: draft.campaign_id ? 'В очереди iPhone' : 'Отправка с Mac', tone: 'wait' }
-      : draft.status === 'rejected'
-        ? { label: 'Не отправлено', tone: 'idle' }
-        : null;
+    ? SEND_STATES[send.state]
+    : { label: message.campaign_id ? 'Передано в очередь iPhone' : 'Передано в Сообщения', tone: 'wait' };
   return (
     <article className="assistant-card">
       <header>
         <span>
-          <b>{draft.contact_name || draft.handle}</b> <small className="helper">{draft.handle}</small>
+          <b>{message.contact_name || message.handle}</b> <small className="helper">{message.handle}</small>
         </span>
-        {state && <span className={`send-state ${state.tone}`}>{state.label}</span>}
-        {!state && pending && <span className="assistant-model">Черновик</span>}
+        <span className={`send-state ${state.tone}`}>{state.label}</span>
       </header>
-      <div className="assistant-send-text">{text}</div>
+      <div className="assistant-send-text">{message.text}</div>
       {send?.note && send.state !== 'sent' && send.state !== 'delivered' && (
         <small className={send.state === 'failed' ? 'board-warning' : 'helper'}>{send.note}</small>
       )}
-      {pending && (
-        <>
-          <div className="assistant-card-actions">
-            <b className="assistant-card-question">Отправить?</b>
-            {mac && (
-              <Button disabled={busy} onClick={() => void sendMac()}>
-                <Send size={14} /> {busy ? 'Отправляю…' : 'Отправить'}
-              </Button>
-            )}
-            <Button
-              variant={mac ? 'outline' : undefined}
-              disabled={busy}
-              title="В очередь iMessage: отправит Команда на iPhone"
-              onClick={() => void act(() => api.request('assistant.drafts_send', { ids: [draft.id] }))}
-            >
-              <Smartphone size={14} /> {mac ? 'В очередь iPhone' : 'Отправить через iPhone'}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => void act(() => api.request('assistant.draft_reject', { id: draft.id }))}
-            >
-              Не отправлять
-            </Button>
-          </div>
-          <small className="helper">
-            {mac
-              ? 'Уйдёт один раз, ровно этот текст, через Сообщения на этом Mac. '
-              : 'Уйдёт ровно этот текст. '}
-            Чтобы изменить, попросите ассистента в чате.
-          </small>
-        </>
-      )}
-      <ErrorToast message={error} />
     </article>
   );
 }
 
-/** «Ассистент»: the chat with the connected model; the messages it prepares are asked about right in the chat. */
+/** «Ассистент»: the chat with the model and the status of submitted messages. */
 export function Assistant() {
   const [poll, setPoll] = useState(10000);
   const state = useResource<AssistantState>('assistant.state', {}, poll);
@@ -189,7 +98,7 @@ export function Assistant() {
   const call = async (method: string, params: object = {}) => {
     setError('');
     try {
-      const result = await api.request<AssistantState & { campaign_id?: number }>(method, params);
+      const result = await api.request<AssistantState>(method, params);
       state.refresh();
       return result;
     } catch (err) {
@@ -209,8 +118,6 @@ export function Assistant() {
   const blocks = chatBlocks(data.items);
   const live = data.running;
   const side = data.actions.length > 0 || data.sends.length > 0;
-  // Drafts still waiting from an earlier chat: asked about at the top of this one.
-  const earlier = data.drafts.filter(draft => !data.chat_drafts.some(item => item.id === draft.id));
   if (!data.configured)
     return (
       <div className="screen work-flow">
@@ -240,7 +147,7 @@ export function Assistant() {
       <div className={`assistant-layout${side ? '' : ' single'}`}>
         <section className="assistant-chat">
           <div className="assistant-feed">
-            {!data.items.length && !data.running && !earlier.length && (
+            {!data.items.length && !data.running && (
               <div className="assistant-empty">
                 <div className="assistant-empty-title">Что хотите узнать?</div>
                 <div className="assistant-suggestions">
@@ -250,22 +157,6 @@ export function Assistant() {
                     </button>
                   ))}
                 </div>
-              </div>
-            )}
-            {earlier.length > 0 && (
-              <div className="assistant-msg">
-                <div className="assistant-md">
-                  <p>Из прошлых чатов ещё не отправлено:</p>
-                </div>
-                {earlier.map(draft => (
-                  <ChatDraftCard
-                    key={draft.id}
-                    draft={{ ...draft, status: 'pending', campaign_id: null }}
-                    pending={draft}
-                    mac={data.mac_send.enabled}
-                    onChanged={state.refresh}
-                  />
-                ))}
               </div>
             )}
             {blocks.map((block, index) =>
@@ -280,24 +171,19 @@ export function Assistant() {
                       <Markdown text={value} />
                     </div>
                   ))}
-                  {block.drafts.map(id => {
-                    const draft = data.chat_drafts.find(item => item.id === id);
+                  {block.sends.map(id => {
+                    const message = data.chat_sends.find(item => item.id === id);
                     return (
-                      draft && (
-                        <ChatDraftCard
+                      message && (
+                        <ChatSendCard
                           key={id}
-                          draft={draft}
-                          pending={data.drafts.find(item => item.id === id)}
+                          message={message}
                           send={data.sends.find(item => item.draft_id === id)}
-                          mac={data.mac_send.enabled}
-                          onChanged={state.refresh}
                         />
                       )
                     );
                   })}
-                  {!(live && index === blocks.length - 1) && (
-                    <Steps steps={block.steps} strong={data.models.strong} />
-                  )}
+                  {!(live && index === blocks.length - 1) && <Steps steps={block.steps} />}
                   {live && index === blocks.length - 1 && (
                     <div className="assistant-working">
                       <span className="assistant-dot" /> {data.step || 'Думаю'}…
@@ -346,8 +232,8 @@ export function Assistant() {
             )}
           </form>
           <p className="assistant-disclosure">
-            Вопросы и выбранные фрагменты переписки отправляются сервису ассистента. По прямой команде
-            ассистент отправляет отдельное iMessage без повторного подтверждения.
+            Вопросы и выбранные фрагменты переписки отправляются сервису ассистента. Для отправки начните
+            команду с «Отправь» или «Ответь» и укажите, кому написать в iMessage.
           </p>
           <ErrorToast message={error || state.error} />
         </section>

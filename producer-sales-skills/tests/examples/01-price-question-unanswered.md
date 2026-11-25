@@ -27,7 +27,7 @@
 
 > you get mp3 + wav unlimited streams shows and videos plus a contract so everything's official
 
-> want me to send it over for the ep
+> does that work for the ep
 
 Стемы (+$50) предлагать после «да» на лизинг, не в этом сообщении.
 

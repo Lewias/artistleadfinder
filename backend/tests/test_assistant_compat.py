@@ -1,4 +1,4 @@
-"""The assistant on any model behind an OpenAI-compatible API: the request it sends, the
+"""The assistant on Haiku behind an OpenAI-compatible API: the request it sends, the
 answer translated back into the stored blocks, and the provider settings."""
 
 import json
@@ -82,7 +82,7 @@ def run(helper, question):
     return helper.state({})
 
 
-def test_any_model_runs_the_tool_loop_through_chat_completions(app):
+def test_haiku_runs_the_tool_loop_through_chat_completions(app):
     api = FakeApi(
         [
             answer(
@@ -94,10 +94,8 @@ def test_any_model_runs_the_tool_loop_through_chat_completions(app):
         ]
     )
     helper = helper_with(app, api)
-    state = helper.set_model(
-        {"provider": "compatible", "base_url": BASE, "main": "openai/gpt-5", "key": "sk-or-1"}
-    )
-    assert state["configured"] and state["models"]["main"] == "openai/gpt-5"
+    state = helper.set_model({"provider": "compatible", "base_url": BASE, "key": "sk-or-1"})
+    assert state["configured"] and state["models"] == {"main": "Haiku 5.5"}
     assert state["provider"]["compatible_key"] and not state["provider"]["anthropic_key"]
 
     state = run(helper, "есть ли Jay?")
@@ -107,13 +105,12 @@ def test_any_model_runs_the_tool_loop_through_chat_completions(app):
     first, second = (request["body"] for request in api.requests)
     assert api.requests[0]["url"] == f"{BASE}/chat/completions"
     assert api.requests[0]["headers"]["Authorization"] == "Bearer sk-or-1"
-    assert first["model"] == "openai/gpt-5"
+    assert first["model"] == second["model"] == "claude-haiku-5-5"
     assert first["messages"][0]["role"] == "system"
     assert first["messages"][1]["content"].startswith("[Сегодня 2026-10-10]\n")
     names = {tool["function"]["name"] for tool in first["tools"]}
-    # No stronger model is set, so the hand-over tool is not offered.
     assert "crm_search" in names and "ask_stronger_model" not in names
-    assert "Сильная модель не подключена" in first["messages"][0]["content"]
+    assert "guardrails" not in first["messages"][0]["content"]
     # The call and its result went back as an assistant tool call and a tool message.
     assistant, result = second["messages"][2], second["messages"][3]
     assert assistant["tool_calls"][0]["id"] == "call_1"
@@ -125,24 +122,42 @@ def test_provider_settings_are_checked_and_a_switch_starts_a_new_chat(app):
     helper = helper_with(app, FakeApi([]))
     assert not helper.state({})["configured"]
     with pytest.raises(UserError, match="https://"):
-        helper.set_model({"provider": "compatible", "base_url": "openrouter.ai", "main": "x"})
-    with pytest.raises(UserError, match="модель"):
-        helper.set_model({"provider": "compatible", "base_url": BASE, "main": ""})
+        helper.set_model({"provider": "compatible", "base_url": "openrouter.ai"})
+    with pytest.raises(UserError, match="только с Claude Haiku 5.5"):
+        helper.set_model({"provider": "compatible", "base_url": BASE, "main": "claude-sonnet-5-5"})
     first = helper.conversation()
-    helper.set_model({"provider": "compatible", "base_url": BASE, "main": "deepseek/deepseek-chat"})
+    helper.set_model({"provider": "compatible", "base_url": BASE})
     assert helper.conversation() == first + 1
     # Without a key a remote API is not ready; a local server needs none.
     assert not helper.state({})["configured"]
-    helper.set_model(
-        {"provider": "compatible", "base_url": "http://localhost:11434/v1", "main": "qwen3"}
-    )
+    helper.set_model({"provider": "compatible", "base_url": "http://localhost:11434/v1"})
     assert helper.state({})["configured"]
-    # Changing only the model keeps the conversation.
+    # Saving the same provider again keeps the conversation.
     current = helper.conversation()
-    helper.set_model(
-        {"provider": "compatible", "base_url": "http://localhost:11434/v1", "main": "llama3"}
-    )
+    helper.set_model({"provider": "compatible", "base_url": "http://localhost:11434/v1"})
     assert helper.conversation() == current
+
+
+def test_saved_model_selection_cannot_override_haiku(app):
+    _, sessions, _ = app
+    with sessions.begin() as session:
+        session.merge(
+            Setting(
+                key="assistant_model",
+                value={
+                    "provider": "compatible",
+                    "base_url": BASE,
+                    "main": "claude-sonnet-5-5",
+                    "strong": "claude-sonnet-5-5",
+                },
+            )
+        )
+    api = FakeApi([answer("OK")])
+    helper = helper_with(app, api)
+    helper.compat_keys.save("old-personal-key")
+    state = run(helper, "Hello")
+    assert not state["error"] and "strong" not in state["provider"]
+    assert api.requests[0]["body"]["model"] == "claude-haiku-5-5"
 
 
 def test_blocks_translate_both_ways():
@@ -247,7 +262,7 @@ def test_new_user_can_use_bundled_go_without_a_key_and_state_never_exposes_it(ap
     assert run(helper, "Hello again")["error"] == ""
     assert api.requests[-1]["headers"]["Authorization"] == "Bearer " + secret
     assert api.requests[-1]["body"]["model"] == "claude-haiku-5-5"
-    assert helper.config()["base_url"] == GO_URL and helper.config()["strong"] == ""
+    assert helper.config()["base_url"] == GO_URL and "strong" not in helper.config()
     for method in ("assistant.model", "assistant.set_key"):
         with pytest.raises(UserError, match="подключён автоматически"):
             helper.call(method, {"provider": "anthropic", "key": "ignored"})
